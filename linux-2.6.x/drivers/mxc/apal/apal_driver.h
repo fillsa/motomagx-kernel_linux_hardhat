@@ -1,5 +1,5 @@
 /*
- * Copyright © 2004,2006,2007, Motorola, All Rights Reserved.
+ * Copyright © 2004,2006-2008 Motorola, All Rights Reserved.
  *
  * This program is licensed under a BSD license with the following terms:
  *
@@ -29,6 +29,7 @@
  * 06/28/2004   Motorola  File creation 
  * 12/11/2006   Motorola  Fixed bug, audio loss after wakeup from DSM
  * 05/14/2007   Motorola  Support querying data left(not played) in apal driver from user space
+ * 02/28/2008   Motorola  Supporting FM radio
  */
 
 /*!
@@ -250,6 +251,7 @@ typedef enum
     APAL_AUDIO_ROUTE_PHONE           = 1,
     APAL_AUDIO_ROUTE_CODEC_AP        = 2,
     APAL_AUDIO_ROUTE_STDAC           = 3,
+    APAL_AUDIO_ROUTE_FMRADIO         = 4,
 }APAL_AUDIO_ROUTE_ENUM_T;
 
 /*==================================================================================================

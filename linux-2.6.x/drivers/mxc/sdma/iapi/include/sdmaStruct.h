@@ -1,7 +1,7 @@
 /******************************************************************************
  *
- * Copyright 2007 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright (C) 2008 Motorola, Inc.
+ * Copyright 2005 Freescale Semiconductor, Inc. All Rights Reserved.
+ * Copyright (C) 2008-2009 Motorola, Inc.
  *
  *
  * The code contained herein is licensed under the GNU General Public
@@ -25,6 +25,7 @@
  * DATE          AUTHOR         COMMMENT
  * ----          ------         --------
  * 08/01/2008    Motorola       Add protection for channel 0 to fix dropped WiFi call issue.
+ * 01/29/2009    Motorola	Corrected copyright year
  * 
  *
  *****************************************************************************/

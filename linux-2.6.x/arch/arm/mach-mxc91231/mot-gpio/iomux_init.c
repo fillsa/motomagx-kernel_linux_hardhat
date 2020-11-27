@@ -495,6 +495,19 @@ static struct iomux_initialization gpio_int_iomux_settings[] __initdata = {
      * Mux0 Function: GP_AP_C18
      */
     { AP_ED_INT0, OUTPUTCONFIG_DEFAULT, INPUTCONFIG_FUNC1 },
+#elif defined(CONFIG_MACH_MARCO) || defined(CONFIG_MACH_PICO) || defined(CONFIG_MACH_XPIXL)
+    /*
+     * SCM-A11 Package Pin Name: ED_INT0
+     * SCM-A11 Reference P3A Wingboard Signal: WLAN_HOST_WAKE_B (WLAN)
+     * Ascension P3 Signal: WLAN_HOST_WAKE_B (WLAN)
+     * Selected Primary Function: GP_AP_C18 (Input)
+     * Selected Secondary Function: ED_INT0 (Input)
+     *
+     * Primary function out of reset: ED_INT0
+     * Out of Reset State: High
+     * Mux0 Function: GP_AP_C18
+     */
+    { AP_ED_INT0, OUTPUTCONFIG_DEFAULT, INPUTCONFIG_FUNC1 },
 #else 
     /*
      * SCM-A11 Package Pin Name: ED_INT0
@@ -556,7 +569,11 @@ static struct iomux_initialization gpio_int_iomux_settings[] __initdata = {
      * Out of Reset State: High
      * Mux0 Function: GP_AP_C22
      */
+#if defined(CONFIG_MACH_NEVIS) 
     { AP_ED_INT4, OUTPUTCONFIG_DEFAULT, INPUTCONFIG_NONE },
+#else  
+    { AP_ED_INT4, OUTPUTCONFIG_DEFAULT, INPUTCONFIG_FUNC1 },
+#endif
     /*
      * SCM-A11 Package Pin Name: ED_INT5
      * SCM-A11 Reference P3A Wingboard Signal: PM_INT (Atlas)
@@ -592,7 +609,11 @@ static struct iomux_initialization gpio_int_iomux_settings[] __initdata = {
      * Out of Reset State: High
      * Mux0 Function: GP_AP_C25
      */
+#if defined(CONFIG_MACH_NEVIS) 
     { AP_ED_INT7, OUTPUTCONFIG_DEFAULT, INPUTCONFIG_NONE },
+#else 
+    { AP_ED_INT7, OUTPUTCONFIG_DEFAULT, INPUTCONFIG_FUNC1 },
+#endif
     /* list terminator */
     { IOMUX_INVALID_PIN, OUTPUTCONFIG_DEFAULT, INPUTCONFIG_DEFAULT }
 };
@@ -643,7 +664,11 @@ static struct iomux_initialization ipu_iomux_settings[] __initdata = {
      * Out of Reset State: Input
      * Mux0 Function: GP_AP_A20
      */
+#if defined(CONFIG_MACH_NEVIS) 
     { AP_IPU_LD17, OUTPUTCONFIG_FUNC2, INPUTCONFIG_NONE },
+#else 
+    { AP_IPU_LD17, OUTPUTCONFIG_FUNC1, INPUTCONFIG_NONE },
+#endif
     /*
      * SCM-A11 Package Pin Name: IPU_D3_VSYNC
      * SCM-A11 Reference P3A Wingboard Signal: IPU_D3_VSYNC (Display)
@@ -698,7 +723,11 @@ static struct iomux_initialization ipu_iomux_settings[] __initdata = {
      * Out of Reset State: Low
      * Mux0 Function: GP_AP_A25
      */
+#if defined(CONFIG_MACH_NEVIS) 
     { AP_IPU_D3_CONTR, OUTPUTCONFIG_DEFAULT, INPUTCONFIG_NONE },
+#else  
+    { AP_IPU_D3_CONTR, OUTPUTCONFIG_FUNC3, INPUTCONFIG_NONE },
+#endif
     /*
      * SCM-A11 Package Pin Name: IPU_D0_CS
      * SCM-A11 Reference P3A Wingboard Signal: GPIO_DISP_SD (Display)
@@ -709,7 +738,11 @@ static struct iomux_initialization ipu_iomux_settings[] __initdata = {
      * Out of Reset State: High
      * Mux0 Function: GP_AP_A26
      */
+#if defined(CONFIG_MACH_NEVIS) 
     { AP_IPU_D0_CS, OUTPUTCONFIG_FUNC1, INPUTCONFIG_NONE },
+#else  
+    { AP_IPU_D0_CS, OUTPUTCONFIG_DEFAULT, INPUTCONFIG_NONE },
+#endif
     /*
      * SCM-A11 Package Pin Name: IPU_BE0_LD16
      * SCM-A11 Reference P3A Wingboard Signal: IPU_D1CS_LD16 (Display)
@@ -731,7 +764,11 @@ static struct iomux_initialization ipu_iomux_settings[] __initdata = {
      * Out of Reset State: High
      * Mux0 Function: GP_AP_A28
      */
+#if defined(CONFIG_MACH_NEVIS) 
     { AP_IPU_D2_CS, OUTPUTCONFIG_DEFAULT, INPUTCONFIG_NONE },
+#else 
+    { AP_IPU_D2_CS, OUTPUTCONFIG_FUNC1, INPUTCONFIG_NONE },
+#endif
     /*
      * SCM-A11 Package Pin Name: IPU_PAR_RS
      * SCM-A11 Reference P3A Wingboard Signal: SER_EN (Display)
@@ -742,7 +779,11 @@ static struct iomux_initialization ipu_iomux_settings[] __initdata = {
      * Out of Reset State: Low
      * Mux0 Function: GP_AP_A29
      */
+#if defined(CONFIG_MACH_NEVIS) 
     { AP_IPU_PAR_RS, OUTPUTCONFIG_FUNC1, INPUTCONFIG_NONE },
+#else 
+    { AP_IPU_PAR_RS, OUTPUTCONFIG_DEFAULT, INPUTCONFIG_NONE },
+#endif
     /*
      * SCM-A11 Package Pin Name: IPU_D3_SPL
      * SCM-A11 Reference P3A Wingboard Signal: IPU_SD_MISO (Display)
@@ -775,7 +816,11 @@ static struct iomux_initialization ipu_iomux_settings[] __initdata = {
      * Out of Reset State: High
      * Mux0 Function: GP_AP_B0
      */
+#if defined(CONFIG_MACH_NEVIS) 
     { AP_IPU_RD, OUTPUTCONFIG_FUNC1, INPUTCONFIG_FUNC3 },
+#else 
+    { AP_IPU_RD, OUTPUTCONFIG_FUNC3, INPUTCONFIG_FUNC3 },
+#endif
     /*
      * SCM-A11 Package Pin Name: IPU_WR
      * SCM-A11 Reference P3A Wingboard Signal: IPU_WR (Display)
@@ -786,7 +831,11 @@ static struct iomux_initialization ipu_iomux_settings[] __initdata = {
      * Out of Reset State: High
      * Mux0 Function: GP_AP_B1
      */
+#if defined(CONFIG_MACH_NEVIS) 
     { AP_IPU_WR, OUTPUTCONFIG_FUNC1, INPUTCONFIG_NONE },
+#else 
+    { AP_IPU_WR, OUTPUTCONFIG_DEFAULT, INPUTCONFIG_NONE },
+#endif
     /*
      * SCM-A11 Package Pin Name: IPU_LD0
      * SCM-A11 Reference P3A Wingboard Signal: IPU_LD(0) (Display)

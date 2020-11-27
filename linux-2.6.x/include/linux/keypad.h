@@ -26,6 +26,7 @@
  *
  * Motorola 2008-Apr-21 - Resolve integration issue.
  * Motorola 2008-Feb-27 - Add OPENING/CLOSING transition for sliders
+ * Motorola 2008-Feb-26 - Removed unused key definition KEYPAD_KODAK.
  * Motorola 2007-Sep-24 - Support lens cover.
  * Motorola 2007-Jul-02 - Added support of morphing modes.
  * Motorola 2006-Nov-30 - Support key lock feature.

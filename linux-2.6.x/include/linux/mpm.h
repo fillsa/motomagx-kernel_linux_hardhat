@@ -525,7 +525,9 @@ extern wait_queue_head_t mpm_wq;
 extern void mpm_event_notify(short type, short kind, int info);
 extern mpm_callback_t mpm_periodic_jobs_done;
 extern mpm_callback_t mpm_periodic_jobs_started;
+//#if defined(CONFIG_MACH_PICO) || defined(CONFIG_MACH_XPIXL) ||defined(CONFIG_MACH_NEVIS) 
 extern mpm_callback_t mpm_set_awake_state;
+//#endif
 extern mpm_callback_t mpm_ready_to_sleep;
 extern mpm_callback_t mpm_handle_ioi;
 extern mpm_callback_t mpm_handle_long_ioi;

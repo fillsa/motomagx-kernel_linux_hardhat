@@ -102,7 +102,11 @@
 /* include 3 header files for display ap panic message*/
 #include "../../mxc/ipu/ipu.h"
 #include "../../mxc/ipu/ipu_regs.h"
+#ifdef CONFIG_MACH_NEVIS
 #include "../mxc/mxcfb_gd2.h"
+#else
+#include "../mxc/mxcfb.h"
+#endif
 
 #include "fbcon.h"
 
@@ -435,6 +439,7 @@ static void do_draw_panic_text(unsigned long private)
 #endif /* CONFIG_MOT_FEAT_APP_COREDUMP_DISPLAY */
 }
 
+
 /*!
  * Transfer data from Framebuffer to Panel after the text "AP Kernel Panic"
  * has been put in Framebuffer.
@@ -459,8 +464,13 @@ static void ipu_show_ap_panic_text(uint32_t start_addr, uint32_t memsize)
     memset(&ipu_params, 0, sizeof(ipu_params));
     ipu_params.adc_sys1.disp = DISP0;
     ipu_params.adc_sys1.ch_mode = WriteDataWoRS;
+#ifdef CONFIG_MACH_NEVIS	
     ipu_params.adc_sys1.out_left = GD2_SCREEN_LEFT_OFFSET;
     ipu_params.adc_sys1.out_top = GD2_SCREEN_TOP_OFFSET;
+#else
+    ipu_params.adc_sys1.out_left = MXCFB_SCREEN_LEFT_OFFSET;
+    ipu_params.adc_sys1.out_top = MXCFB_SCREEN_TOP_OFFSET;
+#endif
     ipu_init_channel(ADC_SYS1, &ipu_params);	
 
     ipu_init_channel_buffer(ADC_SYS1,           // ipu_channel_t
@@ -470,9 +480,16 @@ static void ipu_show_ap_panic_text(uint32_t start_addr, uint32_t memsize)
 #else
                             IPU_PIX_FMT_BGRA6666,
 #endif
+
+#ifdef CONFIG_MACH_NEVIS	
                             GD2_SCREEN_WIDTH,   // width
                             GD2_SCREEN_HEIGHT,  // height
                             GD2_SCREEN_WIDTH,   // stride
+#else
+                            MXCFB_SCREEN_WIDTH,   // width
+                            MXCFB_SCREEN_HEIGHT,  // height
+                            MXCFB_SCREEN_WIDTH,   // stride
+#endif
                             0,                  // ipu_rotate_mode_t
                             (void *)start_addr, // *phyaddr_0
                             NULL);              // *phyaddr_1
@@ -616,7 +633,9 @@ int fb_draw_panic_text(struct fb_info * info, const char * panic_text,
 #endif
 		fbcon_putcs(vc, text_buffer, panic_len, row_start, col_start);
 		kfree(text_buffer);
+#if defined(CONFIG_MACH_NEVIS)
                 ipu_show_ap_panic_text(info->fix.smem_start, info->fix.smem_len);
+#endif
 	}
 
 	return 0;

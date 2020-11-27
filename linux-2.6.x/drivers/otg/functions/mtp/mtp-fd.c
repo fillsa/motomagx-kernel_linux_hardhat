@@ -43,6 +43,7 @@
  * 08/24/2007        Motorola         Changes for open source compliance.
  * 10/16/2007        Motorola         Add suspend and resume handling.
  * 08/08/2008        Motorola         Wake up suspend_wait in function disable.
+ * 11/14/2008        Motorola         Clean the work queue before module exit.
  * 
  */
 
@@ -85,6 +86,25 @@
 /* bVendorCode used for Microsoft OS Descriptor requests */ 
 #define USB_MOD_VENDOR_CODE       0x1C 
 
+#ifdef LINUX26
+struct workqueue_struct * mtp_fd_workqueue = NULL; 
+
+void mtp_fd_init(struct workqueue_struct * in_queue)
+{
+    mtp_fd_workqueue = in_queue;
+}
+
+void mtp_fd_exit(void)
+{
+    if(mtp_fd_workqueue != NULL)
+    {
+        flush_workqueue(mtp_fd_workqueue);
+        destroy_workqueue(mtp_fd_workqueue);
+        mtp_fd_workqueue = NULL;
+    }
+}
+
+#endif
 /* data for BH of device_request */
 struct mtp_dev_req_bh_private {
     WORK_ITEM bh;
@@ -941,7 +961,11 @@ static int mtp_reset (struct usbd_function_instance *function_instance)
 static int mtp_suspended (struct usbd_function_instance *function_instance)
 {
     SET_WORK_ARG(mtp_suspend_bh_pri.bh, &mtp_suspend_bh_pri);
+#ifdef LINUX26
+    queue_work(mtp_fd_workqueue, &(mtp_suspend_bh_pri.bh));
+#else
     SCHEDULE_WORK(mtp_suspend_bh_pri.bh);
+#endif
     return 0;
 }
 
@@ -1192,7 +1216,12 @@ static int mtp_device_request (struct usbd_function_instance *function_instance,
      */
     PREPARE_WORK_ITEM(bh_priv->bh, mtp_device_request_bh, bh_priv);
     SET_WORK_ARG(bh_priv->bh, bh_priv);
+#ifdef LINUX26
+    queue_work(mtp_fd_workqueue, &(bh_priv->bh));
+#else
     SCHEDULE_WORK(bh_priv->bh);
+#endif
+
     TRACE_MSG0(MTP, "dev req work scheduled");
 
     /* if it is from host to device, also need to read data if wLength > 0 */

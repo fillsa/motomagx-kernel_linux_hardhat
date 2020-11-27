@@ -172,7 +172,10 @@ int mmc_wait_for_req(struct mmc_host *host, struct mmc_request *mrq)
 
 	mmc_start_request(host, mrq);
 
-	wait_for_completion(&complete);
+	wait_for_completion(&complete); /*	if(!wait_for_completion_timeout(&complete, 200)){
+		mrq->cmd->error = MMC_ERR_TIMEOUT; 
+
+	}*/
 
 	return 0;
 }
@@ -403,7 +406,10 @@ DBG(2,"%s \n", __FUNCTION__);
 				host->ios.bus_width = MMC_BUS_WIDTH_4;
 				DBG(1,"SD: MMC_BUS_WIDTH_4 \n");
 			}
-		}else{ 			/* MMC v4.1 Set MMC bus width to 4 bit. */
+		}
+#ifdef CONFIG_MOT_FEAT_INTERN_SD
+#ifndef CONFIG_MOT_FEAT_MEGASIM 
+		else  if (host->mode == MMC_MODE_MMC ) { 			/* MMC v4.1 Set MMC bus width to 4 bit. */
 			struct mmc_command cmd;
 	                cmd.opcode = MMC_SWITCH;
         	        cmd.arg = (MMC_SWITCH_MODE_WRITE_BYTE << 24) |
@@ -422,6 +428,8 @@ DBG(2,"%s \n", __FUNCTION__);
 			host->ios.bus_width = MMC_BUS_WIDTH_4;
 			DBG(1,"MMC: MMC_BUS_WIDTH_4 \n");
 		}
+#endif
+#endif
 	}
 
 	host->ops->set_ios(host, &host->ios);
@@ -1086,6 +1094,8 @@ static void mmc_read_scrs(struct mmc_host *host)
 
 	mmc_deselect_cards(host);
 }
+#ifdef CONFIG_MOT_FEAT_INTERN_SD
+#ifndef CONFIG_MOT_FEAT_MEGASIM
 /*
 * read and process mmc 4.1 EXT_CSD infomation
 */
@@ -1142,7 +1152,7 @@ DBG(1,"process ext csd HS BIT4 \n");
 		mrq.cmd = &cmd;
 		mrq.data = &data;
 
-		sg_init_one(&sg, ext_csd, 512);
+		sg_init_one(&sg, &ext_csd, 512);
 
 		mmc_wait_for_req(host, &mrq);
 
@@ -1178,29 +1188,39 @@ DBG(1,"process ext csd HS BIT4 \n");
 
 	mmc_deselect_cards(host);
 }
+#endif
+#endif
 
 static unsigned int mmc_calculate_clock(struct mmc_host *host)
 {
 	struct mmc_card *card;
 	unsigned int max_dtr = host->f_max;
 
-	list_for_each_entry(card, &host->cards, node){
-		if( !mmc_card_dead(card)){
-			DBG(1,"f_max %d, csd.max_dtr %d\n", max_dtr, card->csd.max_dtr);
-			if ( mmc_card_highspeed(card)&& mmc_card_sd(card) ){
-				DBG(1,"high speed && sd card \n");				
-			}else if ( mmc_card_highspeed(card) && !mmc_card_sd(card) ){
-				DBG(1,"high speed && mmc card \n");				
-				if (max_dtr > card->ext_csd.hs_max_dtr)
-					max_dtr = card->ext_csd.hs_max_dtr;
-			}else{
-				DBG(1,"low speed sd card or mmc card\n");				
-				if ( max_dtr > card->csd.max_dtr)
-					max_dtr = card->csd.max_dtr;
-			}
+	list_for_each_entry(card, &host->cards, node)
+#ifdef CONFIG_MOT_FEAT_INTERN_SD
+#ifndef CONFIG_MOT_FEAT_MEGASIM
+		if (host->mode == MMC_MODE_SD)
+		{
+#endif
+#endif
+			if (!mmc_card_dead(card) && max_dtr > card->csd.max_dtr)
+				max_dtr = card->csd.max_dtr;
+#ifdef CONFIG_MOT_FEAT_INTERN_SD
+#ifndef CONFIG_MOT_FEAT_MEGASIM
 		}
-	}
-	DBG(1,"MMC: selected %d.%03dMHz transfer rate\n",
+                else{ /* MMC */
+                        if (!mmc_card_dead(card)) {
+                                if (mmc_card_highspeed(card)) {/* MMC v4.1*/
+                                        if (max_dtr > card->ext_csd.hs_max_dtr)
+                                                max_dtr = card->ext_csd.hs_max_dtr;
+                                } else if (max_dtr > card->csd.max_dtr){
+                                        max_dtr = card->csd.max_dtr;
+                                }
+                        }
+                }
+#endif
+#endif
+	DBG(2,"MMC: selected %d.%03dMHz transfer rate\n",
 	    max_dtr / 1000000, (max_dtr / 1000) % 1000);
 
 	return max_dtr;
@@ -1375,8 +1395,12 @@ DBG(2,"...POWER_ON \n");
 	if (host->mode == MMC_MODE_SD)
 #endif
 		mmc_read_scrs(host);
-	else 
+#ifdef CONFIG_MOT_FEAT_INTERN_SD
+#ifndef CONFIG_MOT_FEAT_MEGASIM	
+	else /* LYN - MMCv4.1 */
 		mmc_process_ext_csds(host);
+#endif
+#endif
 }
 
 /**

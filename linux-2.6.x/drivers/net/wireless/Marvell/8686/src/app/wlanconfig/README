@@ -1,0 +1,22 @@
+================================================================================
+                           HOW TO build wlanconfig
+================================================================================
+
+1) - If you just want to build wlanconfig:
+
+> cd /vobs/jem/hardhat/linux-2.6.x/drivers/net/wireless/Marvell/8686/src/app/wlanconfig
+> make
+
+=> wlanconfig tool is in wlanconfig source directory (ie current directory)
+
+
+
+2) - If you want to build wlanconfig and add it into rootfs (will replace the official one):
+
+> cd /vobs/jem/hardhat/linux-2.6.x/drivers/net/wireless/Marvell/8686/src
+> ct mkbranch -nc <dbg_branch_name> wlanconfig
+> cd /vobs/jem/hardhat/linux-2.6.x/drivers/net/wireless/Marvell/8686/src/app/wlanconfig
+> make install
+
+Then rebuild rootfs and sbf.
+=> wlanconfig is in /sbin/ in your phone image. You can use it as you used the official one.

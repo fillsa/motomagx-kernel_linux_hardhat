@@ -11,7 +11,7 @@
  ** *********************************************************************************/
 
 /*
- *  Copyright (c) 2006-2007, Motorola, All Rights Reserved.
+ *  Copyright (c) 2006-2008, Motorola, All Rights Reserved.
  *
  *  This program is licensed under a BSD license with the following terms:
  *
@@ -50,6 +50,7 @@
  * Oct 30, 2006       Motorola, Inc.   Add new elements to structures
  * Jul 26, 2007       Motorola, Inc.   Changes for open source compliance.
  * Aug 24, 2007       Motorola, Inc.   Changes for open source compliance.
+ * Nov 14, 2008       Motorola, Inc.   Clean the work queue before module exit.
 */
 
 #if !defined(__FX2LP_HARDWARE_H__)
@@ -215,6 +216,9 @@ struct _FX2LP_PCD {
     FX2LP_RDY_EV_MASK_T ready_events;   /* pending ready events */
     FX2LP_RDY_EV_MASK_T wakeup_events;  /* wakeup if one of these is done */
     const FX2LP_RDY_EV_INFO_T *curevent;      /* current ready pin owner */
+#ifdef LINUX26
+    struct workqueue_struct * fx2lp_bus_workqueue; /* workqueue for all fx2lp work_struct bottom half */
+#endif
     struct WORK_STRUCT  bus_suspend_bh;
     struct WORK_STRUCT  bus_resume_bh;
     struct WORK_STRUCT  config_bus_speed_bh;

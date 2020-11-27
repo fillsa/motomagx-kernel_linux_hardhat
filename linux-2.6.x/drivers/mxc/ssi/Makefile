@@ -1,7 +1,7 @@
 #
 # Makefile for the kernel SSI device drivers.
 
-#ifneq($(KERNELRELEASE))
+#ifneq ($(KERNELRELEASE))
 
 obj-$(CONFIG_MXC_SSI) 		+= ssimod.o
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006 Motorola, Inc, All Rights Reserved.
+ * Copyright (c) 2006-2008 Motorola, Inc, All Rights Reserved.
  *
  * This program is licensed under a BSD license with the following terms:
  *
@@ -32,7 +32,9 @@
  * -----------------------------------------------------------------------------
  * Motorola          05/16/2006    PictBridge support
  * Motorola          09/06/2006    MTP HS fix
- *
+ * Motorola          02/26/2007    Added PTP functionality
+ * Motorola          01/09/2007    Added support for PictSync
+ * Motorola          11/14/2008    Clean the work queue before module exit.
  *
  */
 
@@ -87,7 +89,7 @@ static struct usbd_endpoint_request pbg_endpoint_requests[ENDPOINTS+1] = {
  */
 static struct usbd_alternate_description pbg_alternate_descriptions[] = {
     {
-        .iInterface = "PBG",
+        .iInterface = "Motorola PBG",
         .bInterfaceClass = MTP_CLASS_IMAGE_INTERFACE,
         .bInterfaceSubClass =  MTP_SUBCLASS_STILL_IMAGE_CAPTURE_DEVICE,
         .bInterfaceProtocol = MTP_PROTOCOL_CODE,
@@ -125,10 +127,16 @@ MOD_PARM_INT (vendor_id, "Device Vendor ID", 0);
 MOD_PARM_INT (product_id, "Device Product ID", 0);
 MOD_PARM_INT (major, "Device Major", 0);
 MOD_PARM_INT (minor, "Device Minor", 0);
+MOD_PARM_INT (pbg_hp_agent, "Hot Plug Agent", 0);
 
+int hp_agent;
 extern struct usbd_interface_driver pbg_interface_driver;
 
 /* USB Module init/exit ***************************************************** */
+
+#ifdef LINUX26
+struct workqueue_struct * pbg_if_workqueue = NULL;
+#endif
 
 /*! pbg_modinit - module init
  *
@@ -137,12 +145,25 @@ static int pbg_modinit (void)
 {
     int rc;
 
-    printk (KERN_INFO "%s vendor_id: %04x product_id: %04x major: %d minor: %d\n", __FUNCTION__, 
-            MODPARM(vendor_id), MODPARM(product_id), MODPARM(major), MODPARM(minor));
+	printk (KERN_INFO "%s vendor_id: %04x product_id: %04x major: %d minor: %d hp_agent: %d\n", __FUNCTION__, 
+            MODPARM(vendor_id), MODPARM(product_id), MODPARM(major), MODPARM(minor),MODPARM(pbg_hp_agent));
+
+#ifdef LINUX26    
+    pbg_if_workqueue = create_singlethread_workqueue("pbg-if");
+    mtp_fd_init(pbg_if_workqueue);
+#endif
+	hp_agent = MODPARM(pbg_hp_agent);
 
     MTP = otg_trace_obtain_tag();
+	/* if the hot plug agent is one then set the HP script to the MTP script*/
+	if(hp_agent == 1)
+	{
+		mtp_if_name = PTP_AGENT;
+	}
+	else
+	{
     mtp_if_name = PBG_AGENT;
-
+	}
     /* register as usb function driver */
     RETURN_EINVAL_IF(usbd_register_interface_function (&pbg_interface_driver, PBG_DRIVER_NAME, NULL));
 
@@ -160,12 +181,18 @@ static void pbg_modexit (void)
 {
     printk (KERN_INFO "%s\n", __FUNCTION__);
 
+#ifdef LINUX26    
+    mtp_fd_exit();
+    pbg_if_workqueue = NULL;
+#endif
+
     usbd_deregister_interface_function (&pbg_interface_driver);
 
     otg_trace_invalidate_tag(MTP);
 }
 
 
+MODULE_LICENSE("Dual BSD/GPL");
 module_init (pbg_modinit);
 module_exit (pbg_modexit);
 

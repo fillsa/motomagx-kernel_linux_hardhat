@@ -60,9 +60,11 @@ struct sd_scr {
 #define SD_SCR_BUS_WIDTH_4	(1<<2)
 };
 
+#ifdef CONFIG_MOT_FEAT_INTERN_SD
 struct mmc_ext_csd {
 	unsigned int		hs_max_dtr;
 };
+#endif
 
 struct sd_switch_caps {
 	unsigned int		hs_max_dtr;
@@ -96,7 +98,9 @@ struct mmc_card {
 	u32			raw_scr[2];	/* raw card SCR */
 	struct mmc_cid		cid;		/* card identification */
 	struct mmc_csd		csd;		/* card specific */
+#ifdef CONFIG_MOT_FEAT_INTERN_SD
 	struct mmc_ext_csd	ext_csd;	/* mmc v4 extended card specific */
+#endif
 	struct sd_scr		scr;		/* extra SD information */
 	struct sd_switch_caps	sw_caps;	/* switch (CMD6) caps */
 };

@@ -40,6 +40,7 @@
 # 04-May-2007  Motorola        Export mxc_ipc.h
 # 05-Jun-2007  Motorola        Add FEAT_AV
 # 23-Nov-2007  Motorola        Add BT LED debug option processing
+# 30-Jun-2008  Motorola        Export inotify.h
 # 29-Jan-2008  Motorola        Added header file morphing_mode.h to API_INCS
 # 23-Apr-2008  Motorola        Add FEAT_EPSON_LTPS_DISPLAY check
 # 29-Jul-2008  Motorola        Add FEAT_32_BIT_DISPLAY check
@@ -102,7 +103,7 @@ API_INCS = $(COMPTOP)/linux-2.6.x/include//linux/moto_accy.h \
 	$(COMPTOP)/linux-2.6.x/include//linux/inotify.h
 
 # don't build kernel for x86
-ifneq($(HW_ARCH),i686)
+ifneq ($(HW_ARCH),i686)
 
 API_DIRS = $(LINUXBUILD) $(COMPTOP)/kernel_include $(COMPTOP)/ckbuild
 
@@ -131,7 +132,7 @@ PRODUCT_SPECIFIC_DEFCONFIGS := \
     ${DEFCONFIGSRC}/${PRODUCT}_defconfig
 
 # If HW_MM_ACCEL_IPU is not set, we need GPU support.
-ifeq($(HW_MM_ACCEL_IPU),0)
+ifeq ($(HW_MM_ACCEL_IPU),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/display_gpu.config \
         ${LJAPDEFCONFIGSRC}/feature/display_gpu.${PRODUCT_FAMILY}_config \
@@ -149,7 +150,7 @@ PRODUCT_SPECIFIC_DEFCONFIGS += \
   ${LJAPDEFCONFIGSRC}/feature/nand_${MEM_MAP_PAGE_SIZE}.config
 
 # Support STM 90nm 256MB NAND
-ifneq($(HW_NAND_STM90NM),0)
+ifneq ($(HW_NAND_STM90NM),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/nand_stm90nm.config \
         ${LJAPDEFCONFIGSRC}/feature/nand_stm90nm.${PRODUCT_FAMILY}_config \
@@ -157,7 +158,7 @@ ifneq($(HW_NAND_STM90NM),0)
 endif 
 
 # High Speed USB using FX2LP
-ifneq($(HW_USB_HS_FX2LP),0)
+ifneq ($(HW_USB_HS_FX2LP),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/usb_hs_fx2lp.config \
         ${LJAPDEFCONFIGSRC}/feature/usb_hs_fx2lp.${PRODUCT_FAMILY}_config \
@@ -165,7 +166,7 @@ ifneq($(HW_USB_HS_FX2LP),0)
 endif 
 
 # Multi-Media Card support
-ifneq($(HW_MMC),0)
+ifneq ($(HW_MMC),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/mmc_sdhc.config \
         ${LJAPDEFCONFIGSRC}/feature/mmc_sdhc.${PRODUCT_FAMILY}_config \
@@ -173,7 +174,7 @@ ifneq($(HW_MMC),0)
 endif 
 
 # Internal SD Card Slot
-ifneq($(HW_MMC_INTERNAL),0)
+ifneq ($(HW_MMC_INTERNAL),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/mmc_internal.config \
         ${LJAPDEFCONFIGSRC}/feature/mmc_internal.${PRODUCT_FAMILY}_config \
@@ -181,7 +182,7 @@ ifneq($(HW_MMC_INTERNAL),0)
 endif
 
 # External SD Card Slot
-ifneq($(HW_MMC_EXTERNAL),0)
+ifneq ($(HW_MMC_EXTERNAL),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/mmc_external.config \
         ${LJAPDEFCONFIGSRC}/feature/mmc_external.${PRODUCT_FAMILY}_config \
@@ -189,7 +190,7 @@ ifneq($(HW_MMC_EXTERNAL),0)
 endif
 
 # Megasim SD Card
-ifneq($(HW_MMC_MEGASIM),0)
+ifneq ($(HW_MMC_MEGASIM),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/mmc_megasim.config \
         ${LJAPDEFCONFIGSRC}/feature/mmc_megasim.${PRODUCT_FAMILY}_config \
@@ -197,7 +198,7 @@ ifneq($(HW_MMC_MEGASIM),0)
 endif
 
 # CS89x0 Ethernet Support
-ifneq($(HW_ETHERNET),0)
+ifneq ($(HW_ETHERNET),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/ethernet.config \
         ${LJAPDEFCONFIGSRC}/feature/ethernet.${PRODUCT_FAMILY}_config \
@@ -206,14 +207,14 @@ endif
 
 # compile USBOTG drivers statically to support NFS-over-USB
 # appears after HW_ETHERNET because this disables CONFIG_NET_ETHERNET
-ifeq($(FEAT_USBOTG),static)
+ifeq ($(FEAT_USBOTG),static)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
 	${LJAPDEFCONFIGSRC}/feature/usbotgstatic.config \
 	${LJAPDEFCONFIGSRC}/feature/usbotgstatic.${PRODUCT_FAMILY}_config \
 	${LJAPDEFCONFIGSRC}/feature/usbotgstatic.${PRODUCT}_config
 endif
 
-ifeq($(FEAT_CONSOLE),usb)
+ifeq ($(FEAT_CONSOLE),usb)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/usbconsole.config \
         ${LJAPDEFCONFIGSRC}/feature/usbconsole.${PRODUCT_FAMILY}_config \
@@ -221,57 +222,57 @@ ifeq($(FEAT_CONSOLE),usb)
 endif
 
 # allow MXC internal UART3 to be used as a serial console
-ifeq($(FEAT_CONSOLE),serial)
+ifeq ($(FEAT_CONSOLE),serial)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
 	${LJAPDEFCONFIGSRC}/feature/serialconsole.config \
 	${LJAPDEFCONFIGSRC}/feature/serialconsole.${PRODUCT_FAMILY}_config \
 	${LJAPDEFCONFIGSRC}/feature/serialconsole.${PRODUCT}_config
 endif
 
-ifeq($(DBG_LTT),1) 
+ifeq ($(DBG_LTT),1) 
         PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/ltt.config 
 endif 
 
-ifeq($(TEST_I2CDEV),1)
+ifeq ($(TEST_I2CDEV),1)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
 	${LJAPDEFCONFIGSRC}/feature/i2cdev.config \
 	${LJAPDEFCONFIGSRC}/feature/i2cdev.${PRODUCT_FAMILY}_config \
 	${LJAPDEFCONFIGSRC}/feature/i2cdev.${PRODUCT}_config
 endif
 
-ifeq($(DBG_TURBO_INDICATOR),1)
+ifeq ($(DBG_TURBO_INDICATOR),1)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/turbo.config \
         ${LJAPDEFCONFIGSRC}/feature/turbo.${PRODUCT_FAMILY}_config \
         ${LJAPDEFCONFIGSRC}/feature/turbo.${PRODUCT}_config
 endif
 
-ifeq($(DBG_DSM_INDICATOR),1)
+ifeq ($(DBG_DSM_INDICATOR),1)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/dsm.config \
         ${LJAPDEFCONFIGSRC}/feature/dsm.${PRODUCT_FAMILY}_config \
         ${LJAPDEFCONFIGSRC}/feature/dsm.${PRODUCT}_config
 endif
 
-ifeq($(TEST_ALLOW_MODULES),1)
+ifeq ($(TEST_ALLOW_MODULES),1)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
 	${LJAPDEFCONFIGSRC}/feature/allowmodules.config
 endif
  
-ifeq($(DBG_OPROFILE),1) 
+ifeq ($(DBG_OPROFILE),1) 
         PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/oprofile.config 
 endif 
  
-ifeq($(DBG_MEMDUMP),1)
+ifeq ($(DBG_MEMDUMP),1)
 	PRODUCT_SPECIFIC_DEFCONFIGS += \
 	${LJAPDEFCONFIGSRC}/feature/memdump.config
 endif
 
 
 # SiERRA: Enable support for Python RF module
-ifneq($(HW_RF_PYTHON),0)
+ifneq ($(HW_RF_PYTHON),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
 	${LJAPDEFCONFIGSRC}/feature/rf_python.config \
 	${LJAPDEFCONFIGSRC}/feature/rf_python.${PRODUCT_FAMILY}_config \
@@ -279,7 +280,7 @@ ifneq($(HW_RF_PYTHON),0)
 endif
  
 # SiERRA: Linear Vibrator
-ifneq($(HW_LINEARVIBRATOR),0)
+ifneq ($(HW_LINEARVIBRATOR),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/linearvibrator.config \
         ${LJAPDEFCONFIGSRC}/feature/linearvibrator.${PRODUCT_FAMILY}_config \
@@ -287,7 +288,7 @@ ifneq($(HW_LINEARVIBRATOR),0)
 endif
 
 # SiERRA: Capacitive Touch
-ifneq($(HW_CAPTOUCH),0)
+ifneq ($(HW_CAPTOUCH),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/captouch.config \
         ${LJAPDEFCONFIGSRC}/feature/captouch.${PRODUCT_FAMILY}_config \
@@ -295,14 +296,14 @@ ifneq($(HW_CAPTOUCH),0)
 endif
 
 # SiERRA: Ceramic Speaker
-ifneq($(HW_CERAMICSPEAKER),0)
+ifneq ($(HW_CERAMICSPEAKER),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/ceramicspeaker.config \
         ${LJAPDEFCONFIGSRC}/feature/ceramicspeaker.${PRODUCT_FAMILY}_config \
         ${LJAPDEFCONFIGSRC}/feature/ceramicspeaker.${PRODUCT}_config
 endif
 
-ifeq($(FEAT_PTRACE),1)
+ifeq ($(FEAT_PTRACE),1)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
 	${LJAPDEFCONFIGSRC}/feature/ptrace.config \
 	${LJAPDEFCONFIGSRC}/feature/ptrace.${PRODUCT_FAMILY}_config \
@@ -310,7 +311,7 @@ ifeq($(FEAT_PTRACE),1)
 endif
 
 # Security: antivirus
-ifneq($(FEAT_AV),0)
+ifneq ($(FEAT_AV),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
 	${LJAPDEFCONFIGSRC}/feature/av.config \
 	${LJAPDEFCONFIGSRC}/feature/av.${PRODUCT_FAMILY}_config \
@@ -318,7 +319,7 @@ ifneq($(FEAT_AV),0)
  endif
 
 # SiERRA: Proximity Sensor
-ifneq($(HW_PROXSENSOR),0)
+ifneq ($(HW_PROXSENSOR),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
 	${LJAPDEFCONFIGSRC}/feature/proxsensor.config \
 	${LJAPDEFCONFIGSRC}/feature/proxsensor.${PRODUCT_FAMILY}_config \
@@ -326,7 +327,7 @@ ifneq($(HW_PROXSENSOR),0)
 endif
 
 # SiERRA: MAX6946 support
-ifneq($(HW_MAX6946),0)
+ifneq ($(HW_MAX6946),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/max6946.config \
         ${LJAPDEFCONFIGSRC}/feature/max6946.${PRODUCT_FAMILY}_config \
@@ -334,7 +335,7 @@ ifneq($(HW_MAX6946),0)
 endif
 
 # SiERRA: MAX7314 support
-ifneq($(HW_MAX7314),0)
+ifneq ($(HW_MAX7314),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/max7314.config \
         ${LJAPDEFCONFIGSRC}/feature/max7314.${PRODUCT_FAMILY}_config \
@@ -342,7 +343,7 @@ ifneq($(HW_MAX7314),0)
 endif
 
 # SiERRA: Omega Wheel
-ifneq($(HW_OMEGA),0)
+ifneq ($(HW_OMEGA),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/omega.config \
         ${LJAPDEFCONFIGSRC}/feature/omega.${PRODUCT_FAMILY}_config \
@@ -350,7 +351,7 @@ ifneq($(HW_OMEGA),0)
 endif
 
 # SiERRA: Power/Keylock
-ifneq($(HW_PWR_KEY_LOCK),0)
+ifneq ($(HW_PWR_KEY_LOCK),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/pwr_key_lock.config \
         ${LJAPDEFCONFIGSRC}/feature/pwr_key_lock.${PRODUCT_FAMILY}_config \
@@ -359,7 +360,7 @@ endif
 
 
 # SiERRA: FM radio
-ifneq($(HW_FM_RADIO),0)
+ifneq ($(HW_FM_RADIO),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/fm_radio.config \
         ${LJAPDEFCONFIGSRC}/feature/fm_radio.${PRODUCT_FAMILY}_config \
@@ -367,7 +368,7 @@ ifneq($(HW_FM_RADIO),0)
 endif
 
 # MME: Landscape Main Display
-ifneq($(HW_LCD_LANDSCAPE_MODE),0)
+ifneq ($(HW_LCD_LANDSCAPE_MODE),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/landscape.config \
         ${LJAPDEFCONFIGSRC}/feature/landscape.${PRODUCT_FAMILY}_config \
@@ -375,7 +376,7 @@ ifneq($(HW_LCD_LANDSCAPE_MODE),0)
 endif 
 
 # PM: Desense Support
-ifneq($(HW_PM_DESENSE),0)
+ifneq ($(HW_PM_DESENSE),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/desense.config \
         ${LJAPDEFCONFIGSRC}/feature/desense.${PRODUCT_FAMILY}_config \
@@ -383,7 +384,7 @@ ifneq($(HW_PM_DESENSE),0)
 endif 
 
 # Marvell WiFi Support
-ifneq($(FEAT_WIFI_DRIVERS),0)
+ifneq ($(FEAT_WIFI_DRIVERS),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/wifi_drivers.config \
         ${LJAPDEFCONFIGSRC}/feature/wifi_drivers.${PRODUCT_FAMILY}_config \
@@ -391,7 +392,7 @@ ifneq($(FEAT_WIFI_DRIVERS),0)
 endif 
 
 # HVGA Display Support
-ifneq($(HW_HVGA_DISPLAY),0)
+ifneq ($(HW_HVGA_DISPLAY),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/hvga_display.config \
         ${LJAPDEFCONFIGSRC}/feature/hvga_display.${PRODUCT_FAMILY}_config \
@@ -399,7 +400,7 @@ ifneq($(HW_HVGA_DISPLAY),0)
 endif 
 
 # 'Common' Camera Support
-ifneq($(FEAT_COMMON_CAMERA),0)
+ifneq ($(FEAT_COMMON_CAMERA),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/common_camera.config \
         ${LJAPDEFCONFIGSRC}/feature/common_camera.${PRODUCT_FAMILY}_config \
@@ -407,7 +408,7 @@ ifneq($(FEAT_COMMON_CAMERA),0)
 endif 
 
 # Detect transflash card insertion and removal via external interrupt
-ifneq($(HW_SDHC_1_TF_DET),0)
+ifneq ($(HW_SDHC_1_TF_DET),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/tf_det.config \
         ${LJAPDEFCONFIGSRC}/feature/tf_det.${PRODUCT_FAMILY}_config \
@@ -415,7 +416,7 @@ ifneq($(HW_SDHC_1_TF_DET),0)
 endif 
 
 # Enable RAW I2C api for camera common driver
-ifeq($(FEAT_CAMERA_MISC_DRIVER),1)
+ifeq ($(FEAT_CAMERA_MISC_DRIVER),1)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
         ${LJAPDEFCONFIGSRC}/feature/raw_i2c_api.config \
         ${LJAPDEFCONFIGSRC}/feature/raw_i2c_api.${PRODUCT_FAMILY}_config \
@@ -423,7 +424,7 @@ ifeq($(FEAT_CAMERA_MISC_DRIVER),1)
 endif 
 
 # Enable ETM IOMUX configuration
-ifneq($(FEAT_ETM),0)
+ifneq ($(FEAT_ETM),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
 	${LJAPDEFCONFIGSRC}/feature/etm.config \
 	${LJAPDEFCONFIGSRC}/feature/etm.${PRODUCT_FAMILY}_config \
@@ -431,7 +432,7 @@ ifneq($(FEAT_ETM),0)
 endif
 
 # Enable Sierra Virtual Keymap driver
-ifneq($(FEAT_VIRTUAL_KEYMAP),0)
+ifneq ($(FEAT_VIRTUAL_KEYMAP),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
 	${LJAPDEFCONFIGSRC}/feature/virtualkeymap.config \
 	${LJAPDEFCONFIGSRC}/feature/virtualkeymap.${PRODUCT_FAMILY}_config \
@@ -439,13 +440,13 @@ ifneq($(FEAT_VIRTUAL_KEYMAP),0)
 endif
 
 # Enable epson display driver
-ifneq($(FEAT_EPSON_LTPS_DISPLAY),0)
+ifneq ($(FEAT_EPSON_LTPS_DISPLAY),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
     ${LJAPDEFCONFIGSRC}/feature/display_epson.config
 endif
                 
 # Enable 32bit Display
-ifneq($(FEAT_32_BIT_DISPLAY),0)
+ifneq ($(FEAT_32_BIT_DISPLAY),0)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
     ${LJAPDEFCONFIGSRC}/feature/display_32bit.config
 endif
@@ -458,7 +459,7 @@ PRODUCT_SPECIFIC_DEFCONFIGS := \
 # Allow user to specify arbitrary files to be concatenated from the command
 # line. Do this after filtering for non-existent files so that an error
 # will be returned if a specified file doesn't exist.
-ifneq($(TEST_LNXOS_DEFCONFIGS),)
+ifneq ($(TEST_LNXOS_DEFCONFIGS),)
     PRODUCT_SPECIFIC_DEFCONFIGS += ${strip ${TEST_LNXOS_DEFCONFIGS}}
 endif
 
@@ -470,7 +471,7 @@ endif
 # generate a defconfig file
 ${TARGET_DEFCONFIG}: ${PRODUCT_SPECIFIC_DEFCONFIGS}
 	# generate an error message if no config files are defined
-ifeq($(PRODUCT_SPECIFIC_DEFCONFIGS),)
+ifeq ($(PRODUCT_SPECIFIC_DEFCONFIGS),)
 	@echo "No defconfig file defined for PRODUCT=$(PRODUCT))"
 	false
 endif
@@ -493,14 +494,14 @@ api_build: kernel_clean sierraOmegaWheelKconfig $(DOTCONFIG)
 impl: modules
 
 # avoid partial winkins of .config when kernel is not properly cleaned
-ifneq(_$(NO_KERNEL_CLEAN),_yes)
+ifneq (_$(NO_KERNEL_CLEAN),_yes)
 .NO_CONFIG_REC: kernel modules
 else
 .NO_CONFIG_REC: kernel modules $(DOTCONFIG)
 endif
 
 $(DOTCONFIG): $(TARGET_DEFCONFIG) 
-ifneq(_$(NO_KERNEL_CLEAN),_yes)
+ifneq (_$(NO_KERNEL_CLEAN),_yes)
 	# clean out config area to prevent partial builds from winking in
 	rm -rf $(LINUXBUILD)
 endif
@@ -514,7 +515,7 @@ endif
 
 kernel: $(DOTCONFIG)
 	# Kernel must make a copy of the config area to prevent the api step from rebuilding unnecessarily
-ifneq(_$(NO_KERNEL_CLEAN),_yes)
+ifneq (_$(NO_KERNEL_CLEAN),_yes)
 	# Clean out kernel build area for safety
 	rm -rf $(LINUXBUILD_KERNEL)
 endif
@@ -537,7 +538,7 @@ distclean: clean
 sierraOmegaWheelKconfig:
 # Hack source in /vobs/3gsm_sierra/gpl_drivers/Kconfig if the virtual keypad is turned on
 	mkdir -p $(LINUXBUILD)/drivers
-ifneq($(FEAT_VIRTUAL_KEYMAP),0)
+ifneq ($(FEAT_VIRTUAL_KEYMAP),0)
 	@echo 'source "/vobs/3gsm_sierra/gpl_drivers/Kconfig"' > $(LINUXBUILD)/drivers/sierraOmegaWheelKconfig
 else
 	@echo "" > $(LINUXBUILD)/drivers/sierraOmegaWheelKconfig

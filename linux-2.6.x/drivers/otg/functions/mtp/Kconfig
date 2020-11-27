@@ -1,5 +1,5 @@
 # 
-# Copyright (c) 2006 Motorola, Inc, All Rights Reserved.
+# Copyright (c) 2006-2007 Motorola, Inc, All Rights Reserved.
 #
 # This program is licensed under a BSD license with the following terms:
 # 
@@ -31,7 +31,7 @@
 # Date               Author           Comment
 # -----------------------------------------------------------------------------
 # 03/28/2006       Motorola         Initial Creation
-#
+# 01/09/2007       Motorola         Added menu for PTP(PictSync)
 # 
 # MTP Kconfig
 #
@@ -131,3 +131,50 @@ config OTG_PBG_HOTPLUG
 endmenu
 endmenu
 
+
+menu "OTG PTP Function"
+
+config OTG_PTP
+         tristate "  PTP Function"
+         depends on OTG
+
+menu "OTG PTP function options"
+	depends on OTG && OTG_PTP
+
+config OTG_PTP_VENDORID
+        hex "VendorID (hex value)"
+	depends on OTG_PTP && OTG
+        default "0x22b8"
+
+config OTG_PTP_PRODUCTID
+	depends on OTG_PTP && OTG
+        hex "ProductID (hex value)"
+        default "0x6411"
+
+config OTG_PTP_BCDDEVICE
+	depends on OTG_PTP && OTG
+        hex "bcdDevice (binary-coded decimal)"
+        default "0x0200"
+
+config OTG_PTP_MANUFACTURER
+	depends on OTG_PTP && OTG
+        string "iManufacturer (string)"
+        default "Motorola Inc."
+
+config OTG_PTP_PRODUCT_NAME
+	depends on OTG_PTP && OTG
+        string "iProduct (string)"
+        default "Motorola Phone"
+
+config OTG_PTP_DESC
+	depends on OTG_PTP && OTG
+        string "iConfiguration (string)"
+        default "PTP Cfg"
+
+config OTG_PTP_HOTPLUG
+        depends on OTG_PTP && OTG
+        bool "start PBG hotplug"
+        default TRUE
+
+endmenu
+endmenu

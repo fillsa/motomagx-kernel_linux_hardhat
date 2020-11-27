@@ -1,5 +1,5 @@
 /*
- * Copyright © 2008, Motorola, All Rights Reserved.
+ * Copyright © 2008-2009, Motorola, All Rights Reserved.
  *
  * This program is licensed under a BSD license with the following terms:
  *
@@ -25,6 +25,9 @@
  * OF SUCH DAMAGE.
  *
  * Motorola 2008-Jan-29 - Initial Creation for xPIXL
+ * Motorola 2008-Mar-11 - Added MORPHING_MODE_PHONE_WITHOUT_REVIEW
+ * Motorola 2009-Jan-20 - Added initial & end bounds for the enum.
+ * Motorola 2009-Feb-11 - Update Copyright.
  */
 
 #ifndef __MORPHING_MODE_H__
@@ -38,10 +41,14 @@
  * Morphing modes
 */
 typedef enum {
+    // Any new values should be added only between MORPHING_MODE_BEGIN
+    // and MORPHING_MODE_END 
+    MORPHING_MODE_BEGIN = -2,
     MORPHING_MODE_KEEP_CURRENT = -1,
     MORPHING_MODE_STANDBY = 0,
     MORPHING_MODE_NAVIGATION,
     MORPHING_MODE_PHONE,
+    MORPHING_MODE_PHONE_WITHOUT_REVIEW,
     MORPHING_MODE_STILL_VIDEO_CAPTURE,
     MORPHING_MODE_STILL_VIDEO_PLAYBACK,
     MORPHING_MODE_STILL_VIDEO_PLAYBACK_WITHOUT_SHARE,
@@ -50,7 +57,8 @@ typedef enum {
     MORPHING_MODE_SHARE,
     MORPHING_MODE_TRASH,
     MORPHING_MODE_NUM,
-    MORPHING_MODE_TEST
+    MORPHING_MODE_TEST,
+    MORPHING_MODE_END
 }MORPHING_MODE_E;
 
 #endif /* __MORPHING_MODE_H__ */

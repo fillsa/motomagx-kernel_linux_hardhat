@@ -9,9 +9,13 @@
  * http://www.opensource.org/licenses/gpl-license.html
  * http://www.gnu.org/copyleft/gpl.html
  *
+ * Motorola 2008-Apr-21 - Adding autorepeat for EMU headseet
  * Motorola 2008-Oct-22 - Disable the sending of simultaneous press key event of volume up/down key 
  *                        to application layer while nevis slider is closed. 
+ * Motorola 2008-Mar-28 - Send release for unmapped keys
  * Motorola 2008-Mar-18 - Update Nevis keypad matrix
+ * Motorola 2008-Mar-12 - Changed autorepeat from capacitive touch keycodes to headset keycodes
+ * Motorola 2008-Mar-11 - Added handling of MORPHING_MODE_PHONE_WITHOUT_REVIEW.
  * Motorola 2008-Feb-27 - Add OPENING/CLOSING transition for sliders and flips
  * Motorola 2008-Feb-06 - Add keypad support for Nevis
  * Motorola 2008-Jan-30 - Added xPIXL keymap and keylock, lens cover sidekeys.
@@ -97,11 +101,15 @@ static short int COLS = 6;
 #error "Unknown architecture!"
 #endif
 
-/*! Auto repeat timer for capacitive touch */
-struct timer_list cap_touch_timer;
+/*! Auto repeat timer for headset */
+struct timer_list headset_timer;
+/*! Auto repeat timer for emu headset */
+struct timer_list emu_headset_timer;
 
 /*! Keep track of the scancode for the timer */
-static unsigned short cap_touch_scancode;
+static unsigned short headset_scancode;
+/*! Keep track of the scancode for the timer */
+static unsigned short emu_headset_scancode;
 
 /*! This structure holds the keypad Queue for storing the scancode for key press/release. */ 
 static struct keypad_priv kpp_dev;
@@ -190,6 +198,9 @@ static unsigned long invalid_columns = 0;
  *  Mapcode array contains the scan code to map code mapping. This is used
  *  when the keypad mode is XLATE. 
  */
+/* All other SCM-A11 */
+#if defined(CONFIG_ARCH_MXC91231)
+
 #if defined(CONFIG_MACH_SCMA11REF)
 static unsigned short *key_map;
 
@@ -282,10 +293,7 @@ static unsigned short key_map[] = {
     KEYPAD_SIDE_DOWN, KEYPAD_VA,
 };
 
-/* All other SCM-A11 */
-#elif defined(CONFIG_ARCH_MXC91231)
-
-#if defined(CONFIG_MACH_ELBA)
+#elif defined(CONFIG_MACH_ELBA)
 static unsigned short key_map[] = {
         /* row 0 */
     KEYPAD_6, KEYPAD_NAV_RIGHT, KEYPAD_1, KEYPAD_NAV_CENTER,
@@ -402,6 +410,28 @@ static const unsigned short keymap_phone[] = {
     KEYPAD_SIDE_DOWN,                      KEYPAD_NONE,
 };
 
+static const unsigned short keymap_phone_noreview[] = {
+    /* row 0 */
+    KEYPAD_6,                              KEYPAD_NAV_RIGHT,
+    KEYPAD_1,                              KEYPAD_NAV_CENTER,
+    KEYPAD_NONE,                           KEYPAD_NONE,
+    /* row 1 */
+    KEYPAD_8,                              KEYPAD_NAV_DOWN,
+    KEYPAD_3,                              KEYPAD_SOFT_LEFT,
+    KEYPAD_CLEAR_BACK,                     KEYPAD_NONE,
+    /* row 2 */
+    KEYPAD_7,                              KEYPAD_9,
+    KEYPAD_5,                              KEYPAD_STAR,
+    KEYPAD_POUND,                          KEYPAD_0,
+    /* row 3 */
+    KEYPAD_2,                              KEYPAD_NAV_UP,
+    KEYPAD_CAMERA_FOCUS,                   KEYPAD_SEND,
+    KEYPAD_CAMERA_TAKE_PIC,                KEYPAD_NONE,
+    /* row 4 */
+    KEYPAD_4,                              KEYPAD_NAV_LEFT,
+    KEYPAD_SIDE_UP,                        KEYPAD_SOFT_RIGHT,
+    KEYPAD_SIDE_DOWN,                      KEYPAD_NONE,
+};
 static const unsigned short keymap_cam_all[] = {
     /* row 0 */
     KEYPAD_NONE,                           KEYPAD_NAV_RIGHT,
@@ -781,7 +811,9 @@ static inline void flip_status_handler(STATUS_E, unsigned short);
 static inline void slider_status_handler(STATUS_E, unsigned short);
 #endif
 
-#if defined(CONFIG_MACH_NEVIS)
+#if defined(CONFIG_MACH_ELBA)
+static inline void keylock_status_handler(STATUS_E, unsigned short);
+#elif defined(CONFIG_MACH_NEVIS)
 static STATUS_E flip_slider_get_status(void);
 #endif
 
@@ -1042,11 +1074,22 @@ void mxc_kpp_handle_mode(unsigned short scancode)
     } 
     else if (kpp_dev.kpp_mode == KEYPAD_XLATE) 
     {
-        mapcode = key_map[scancode]&KEY_CODE_MASK;
+#if ! defined(CONFIG_MACH_XPIXL)
+        mapcode = key_map[scancode]&KEY_CODE_MASK;	
+#endif	
         if (press == 1) 
         {
+#if defined(CONFIG_MACH_XPIXL)
+            mapcode = key_map[scancode]&KEY_CODE_MASK;
+#endif
             mapcode |= KEYDOWN;
+        } 
+#if defined(CONFIG_MACH_XPIXL)
+else
+        {
+            mapcode = keymap_all[scancode]&KEY_CODE_MASK;
         }
+#endif
 
         queued_code = mapcode;
 
@@ -1201,7 +1244,7 @@ int inline scan_columns(unsigned short *map)
         printk("KPP: status register 0x%x\n", ustmp);
 #endif
 
-#if (defined(CONFIG_MOT_FEAT_SLIDER) || defined(CONFIG_MOT_FEAT_FLIP)) && !defined(CONFIG_MACH_XPIXL)
+#if (defined(CONFIG_MOT_FEAT_SLIDER) || defined(CONFIG_MOT_FEAT_FLIP) || defined(CONFIG_MACH_ELBA)) && !defined(CONFIG_MACH_XPIXL)
         scancode = col;
 #endif
         for (row = 0; row < ROWS; row++) 
@@ -1213,7 +1256,7 @@ int inline scan_columns(unsigned short *map)
 #elif !defined(CONFIG_MACH_XPIXL)
             if((key_map[scancode]&KEYFLAG_KEYLOCK_DISABLED) && kpp_dev.status == CLOSE)
 #endif
-#if (defined(CONFIG_MOT_FEAT_SLIDER) || defined(CONFIG_MOT_FEAT_FLIP)) && !defined(CONFIG_MACH_XPIXL)
+#if (defined(CONFIG_MOT_FEAT_SLIDER) || defined(CONFIG_MOT_FEAT_FLIP)|| defined(CONFIG_MACH_ELBA)) && !defined(CONFIG_MACH_XPIXL)
             {
                 scancode += COLS;
                 continue;
@@ -1514,23 +1557,44 @@ autorepeat_handle_timer (unsigned long unused)
 }
 
 /*!
- * This is called when the cap_touch autorepeat timer goes off.
+ * This is called when the headset timer goes off.
  */
 static void
-cap_touch_handle_timer (unsigned long unused)
+headset_handle_timer (unsigned long unused)
 {
     unsigned long flags;
 
     spin_lock_irqsave(&autorepeat_lock, flags);
 
-    if(cap_touch_scancode != 0xFFFF)
+    if(headset_scancode != 0xFFFF)
     {
-        insert_raw_event(cap_touch_scancode);
+        insert_raw_event(headset_scancode);
         
-        cap_touch_timer.expires = jiffies + kpp_dev.autorepeat_info.r_time_between_repeats;
+        headset_timer.expires = jiffies + kpp_dev.autorepeat_info.r_time_between_repeats;
     }
 
-    add_timer(&cap_touch_timer);
+    add_timer(&headset_timer);
+    spin_unlock_irqrestore(&autorepeat_lock, flags);
+}
+
+/*!
+ * This is called when the headset timer goes off.
+ */
+static void
+emu_headset_handle_timer (unsigned long unused)
+{
+    unsigned long flags;
+
+    spin_lock_irqsave(&autorepeat_lock, flags);
+
+    if(emu_headset_scancode != 0xFFFE)
+    {
+        insert_raw_event(emu_headset_scancode);
+        
+        emu_headset_timer.expires = jiffies + kpp_dev.autorepeat_info.r_time_between_repeats;
+    }
+
+    add_timer(&emu_headset_timer);
     spin_unlock_irqrestore(&autorepeat_lock, flags);
 }
 
@@ -1992,9 +2056,24 @@ static int insert_event (unsigned short event)
 
         return 0;
     }
-#endif
+#endif /*defined(CONFIG_MOT_FEAT_SLIDER)*/
 
-#ifdef CONFIG_MACH_XPIXL
+#if defined(CONFIG_MACH_ELBA)
+    if (KEYCODE(event) == KEYPAD_LOCK) 
+    {
+		keylock_status_handler(KEY_IS_DOWN(event) ? CLOSE : OPEN, EVENTINSERTED);		
+/*        if(KEY_IS_DOWN(event))
+        {
+            keylock_status_handler(CLOSE, EVENTINSERTED);
+        }
+        else
+        {
+            keylock_status_handler(OPEN, EVENTINSERTED);
+        }
+*/
+        return 0;
+    }
+#elif defined( CONFIG_MACH_XPIXL)
     if (KEYCODE(event) == KEYPAD_LOCK) 
     {
         sidekey_status_handler(&keylock_data, KEY_IS_DOWN(event) ? CLOSE : OPEN, EVENTINSERTED);
@@ -2046,6 +2125,9 @@ static void set_keymap(MORPHING_MODE_E mode)
         default: /* xPIXL defaults to phone mode. */
         case MORPHING_MODE_PHONE:
             key_map = keymap_phone;
+            break;
+        case MORPHING_MODE_PHONE_WITHOUT_REVIEW:
+            key_map = keymap_phone_noreview;
             break;
         case MORPHING_MODE_STANDBY:
             key_map = keymap_none;
@@ -2129,7 +2211,7 @@ int mxc_kpp_ioctl(struct inode *inode, struct file * file, unsigned int cmd, uns
 {
     int ret;
     struct autorepeatinfo ar;
-#if defined(CONFIG_MOT_FEAT_SLIDER) || defined(CONFIG_MOT_FEAT_FLIP) || defined(CONFIG_MACH_XPIXL)
+#if defined(CONFIG_MOT_FEAT_SLIDER) || defined(CONFIG_MOT_FEAT_FLIP) || defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_XPIXL)
     STATUS_E status = (STATUS_E)arg;
 #endif                         
 #ifdef KPP_DEBUG
@@ -2178,7 +2260,8 @@ int mxc_kpp_ioctl(struct inode *inode, struct file * file, unsigned int cmd, uns
                 if (kpp_dev.autorepeat_info.r_repeat == 0)
                 {
                     del_timer (&kpp_dev.autorepeat_timer);
-                    del_timer(&cap_touch_timer);
+                    del_timer(&headset_timer);
+                    del_timer(&emu_headset_timer);
                 }
 	  
                 /* times are specified in milliseconds; convert to jiffies */
@@ -2218,7 +2301,20 @@ int mxc_kpp_ioctl(struct inode *inode, struct file * file, unsigned int cmd, uns
                 slider_status_handler(status, 0);
                 break;
 #endif
-#ifdef CONFIG_MACH_XPIXL
+
+#if defined(CONFIG_MACH_ELBA)
+            case KEYPAD_IOC_GET_KEYLOCK_STATUS: /* get keylock status */
+                return put_user(kpp_dev.status, (STATUS_E *)arg);
+                break;
+
+            case KEYPAD_IOC_SET_KEYLOCK_STATUS: /* set keylock status */
+                if ((status != CLOSE) && (status != OPEN)) 
+                {
+                    return -EINVAL;
+                }
+                keylock_status_handler(status, 0);
+                break;
+#elif defined(CONFIG_MACH_XPIXL)
             case KEYPAD_IOC_GET_KEYLOCK_STATUS: /* get keylock status */
                 return put_user(keylock_data.status, (STATUS_E *)arg);
                 break;
@@ -2307,7 +2403,7 @@ int mxc_kppIB_ioctl(struct inode *inode, struct file * file, unsigned int cmd, u
 {
     int ret;
     unsigned int minor = MINOR(file->f_dentry->d_inode->i_rdev);
-#if defined(CONFIG_MOT_FEAT_SLIDER) || defined(CONFIG_MOT_FEAT_FLIP) || defined(CONFIG_MACH_XPIXL)
+#if defined(CONFIG_MOT_FEAT_SLIDER) || defined(CONFIG_MOT_FEAT_FLIP) || defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_XPIXL)
     STATUS_E status = (STATUS_E)arg;
 #endif
 #ifdef KPP_DEBUG
@@ -2375,7 +2471,20 @@ int mxc_kppIB_ioctl(struct inode *inode, struct file * file, unsigned int cmd, u
                 slider_status_handler(status, 0);
                 break;
 #endif
-#ifdef CONFIG_MACH_XPIXL
+
+#if defined(CONFIG_MACH_ELBA)
+            case KEYPAD_IOC_GET_KEYLOCK_STATUS: /* get keylock status */
+                return put_user(kpp_dev.status, (STATUS_E *)arg);
+                break;
+
+            case KEYPAD_IOC_SET_KEYLOCK_STATUS: /* set keylock status */
+                if ((status != CLOSE) && (status != OPEN)) 
+                {
+                    return -EINVAL;
+                }
+                keylock_status_handler(status, 0);
+                break;
+#elif defined( CONFIG_MACH_XPIXL)
             case KEYPAD_IOC_GET_KEYLOCK_STATUS: /* get keylock status */
                 return put_user(keylock_data.status, (STATUS_E *)arg);
                 break;
@@ -2628,7 +2737,7 @@ int generate_key_event(unsigned short keycode, unsigned short up_down)
 
         return 0;
     }
-#endif
+#endif /*defined(CONFIG_MOT_FEAT_FLIP)*/
 
 #if defined(CONFIG_MOT_FEAT_SLIDER)
     if (keycode == KEYPAD_SLIDER) 
@@ -2673,7 +2782,24 @@ int generate_key_event(unsigned short keycode, unsigned short up_down)
         return 0;
     }
 #endif
-#ifdef CONFIG_MACH_XPIXL
+
+
+#if defined(CONFIG_MACH_ELBA)
+    if (keycode == KEYPAD_LOCK) 
+    {
+		keylock_status_handler(KEY_IS_DOWN(up_down) ? CLOSE : OPEN, 0);
+/*        if(KEY_IS_DOWN(up_down))
+        {
+            keylock_status_handler(CLOSE, 0);
+        }
+        else
+        {
+            keylock_status_handler(OPEN, 0);
+        }
+*/
+        return 0;
+    }
+#elif defined(CONFIG_MACH_XPIXL)
     else if (keycode == KEYPAD_LOCK)
     {
         sidekey_status_handler(&keylock_data, KEY_IS_DOWN(up_down) ? CLOSE : OPEN, 0);
@@ -2685,22 +2811,22 @@ int generate_key_event(unsigned short keycode, unsigned short up_down)
         return 0;
     }
 #endif
-    /* do autorepeat for capacitive touch keys */
-    if(keycode >= KEYPAD_KEYV_0 && keycode <= KEYPAD_KEYV_2)
+    /* do autorepeat for KEYPAD_HEADSET key*/
+    if(keycode == KEYPAD_HEADSET)
     {
         /* Press */
         if(up_down == KEYDOWN)
         {
             spin_lock_irqsave(&autorepeat_lock, flags);
 
-            cap_touch_scancode = keycode | up_down;
+            headset_scancode = keycode | up_down;
 
-            del_timer(&cap_touch_timer);
+            del_timer(&headset_timer);
             
             if(kpp_dev.autorepeat_info.r_repeat)
             {
-                cap_touch_timer.expires = jiffies + kpp_dev.autorepeat_info.r_time_to_first_repeat;
-                add_timer(&cap_touch_timer);
+                headset_timer.expires = jiffies + kpp_dev.autorepeat_info.r_time_to_first_repeat;
+                add_timer(&headset_timer);
             }
             
             spin_unlock_irqrestore(&autorepeat_lock, flags);
@@ -2708,12 +2834,41 @@ int generate_key_event(unsigned short keycode, unsigned short up_down)
         else if(up_down == KEYUP) /* release */
         {
             spin_lock_irqsave(&autorepeat_lock, flags);
-            cap_touch_scancode = 0xFFFF;
-            del_timer(&cap_touch_timer);
+            headset_scancode = 0xFFFF;
+            del_timer(&headset_timer);
             spin_unlock_irqrestore(&autorepeat_lock, flags);
         }
     }
 
+
+/* do autorepeat for KEYPAD_EMU_HEADSET key*/
+    if(keycode == KEYPAD_EMU_HEADSET)
+    {
+	/* Press */
+	if(up_down == KEYDOWN)
+	{
+		spin_lock_irqsave(&autorepeat_lock, flags);
+
+		emu_headset_scancode = keycode | up_down;
+
+		del_timer(&emu_headset_timer);
+		
+		if(kpp_dev.autorepeat_info.r_repeat)
+		{
+			emu_headset_timer.expires = jiffies + kpp_dev.autorepeat_info.r_time_to_first_repeat;
+			add_timer(&emu_headset_timer);
+		}
+		
+		spin_unlock_irqrestore(&autorepeat_lock, flags);
+	}
+	else if(up_down == KEYUP) /* release */
+	{
+		spin_lock_irqsave(&autorepeat_lock, flags);
+		emu_headset_scancode = 0xFFFE;
+		del_timer(&emu_headset_timer);
+		spin_unlock_irqrestore(&autorepeat_lock, flags);
+	}
+    }
 #if defined(CONFIG_MOT_FEAT_FLIP) || defined(CONFIG_MACH_NEVIS)
     /* If the power key is pressed when the flip is closed, or if the product is Nevis,
        do not add the keycode to the queue. (Nevis is a slider but power key is under the slider) */
@@ -3052,7 +3207,67 @@ static irqreturn_t slider_irq_handler(int irq, void *ptr, struct pt_regs *regs)
 }
 #endif
 
-#if defined(CONFIG_MACH_NEVIS)
+#if defined(CONFIG_MACH_ELBA)
+/*!
+ * handle a keylock event
+ */
+static inline void keylock_status_handler(STATUS_E status, unsigned short event)
+{
+    /* enable/disable rows/columns */
+    column_row_enabler(status);
+
+    switch (status) 
+    {
+        case CLOSE:
+            insert_raw_event(KEYDOWN | KEYPAD_LOCK | event);
+#ifdef KPP_DEBUG
+            printk("KPP: keypad locked\n");
+#endif
+            break;
+  
+        case OPEN:
+            insert_raw_event(KEYUP | KEYPAD_LOCK | event);
+#ifdef KPP_DEBUG
+            printk("KPP: keypad unlocked\n");
+#endif
+            break;
+   
+        default:
+            break;
+    }
+}
+
+static inline void keylock_status_check(void)
+{
+    if (!gpio_keylock_open()) 
+    {
+        keylock_status_handler(CLOSE, 0); /* key unlocked */
+    }
+    else 
+    {
+        keylock_status_handler(OPEN, 0);
+    }
+}
+
+/* when switch timeout, call this */
+static void keylock_timer_handler(unsigned long unused)
+{
+    keylock_status_check();
+    wake_up_interruptible(&kpp_dev.queue.waitq);
+}
+
+static irqreturn_t keylock_irq_handler(int irq, void *ptr, struct pt_regs *regs)
+{
+    struct timer_list *t = &(kpp_dev.timer);
+        
+    del_timer(t);
+    t->expires = jiffies + 10;
+    add_timer(t);
+
+    return IRQ_RETVAL(1);
+}
+
+#elif defined(CONFIG_MACH_NEVIS)
 /*!
  * Determine the state of the flip/slider
  *
@@ -3429,7 +3644,8 @@ static int __init mxc_kpp_init(void)
     start_autorepeat_key_info = max_autorepeat_key_info;
     end_autorepeat_key_info   = max_autorepeat_key_info;
 
-    cap_touch_scancode = 0xFFFF;
+    headset_scancode = 0xFFFF;
+    emu_headset_scancode = 0xFFFE;
     
 #ifdef KPP_DEBUG
     printk("KPP: base address  :  %08lX\n", (unsigned long)KPP_BASE_ADDR);
@@ -3456,9 +3672,13 @@ static int __init mxc_kpp_init(void)
     init_timer(&kpp_dev.autorepeat_timer);
     kpp_dev.autorepeat_timer.function = autorepeat_handle_timer;
 
-    /* Initialize the capacitive touch timer */
-    init_timer(&cap_touch_timer);
-    cap_touch_timer.function = cap_touch_handle_timer;
+    /* Initialize the headset timer */
+    init_timer(&headset_timer);
+    headset_timer.function = headset_handle_timer;
+
+/* Initialize the emu headset timer */
+   init_timer(&emu_headset_timer);
+   emu_headset_timer.function = emu_headset_handle_timer;
 
 #if defined(CONFIG_MOT_FEAT_FLIP)
     /* Initialize the flip interrupt timer */
@@ -3472,7 +3692,11 @@ static int __init mxc_kpp_init(void)
     kpp_dev.timer.function = slider_timer_handler;
 #endif
 
-#ifdef CONFIG_MACH_XPIXL
+#if defined(CONFIG_MACH_ELBA)
+    /* Initialize the keylock interrupt timer */
+    init_timer(&kpp_dev.timer);
+    kpp_dev.timer.function = keylock_timer_handler;
+#elif defined(CONFIG_MACH_XPIXL)
     /* Initialize the keylock and lens cover timer structs. */
     init_timer(&keylock_data.timer);
     keylock_data.timer.function = sidekey_timer_handler;
@@ -3550,7 +3774,10 @@ static int __init mxc_kpp_init(void)
 #endif /* Nevis */  
 #endif /* Slider */
 
-#ifdef CONFIG_MACH_XPIXL
+#if defined(CONFIG_MACH_ELBA)
+    /* get keylock status */
+    keylock_status_check();
+#elif defined( CONFIG_MACH_XPIXL)
     /* Do first-time sidekey checks to initialize status variables. */
     sidekey_status_check(&keylock_data);
     sidekey_status_check(&lenscover_data);
@@ -3620,7 +3847,19 @@ static int __init mxc_kpp_init(void)
 
 #endif
 
-#ifdef CONFIG_MACH_XPIXL
+#if defined(CONFIG_MACH_ELBA)
+    retval = gpio_keylock_request_irq (keylock_irq_handler, 0, "keylock", NULL);
+    if (retval) 
+    {
+        printk("KPP: gpio_keylock_request_irq returned error %d\n", retval);
+        free_irq(INT_KPP, MOD_NAME);
+        goto REQUEST_KEYLOCKINT_FAILED;
+    }
+#ifdef KPP_DEBUG
+    printk("KPP: keylock irq enabled\n");
+#endif
+
+#elif defined( CONFIG_MACH_XPIXL)
     retval = sidekey_request_irq("keylock", KEYLOCK_IRQ, &keylock_data);
     if (retval) 
     {
@@ -3695,7 +3934,9 @@ REGISTER_KEYB_FAILED:
 REGISTER_DEVICE_FAILED:
     driver_unregister(&mxc_keyb);
 REGISTER_DRIVER_FAILED:
-#ifdef CONFIG_MACH_XPIXL
+#if defined(CONFIG_MACH_ELBA)
+    gpio_keylock_free_irq(NULL);
+#elif defined(CONFIG_MACH_XPIXL)
     sidekey_free_irq(LENSCOVER_IRQ, &lenscover_data);
 REQUEST_LENSCOVERINT_FAILED:
     sidekey_free_irq(KEYLOCK_IRQ, &keylock_data);
@@ -3794,6 +4035,10 @@ static void __exit mxc_kpp_cleanup(void)
 #endif /* Nevis */
     del_timer(&kpp_dev.timer);
 #endif
+#if defined(CONFIG_MACH_ELBA)
+    gpio_keylock_free_irq(NULL);
+    del_timer(&kpp_dev.timer);
+#endif
 #ifdef CONFIG_MACH_XPIXL
     sidekey_free_irq(KEYLOCK_IRQ, &keylock_data);
     sidekey_free_irq(LENSCOVER_IRQ, &lenscover_data);
@@ -3804,7 +4049,8 @@ static void __exit mxc_kpp_cleanup(void)
     uninitialize_registers();
     del_timer(&kpp_dev.poll_timer);
     del_timer(&kpp_dev.autorepeat_timer);
-    del_timer(&cap_touch_timer);
+    del_timer(&headset_timer);
+    del_timer(&emu_headset_timer);
 
     misc_deregister(&mxc_keyb_misc_device);
     misc_deregister(&mxc_keyb_miscJ_device);
@@ -3835,3 +4081,38 @@ EXPORT_SYMBOL(generate_key_event);
 EXPORT_SYMBOL(register_keyevent_callback);
 EXPORT_SYMBOL(unregister_keyevent_callback);
 
+
+#if defined(CONFIG_MACH_ELBA)
+/**
+ * Register for key lock interrupt
+ *
+ * Return value (non-zero): Failed 
+ * Return value (zero):     Successful
+ */
+int gpio_keylock_request_irq(gpio_irq_handler handler, unsigned long irq_flags,
+        const char *devname, void *dev_id)
+{
+    set_irq_type(INT_EXT_INT3, IRQT_BOTHEDGE);
+    return request_irq(INT_EXT_INT3, handler, irq_flags, devname, dev_id);
+}
+
+/**
+ * Free key lock interrupt
+ */
+int gpio_keylock_free_irq(void *dev_id)
+{
+    free_irq(INT_EXT_INT3, dev_id);
+    return 0;
+}
+
+/**
+ * Get the current state of the lock key
+ *
+ * Return value (non-zero): keys are locked 
+ * Return value (zero):     keys are unlocked
+ */
+int gpio_keylock_open(void)
+{
+    return gpio_signal_get_data_check(GPIO_SIGNAL_KEYS_LOCKED);
+}
+#endif

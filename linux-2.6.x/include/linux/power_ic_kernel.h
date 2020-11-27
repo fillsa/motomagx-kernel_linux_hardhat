@@ -213,6 +213,11 @@ void moto_accy_set_accessory_power (MOTO_ACCY_TYPE_T device, int on_off);
 /* @{ */
 int power_ic_atod_single_channel(POWER_IC_ATOD_CHANNEL_T channel, int * result);
 int power_ic_atod_general_conversion(POWER_IC_ATOD_RESULT_GENERAL_CONVERSION_T * result);
+/*Remove 2008-Feb-20 int power_ic_atod_current_and_batt_conversion(POWER_IC_ATOD_TIMING_T timing,
+                                              int timeout_secs,
+                                              POWER_IC_ATOD_CURR_POLARITY_T polarity,
+                                              int * batt_result, int * curr_result);
+*/
 int power_ic_atod_raw_conversion(POWER_IC_ATOD_CHANNEL_T channel, int * samples, int * length);
 /* @} End of kernel atod functions -------------------------------------------------------------- */
 
@@ -233,7 +238,9 @@ int power_ic_audio_set_reg_mask_audio_tx(unsigned int mask, unsigned int value);
 int power_ic_audio_set_reg_mask_ssi_network(unsigned int mask, unsigned int value);
 int power_ic_audio_set_reg_mask_audio_codec(unsigned int mask, unsigned int value);
 int power_ic_audio_set_reg_mask_audio_stereo_dac(unsigned int mask, unsigned int value);
+//#if defined(CONFIG_MACH_PICO) || defined(CONFIG_MACH_XPIXL)|| defined(CONFIG_MACH_NEVIS) 
 int power_ic_audio_ext_audio_amp_en(unsigned char en_val);
+//#endif
 
 /* @} End of kernel audio functions ------------------------------------------------------------- */
 
@@ -314,7 +321,9 @@ irqreturn_t power_ic_irq_handler (int irq, void *dev_id, struct pt_regs *regs);
  * lights_funlights.c file.
  */
 /* @{ */
+#if defined(CONFIG_MACH_PICO) || defined(CONFIG_MACH_XPIXL)|| defined(CONFIG_MACH_NEVIS) 
 extern bool lights_funlights_set_morphing_mode(MORPHING_MODE_E modeId);
+#endif
 extern int lights_funlights_enable_light_sensor(int light_enable);
 extern int lights_funlights_light_sensor_atod(void);
 extern LIGHTS_FL_REGION_MSK_T lights_fl_update   

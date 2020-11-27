@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006 Motorola, Inc, All Rights Reserved.
+ * Copyright (c) 2006-2008 Motorola, Inc, All Rights Reserved.
  *
  * This program is licensed under a BSD license with the following terms:
  *
@@ -35,6 +35,7 @@
  * 06/06/2006        Motorola      PictBridge support
  * 08/08/2006        Motorola      Move MTP descriptors to user space
  * 09/06/2006        Motorola      MTP HS fix
+ * 11/14/2008        Motorola      Clean the work queue before module exit.
  * 
  *
  * 
@@ -141,6 +142,10 @@ extern char *mtp_ext_str_desc;
 
 /* USB Module init/exit ***************************************************** */
 
+#ifdef LINUX26
+struct workqueue_struct * mtp_if_workqueue = NULL;
+#endif
+
 /*! mtp_modinit - module init
  *
  */
@@ -150,6 +155,11 @@ static int mtp_modinit (void)
 
     printk (KERN_INFO "%s vendor_id: %04x product_id: %04x major: %d minor: %d\n", __FUNCTION__, 
             MODPARM(vendor_id), MODPARM(product_id), MODPARM(major), MODPARM(minor));
+
+#ifdef LINUX26
+    mtp_if_workqueue = create_singlethread_workqueue("mtp-if");
+    mtp_fd_init(mtp_if_workqueue);
+#endif
 
     MTP = otg_trace_obtain_tag();
     mtp_if_name = MTP_AGENT;
@@ -177,12 +187,17 @@ static void mtp_modexit (void)
 {
     printk (KERN_INFO "%s\n", __FUNCTION__);
 
+#ifdef LINUX26
+    mtp_fd_exit();
+    mtp_if_workqueue = NULL;
+#endif
+
     usbd_deregister_interface_function (&mtp_interface_driver);
 
     otg_trace_invalidate_tag(MTP);
 }
 
-
+MODULE_LICENSE("Dual BSD/GPL");
 module_init (mtp_modinit);
 module_exit (mtp_modexit);
 

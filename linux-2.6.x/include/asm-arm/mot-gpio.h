@@ -30,6 +30,8 @@
  * 02-Jan-2007  Motorola        Update high speed USB API.
  * 07-Jan-2007  Motorola        Support P3C SCM-A11 wingboard.
  * 26-Jan-2007  Motorola        Bluetooth current drain improvements.
+ * 28-Jun-2007  Motorola        Added xPIXL specific signal names.
+ * 24-Sep-2007  Motorola        Added lens cover signal name.
  * 16-Mar-2008  Motorola	Modify signals for Nevis.
  * 04-Apr-2008  Motorola        Removed Nevis's code change in gpio_signal of Marco.
  * 29-Jul-2008  Motorola        Removed Nevie's code related with GP_BP_A_PORT.
@@ -429,6 +431,48 @@ enum gpio_signal {
     GPIO_SIGNAL_WLAN_PWR_DWN_B,
     GPIO_SIGNAL_WLAN_HOST_WAKE_B,
 /* end MARCO */
+#elif defined(CONFIG_MACH_XPIXL)
+    GPIO_SIGNAL_BT_POWER = 0,
+    GPIO_SIGNAL_USB_HS_RESET,
+    GPIO_SIGNAL_USB_HS_DMA_REQ,
+    GPIO_SIGNAL_USB_HS_WAKEUP,
+    GPIO_SIGNAL_USB_HS_FLAGC,
+    GPIO_SIGNAL_USB_HS_INT,
+    GPIO_SIGNAL_USB_HS_SWITCH,
+    GPIO_SIGNAL_DISP_RST_B,
+    GPIO_SIGNAL_DISP_SD,
+    GPIO_SIGNAL_CAM_RST_B,
+    GPIO_SIGNAL_CAM_PD,
+    GPIO_SIGNAL_SP_A13,
+    GPIO_SIGNAL_XENON_CHARGE_EN,
+    GPIO_SIGNAL_KEYPAD_LOCK,
+    GPIO_SIGNAL_XENON_QUENCH,
+    GPIO_SIGNAL_WLAN_RESET,
+    GPIO_SIGNAL_BT_WAKE_B,
+    GPIO_SIGNAL_DM299_REQ_INT,
+    GPIO_SIGNAL_WLAN_CLIENT_WAKE_B,
+    GPIO_SIGNAL_SP_A8,
+    GPIO_SIGNAL_SP_A9,
+    GPIO_SIGNAL_SP_A12,
+    GPIO_SIGNAL_USB_XCVR_EN,
+    GPIO_SIGNAL_SP_A15,
+    GPIO_SIGNAL_SP_A10,
+    GPIO_SIGNAL_BT_HOST_WAKE_B,
+    GPIO_SIGNAL_SD1_DAT3,
+    GPIO_SIGNAL_SD2_DAT3,
+    GPIO_SIGNAL_WLAN_HOST_WAKE_B,
+    GPIO_SIGNAL_TV_OUT_INT,
+    GPIO_SIGNAL_FM_INT,
+    GPIO_SIGNAL_WLAN_PWR_DWN_B,
+    GPIO_SIGNAL_TV_OUT_RST,
+    GPIO_SIGNAL_XENON_HWID,
+    GPIO_SIGNAL_I_PEEK,
+    GPIO_SIGNAL_DM299_PWR_EN,
+    GPIO_SIGNAL_LCD_BACKLIGHT,
+    GPIO_SIGNAL_DMSPI_CS,
+    GPIO_SIGNAL_LENS_COVER,
+//    GPIO_SIGNAL_PWM_BKL,
+/* end XPIXL */
 #elif defined(CONFIG_MACH_NEVIS)
     GPIO_SIGNAL_BT_POWER = 0,
     GPIO_SIGNAL_USB_HS_RESET,
@@ -578,9 +622,9 @@ extern __u32 gpio_bluetooth_wake_get_data(void);
 extern void  gpio_bluetooth_power_set_data(__u32 data);
 extern __u32 gpio_bluetooth_power_get_data(void);
 
-#if defined(CONFIG_MACH_NEVIS)
+//#if defined(CONFIG_MACH_NEVIS)
 extern void gpio_bluetooth_power_fixup(void);
-#endif /* CONFIG_MACH_NEVIS */
+//#endif /* CONFIG_MACH_NEVIS */
 
 #endif /* CONFIG_MOT_FEAT_GPIO_API_BTPOWER */
 

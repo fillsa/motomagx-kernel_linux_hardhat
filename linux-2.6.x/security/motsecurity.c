@@ -218,7 +218,7 @@ static const mot_dir_perms protected_dirs[] =
                       {
                     { { "/etc/pds/janus", JANUS_DRM_WRITE }, etc_janus_files },
                     { { "/etc/pds/security", (JANUS_DRM_WRITE | SECURE_CLOCK_WRITE | OMA2_DRM_WRITE | USER_APPS_AUTH_WRITE) }, etc_security_files },
-		    { { "/ezxlocal/etc", (JANUS_DRM_WRITE | SECURE_CLOCK_WRITE | OMA2_DRM_WRITE | USER_APPS_AUTH_WRITE) }, ezxlocal_tpa_files },
+		    { { /*"/ezxlocal/etc/tpa"*/"/ezxlocal/etc", (JANUS_DRM_WRITE | SECURE_CLOCK_WRITE | OMA2_DRM_WRITE | USER_APPS_AUTH_WRITE) }, ezxlocal_tpa_files },
                     { { "/ezxlocal/download/appwrite/drm/oadb/data", OMA2_DRM_WRITE }, ezxlocal_oma2_files },
                     { { NULL, 0 }, NULL }
                       };

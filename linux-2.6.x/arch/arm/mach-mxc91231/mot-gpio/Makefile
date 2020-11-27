@@ -10,6 +10,7 @@ obj-$(CONFIG_MACH_SAIPAN)       		+= gpio_saipan.o
 obj-$(CONFIG_MACH_ELBA)         		+= gpio_elba.o
 obj-$(CONFIG_MACH_PICO)				+= gpio_pico.o
 obj-$(CONFIG_MACH_MARCO)  			+= gpio_marco.o
+obj-$(CONFIG_MACH_XPIXL)			    += gpio_xpixl.o
 obj-$(CONFIG_MACH_NEVIS)  			+= gpio_nevis.o
 
 obj-${CONFIG_MOT_FEAT_GPIO_API_BTPOWER} 	+= btpower.o

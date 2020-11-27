@@ -1013,7 +1013,7 @@ static int msc_modinit (void)
 	THROW_IF(msc_maxluns < 1, error);
 	THROW_IF(msc_maxluns > 8, error);
 
-        //printk(KERN_INFO "Copyright (c) 2004 Belcarra Technologies; www.belcarra.com; sl@belcarra.com\n");
+        printk(KERN_INFO "Copyright (c) 2004 Belcarra Technologies; www.belcarra.com; sl@belcarra.com\n");
         printk (KERN_INFO "%s vendor_id: %04x product_id: %04x major: %d minor: %d maxlun: %d\n", __FUNCTION__, 
                         MODPARM(vendor_id), MODPARM(product_id), MODPARM(major), MODPARM(minor), msc_maxluns);
 

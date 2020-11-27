@@ -15,6 +15,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  
  * 02111-1307, USA
  *
+ * Motorola 2008-Jun-17 - Protect BIASEN, BIASSPEED & MC2BEN bits during 3mm5 headset debouncing
+ * Motorola 2008-Jun-17 - Do not allow audio to disable bias settings if
+ *                        a 3.5 mm headset is attached.
+ * Motorola 2008-May-15 - Keep track of the last setting of the AHS bits
  * Motorola 2008-Feb-18 - Support for external audio amplifier
  * Motorola 2007-Mar-15 - Always keep track of the last accessory mode
  * Motorola 2007-Jan-08 - Remove setting of stereo dac and codec clocks 
@@ -87,6 +91,7 @@
 
 #include "emu_glue_utils.h" 
 #include "emu_atlas.h"
+#include "debounce.h"
 
 /*==================================================================================================
                           LOCAL TYPEDEFS (STRUCTURES, UNIONS, ENUMS)
@@ -122,6 +127,8 @@
 /*! @brief Keeps track of audio configuration. */
 AUDIO_CONFIG_T audio_config;
 
+unsigned int power_ic_audio_set_reg_rx0_data = 0;
+
 /*==================================================================================================
                                      EXPORTED SYMBOLS
 ==================================================================================================*/
@@ -136,7 +143,9 @@ EXPORT_SYMBOL(power_ic_audio_set_reg_mask_audio_tx);
 EXPORT_SYMBOL(power_ic_audio_set_reg_mask_ssi_network);
 EXPORT_SYMBOL(power_ic_audio_set_reg_mask_audio_codec);
 EXPORT_SYMBOL(power_ic_audio_set_reg_mask_audio_stereo_dac);
+//#if defined(CONFIG_MACH_PICO) || defined(CONFIG_MACH_XPIXL)|| defined(CONFIG_MACH_NEVIS) 
 EXPORT_SYMBOL(power_ic_audio_ext_audio_amp_en);
+//#endif
 #endif
 
 /*==================================================================================================
@@ -288,12 +297,44 @@ int power_ic_audio_ceramic_speaker_en(bool en_val)
 
 int power_ic_audio_set_reg_mask_audio_rx_0(unsigned int mask, unsigned int value)
 {
+    MOTO_ACCY_MASK_T accessory;
+
+    accessory = moto_accy_get_all_devices();
+    
     /* The following bits are protected and should not be modified using this function. */
     mask &= ~(POWER_IC_AUDIO_REG_AUDIO_RX_0_BIT20_RESERVED
               | POWER_IC_AUDIO_REG_AUDIO_RX_0_HSDETEN
               | POWER_IC_AUDIO_REG_AUDIO_RX_0_HSDETAUTOB
               | POWER_IC_AUDIO_REG_AUDIO_RX_0_HSLDETEN);
 
+    /* Aquire the mutex */
+    down(&power_ic_debounce_audio_mutex);
+    {    
+        /* Keep track of the last requested value of bias enable and bias speed */
+        if (mask & POWER_IC_AUDIO_REG_AUDIO_RX_0_BIASEN)
+        {
+            power_ic_audio_set_reg_rx0_data &= ~POWER_IC_AUDIO_REG_AUDIO_RX_0_BIASEN;
+            power_ic_audio_set_reg_rx0_data |= (value & POWER_IC_AUDIO_REG_AUDIO_RX_0_BIASEN);
+        }
+        if (mask & POWER_IC_AUDIO_REG_AUDIO_RX_0_BIASSPEED)
+        {
+            power_ic_audio_set_reg_rx0_data &= ~POWER_IC_AUDIO_REG_AUDIO_RX_0_BIASSPEED;
+            power_ic_audio_set_reg_rx0_data |= (value & POWER_IC_AUDIO_REG_AUDIO_RX_0_BIASSPEED);
+        }
+        
+        if ((power_ic_debouncing_3mm5_headset == 1) || 
+            ACCY_BITMASK_ISSET(accessory, MOTO_ACCY_TYPE_3MM5_HEADSET_STEREO_MIC) ||
+            ACCY_BITMASK_ISSET(accessory, MOTO_ACCY_TYPE_3MM5_HEADSET_STEREO))
+        {   
+            /* The following bits cannot be changed by the audio manager while a 3.5 mm headset
+               is attached or under debouncing. */
+            mask &= ~(POWER_IC_AUDIO_REG_AUDIO_RX_0_BIASEN
+                      | POWER_IC_AUDIO_REG_AUDIO_RX_0_BIASSPEED);
+        }
+    }
+    /* Release the mutex */
+    up(&power_ic_debounce_audio_mutex);
+  
     /* Write the new register bit values. */
     return power_ic_set_reg_mask(POWER_IC_REG_ATLAS_AUDIO_RX_0, mask, value);
 }
@@ -332,10 +373,29 @@ int power_ic_audio_set_reg_mask_audio_rx_1(unsigned int mask, unsigned int value
 
 int power_ic_audio_set_reg_mask_audio_tx(unsigned int mask, unsigned int value)
 {
+    MOTO_ACCY_MASK_T accessory;
+
+    accessory = moto_accy_get_all_devices();
+
     /* The following bits are protected and should not be modified using this function. */
-    mask &= ~(POWER_IC_AUDIO_REG_AUDIO_TX_BIT4_RESERVED
-              | POWER_IC_AUDIO_REG_AUDIO_TX_MC2BDETDBNC
-              | POWER_IC_AUDIO_REG_AUDIO_TX_MC2BDETEN);
+    mask &= ~(POWER_IC_AUDIO_REG_AUDIO_TX_MC2BDETDBNC
+              | POWER_IC_AUDIO_REG_AUDIO_TX_MC2BDETEN
+              | POWER_IC_AUDIO_REG_AUDIO_TX_BIT4_RESERVED);
+    
+    /* Aquire the mutex */
+    down(&power_ic_debounce_audio_mutex);
+    {    
+        if ((power_ic_debouncing_3mm5_headset == 1) || 
+            ACCY_BITMASK_ISSET(accessory, MOTO_ACCY_TYPE_3MM5_HEADSET_STEREO_MIC) ||
+            ACCY_BITMASK_ISSET(accessory, MOTO_ACCY_TYPE_3MM5_HEADSET_STEREO))
+        {
+            /* The following bit cannot be changed by the audio manager while a 3.5 mm headset
+               is attached or under debouncing. */
+            mask &= ~(POWER_IC_AUDIO_REG_AUDIO_TX_MC2BEN);
+        }
+    }
+    /* Release the mutex */
+    up(&power_ic_debounce_audio_mutex);
 
     /* Write the new register bit values. */
     return power_ic_set_reg_mask(POWER_IC_REG_ATLAS_AUDIO_TX, mask, value);

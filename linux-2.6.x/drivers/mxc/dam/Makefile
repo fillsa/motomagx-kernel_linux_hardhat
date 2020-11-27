@@ -1,7 +1,7 @@
 #
 # Makefile for the kernel Digital Audio MUX (DAM) device driver.
 
-#ifneq($(KERNELRELEASE))
+#ifneq ($(KERNELRELEASE))
 
 obj-$(CONFIG_MXC_DAM) 		+= dammod.o
 

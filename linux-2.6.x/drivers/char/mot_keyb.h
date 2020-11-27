@@ -1,6 +1,6 @@
 /*
  * Copyright 2004 Freescale Semiconductor, Inc.
- * Copyright (C) 2005-2006 Motorola Inc.
+ * Copyright (C) 2005-2008 Motorola Inc.
  *
  * The code contained herein is licensed under the GNU General Public
  * License. You may obtain a copy of the GNU General Public License
@@ -9,6 +9,8 @@
  * http://www.opensource.org/licenses/gpl-license.html
  * http://www.gnu.org/copyleft/gpl.html
  *
+ * Motorola 2008-May-23 - OSS CV Fix
+ * Motorola 2007-Sep-24 - Support lens cover.
  * Motorola 2006-Nov-30 - Support key lock feature.
  * Motorola 2006-Aug-03 - Add autorepeat
  * Motorola 2006-Mar-21 - Added code for Slider
@@ -169,9 +171,15 @@ typedef struct keypad_priv
 
     /*! Timer used for flip/slider interrupt handling */
     struct timer_list timer;
+
+    /*! Timer used for lens cover interrupt handling */
+    struct timer_list lens_cover_timer;
     
     /*! Information about flip/slider */
     STATUS_E status;
+        
+    /*! Information about lens cover */
+    STATUS_E lens_cover_status;
         
 } keypad_priv;
 

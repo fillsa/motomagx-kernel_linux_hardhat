@@ -59,6 +59,12 @@ config MACH_MARCO
 	  Include support for Motorola Product: marco. This includes 
 	  specific configurations for the board and its peripherals.
 
+config MACH_XPIXL
+	bool "Support Motorola Product: xpixl"
+	help
+	  Include support for Motorola Product: xpixl. This includes 
+	  specific configurations for the board and its peripherals.
+
 config MACH_NEVIS
 	bool "Support Motorola Product: nevis"
 	help

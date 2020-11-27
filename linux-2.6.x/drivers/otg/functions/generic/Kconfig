@@ -1,6 +1,6 @@
 # @(#) balden@seth2.belcarratech.com|otg/functions/generic/Kconfig|20051116204957|00686
 #
-#      Copyright (c) 2006 Motorola, Inc. 
+#      Copyright (c) 2006-2007 Motorola, Inc. 
 #
 # Changelog:
 # Date               Author           Comment
@@ -8,6 +8,8 @@
 # 04/26/2006         Motorola         Initial distribution
 # 10/18/2006         Motorola         Add Open Src Software language
 # 12/11/2006         Motorola         Changes for Open src compliance.
+# 04/25/2007         Motorola         Added PTP Configuration.
+# 01/09/2007         Motorola         Added PTP Configuration(PictSync)
 #
 # This Program is distributed in the hope that it will
 # be useful, but WITHOUT ANY WARRANTY;
@@ -133,6 +135,11 @@ choice
         help
           Configure the pbg driver in a single function non-composite configuration.
 
+        config OTG_GENERIC_CONFIG_PTP
+        bool 'ptp'
+        help
+          Configure the ptp driver in a single function non-composite configuration.
+        
         config OTG_GENERIC_CONFIG_MOUSE2
         bool 'mouse2'
         help

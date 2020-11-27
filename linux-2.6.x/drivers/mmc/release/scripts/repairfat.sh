@@ -21,8 +21,11 @@
 #
 # Date          Author          Comment
 # 12/21/2007    Motorola        create
+# 02/15/2008    Motorola        umount then dosfsck
 # 02/16/2008    Motorola        Tracing FAT panic
 # 05/04/2008	Motorola	pop up dialog
+# 02/25/2008    Motorola        if finding filesystem panic then umount sd card,this is temporary solution,wait better solutio                                n in future release
+# 12/16/2008    Motorola        Repair FAT on SD card on slot 0 instead of slot 1. Do nothing on slot 1 - should never be called
 
 ACTION_MMC=/ezxlocal/.action_mmc
 
@@ -59,12 +62,25 @@ fi
 
 if [ `ls $1` ];
 then
+	echo "repairfat: try to dosfsck"
 	/etc/initservices/services/umountMMCSD.sh $slot
+      if [ "$slot" -eq "0" ];then
+          echo "slot0"
+          
 	export SLOT=$slot
 	export ACTION="refsck"
 	echo "$SLOT $ACTION" > $ACTION_MMC
 	echo "call to mmchotplug $SLOT $ACTION"
 	exec /sbin/mmchotplug $SLOT $ACTION
+
+      else
+        echo "slot1 - do nothing"
+
+#		export SLOT=$slot
+#		export ACTION="remove"
+#		/etc/hotplug/mmc.agent
+      fi
 	echo "1" > /proc/mmc/repairfat
+	echo "repairfat: end of dosfsck"
 fi
 

@@ -66,8 +66,10 @@
  * 03/23/2007         Motorola, Inc.   Check for urb null pointer
  * 05/15/2007         Motorola, Inc.   Don't schedule a suspend bh if already scheduled
  * 11/23/2007         Motorola, Inc.   Added comments for connect to host flag
+ * 06/06/2008         Motorola, Inc.   Fix fx2lp wrong tag issue.
  * 06/12/2008         Motorola, Inc,   Fix mismatching tags issue in SCSI CSW
  * 08/08/2008         Motorola, Inc.   Commented out OTG debug from dmesg 
+ * 11/14/2008         Motorola, Inc.   Clean the work queue before module exit.
 */
 /***********************************************************************************
  *** SYSTEM SPECIFIC HEADERS
@@ -1436,7 +1438,12 @@ fx2lp_handle_pcd_isr(int irq, void *dev_id, struct pt_regs *regs)
                 else
                 {
 		  if(g_usb_bus_disable_ing()){printk("\n LYN BUS disable_ing, ret from suspend \n");break;}
+
+#ifdef LINUX26
+                  queue_work(pfx2lp->fx2lp_bus_workqueue, &(pfx2lp->bus_suspend_bh));
+#else
                   SCHEDULE_WORK(pfx2lp->bus_suspend_bh);
+#endif
                 }
                 break;
 
@@ -1766,6 +1773,12 @@ int fx2lp_pcd_mod_init_l26(void)
 static void fx2lp_pcd_mod_exit_l26(void)
 {
     PFX2LP_PCD pfx2lp = &fx2lp_pcd;
+
+#ifdef LINUX26
+    flush_workqueue(pfx2lp -> fx2lp_bus_workqueue);
+    destroy_workqueue(pfx2lp -> fx2lp_bus_workqueue);
+    pfx2lp -> fx2lp_bus_workqueue = NULL;
+#endif
 
 #ifdef CONFIG_OTG_GENERIC_HOTPLUG
     while (PENDING_WORK_ITEM(usb_hstest_hotplug.hotplug_bh)) 

@@ -21,9 +21,11 @@
  *
  * Date          Author      Comments
  * ===========   =========   ====================================================
+ * 01-Jan-2006  Motorola        Initial version.
  * 20-Mar-2008   Motorola    Remove code not related to signals in Nevis produst
  * 23-June-2008  Motorola    Add code to check GPIO_SIGNAL_GND to detect Embedded TFlash of Nevis 
- *
+ * 28-Jun-2007  Motorola        Removed MARCO specific signal code in relation to xPIXL.
+ * 03-Jul-2008  Motorola        OSS CV fix.
  */
 
 #include <linux/kernel.h>
@@ -115,7 +117,7 @@ int sdhc_find_card(int module)
 
 #if defined(CONFIG_MOT_FEAT_SD1_TF_DET)
     if(module == 0) {
-#ifndef CONFIG_MACH_NEVIS
+#if ! defined(CONFIG_MACH_NEVIS) || ! defined(CONFIG_MACH_XPIXL)
         /* TF_DET is low if card is present */
         data = gpio_signal_get_data_check(GPIO_SIGNAL_TF_DET);
 #else

@@ -41,6 +41,7 @@
  * 07/04/2007	Motorola		Add support for MC/MR
  * 09/28/2007   Motorola  		Jump out from dead loop when SDHC is in error
  * 03/25/2008	Motorola		Add support 4bit for SDA2.0 cards
+ * 06/16/2008   Motorola  		Avoid going to DSM if there is activity
  * 09/23/2008	Motorola		Support shredding card
  */
 #include <linux/moduleparam.h>
@@ -55,6 +56,7 @@
 #include <linux/kdev_t.h>
 #include <linux/blkdev.h>
 #include <linux/devfs_fs_kernel.h>
+#include <linux/mpm.h>
 
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
@@ -457,6 +459,9 @@ DBG(2, "mmc_blk_issue_rq. req nrsects is 0x%lx \n", req->nr_sectors);
 			end_that_request_last(req);
 		}
 		spin_unlock_irq(&md->lock);
+#ifdef CONFIG_MACH_PICO		
+//	mpm_handle_long_ioi();
+#endif
 	} while (ret);
 
 	mmc_card_release_host(card);

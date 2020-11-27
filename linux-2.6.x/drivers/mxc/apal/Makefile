@@ -51,6 +51,6 @@ APAL_KERNEL_INCLUDE	= -I$(LINUX_ASM) \
 
 EXTRA_CFLAGS += $(APAL_KERNEL_INCLUDE)
 
-#ifneq($(KERNELRELEASE))
+#ifneq ($(KERNELRELEASE))
 
 obj-$(CONFIG_APAL) += apal_driver.o

@@ -17,6 +17,7 @@
  * 11/15/2006  Motorola          Added workaround errata 380532
  * 02/21/2007  Motorola          Added fix for errata 411920
  * 03/28/2007  Motorola          Added cache optimization
+ * 07/14/2008  Motorola          Invalidated main locked TLB.
  */
 #include <linux/linkage.h>
 #include <asm/assembler.h>
@@ -311,6 +312,25 @@ __v6_setup:
 	mcr	p15, 0, r0, c7, c15, 0		@ clean+invalidate cache
 	mcr	p15, 0, r0, c7, c10, 4		@ drain write buffer
 	mcr	p15, 0, r0, c8, c7, 0		@ invalidate I + D TLBs
+#ifdef CONFIG_MOT_FEAT_FLUSH_LOCKED_TLB
+	/* Invalidate all locked entries in Main TLB ___START___*/
+	mrc     p15, 7, r1, c15, c1, 0          @ Read control register 
+	orr     r3, r1, #0xf0    		@ Disable Main TLB Load and Match (0xf0)
+	mcr     p15, 7, r3, c15, c1, 0          @ Write control register
+	mov     r2, #0x80000000 		@ Start 0x80000000
+Inval_locked_TLB:
+	mcr     p15, 5, r2, c15, c4, 2 		@ Write to Read Main TLB Entry
+	mrc     p15, 5, r3, c15, c5, 2 		@ Read Main TLB VA
+	cmp     r3, #0                          @ VA=0 means invalid TLB  
+	beq     Inval_next_TLB                  @ Jump to next entry
+	mcr     p15, 0, r3, c8, c7, 1		@ Invalidate the address in r3
+Inval_next_TLB:
+	add     r2, r2, #1
+	cmp     r2, #0x80000007 		@ End 0x80000007(8 locked entries)
+	bls     Inval_locked_TLB                @ less or equal 0x80000007
+	mcr     p15, 7, r1, c15, c1, 0 		@ Restore Main TLB load and Match
+	/* Invalidate all locked entries in Main TLB ___END___*/
+#endif /*CONFIG_MOT_FEAT_FLUSH_LOCKED_TLB*/
 	mcr	p15, 0, r0, c2, c0, 2		@ TTB control register
 #ifdef CONFIG_CPU_CACHE_L210
 	orr	r4, r4, #0x18			@ set outer cacheable write back pgtable

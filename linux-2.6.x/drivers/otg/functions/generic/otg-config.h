@@ -3,7 +3,7 @@
  * @(#) balden@seth2.belcarratech.com|otg/functions/generic/otg-config.h|20051116204957|11013
  *      Copyright (c) 2003-2005 Belcarra Technologies Corp
  *
- *      Copyright (c) 2006 Motorola, Inc. 
+ *      Copyright (c) 2006-2007 Motorola, Inc. 
  *
  * Changelog:
  * Date               Author           Comment
@@ -11,6 +11,8 @@
  * 04/26/2006         Motorola         Initial distribution
  * 10/18/2006         Motorola         Add Open Src Software language
  * 12/11/2006         Motorola         Changes for Open src compliance.
+ * 02/26/2007         Motorola         Add PTP config define
+ * 01/09/2007         Motorola         Added PTP config define(PictSync) 
  *
  * This Program is distributed in the hope that it will
  * be useful, but WITHOUT ANY WARRANTY;
@@ -121,6 +123,12 @@
  * Configure the pbg driver in a single function non-composite configuration.
  */
 #define CONFIG_OTG_GENERIC_CONFIG_PBG
+
+/*
+ * bool 'ptp'
+ * Configure the ptp driver in a single function non-composite configuration.
+ */
+#define CONFIG_OTG_GENERIC_CONFIG_PTP
 
 /*
  * bool 'mouse2'

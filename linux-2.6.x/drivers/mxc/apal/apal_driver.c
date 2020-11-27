@@ -1,5 +1,5 @@
  /*
- * Copyright (C) 2004,2006,2007, Motorola, Inc.
+ * Copyright (C) 2004,2006-2008 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -30,6 +30,7 @@
  * 05/15/2007   Motorola  Mute Power IC when switching clocks
  * 05/29/2007   Motorola  Add hack to avoid noise when stopping SDMA during playback
  * 06/06/2007   Motorola  Support 0 buffer size write 
+ * 02/28/2008   Motorola  Supporting FM radio
  */
 
 /*!
@@ -166,6 +167,7 @@ static struct
     BOOL codec_in_use;
     BOOL phone_call_on;
     BOOL prepare_for_dsm;
+    BOOL fmradio_on;
 }apal_driver_state;
 
 static struct
@@ -1274,6 +1276,13 @@ apal_set_audio_route
             }
             break;
 
+        case APAL_AUDIO_ROUTE_FMRADIO:
+                   {
+                       /* Nothing to do for analog FM, just remember the status for DSM */
+                       apal_driver_state.fmradio_on = TRUE;
+                   }
+                   break;
+
         default:
             APAL_ERROR_LOG ("%s() called with invalid audio_route = %d", __FUNCTION__, audio_route);
     }
@@ -1347,6 +1356,11 @@ apal_clear_audio_route
     	    ssi_transmit_enable (apal_driver_state.mod, false);
             mxc_clks_disable(SSI2_IPG_CLK);
             mxc_clks_disable(SSI2_BAUD);
+            break;
+
+        case APAL_AUDIO_ROUTE_FMRADIO:
+            /* Nothing to do for analog FM, just remember the status for DSM */
+            apal_driver_state.fmradio_on = FALSE;
             break;
 
         default:
@@ -1639,6 +1653,7 @@ apal_open
     apal_driver_state.codec_in_use      = FALSE;
     apal_driver_state.phone_call_on     = FALSE;
     apal_driver_state.prepare_for_dsm   = FALSE;
+    apal_driver_state.fmradio_on        = FALSE;
 
     init_waitqueue_head (&apal_tx_wait_queue);
     init_waitqueue_head (&apal_rx_wait_queue);
@@ -2473,6 +2488,11 @@ apal_suspend
         if (apal_driver_state.phone_call_on == TRUE)
         {
             /* Don't do anything. Power IC is already setup for voice call */
+        }
+        else if (apal_driver_state.fmradio_on == TRUE)
+        {
+            /* Don't do anything. Power IC is already setup for FM radio */
+             APAL_DEBUG_LOG ("apal_driver_state.fmradio_on == TRUE\n");
         }
         else if (apal_driver_state.stdac_in_use || apal_driver_state.codec_in_use)
         {

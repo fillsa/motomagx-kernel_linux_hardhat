@@ -47,6 +47,10 @@
 #include <asm/arch/clock.h>
 #include "mxc_i2c_reg.h"
 
+/*! for overriding the bus speed
+   This flag complements the ones for i2c_msg.flags */
+#define I2C_M_BUS_SPEED_OVERRIDE   0x1000 
+
 
 #ifdef CONFIG_MOT_FEAT_I2C_BLK_SUSPEND
 enum mxc_i2c_dev_status {
@@ -256,6 +260,8 @@ static void mxc_i2c_start(mxc_i2c_device * dev, struct i2c_msg *msg)
 	unsigned int addr_trans;
 	int retry = 16;
 
+	/* Set the frequency divider */
+	writew(dev->clkdiv, dev->membase + MXC_IFDR);  
 	/*
 	 * Set the slave address and the requested transfer mode
 	 * in the data register
@@ -559,6 +565,16 @@ static int mxc_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 		 * Send the slave address and transfer direction in the
 		 * address cycle
 		 */
+		 
+		/* If we want to run at 100kbit/s we have to override default settings */ 
+		if (msgs[i].flags & I2C_M_BUS_SPEED_OVERRIDE)
+        {
+		    dev->clkdiv = 0x0B;
+        }
+		else
+        {
+		    dev->clkdiv = I2C1_FRQ_DIV;
+		}
 		if (i == 0) {
 			/*
 			 * Send a start or repeat start signal

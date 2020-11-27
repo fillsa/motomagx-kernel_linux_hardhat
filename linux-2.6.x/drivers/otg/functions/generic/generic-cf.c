@@ -8,7 +8,7 @@
  *      Stuart Lynne <sl@belcarra.com>, 
  *      Bruce Balden <balden@belcarra.com>
  *
- *      Copyright (c) 2006 Motorola, Inc. 
+ *      Copyright (c) 2006-2008 Motorola, Inc. 
  *
  * Changelog:
  * Date               Author           Comment
@@ -16,7 +16,9 @@
  * 04/26/2006         Motorola         Initial distribution
  * 10/18/2006         Motorola         Add Open Src Software language
  * 12/11/2006         Motorola         Changes for Open src compliance.
- *
+ * 02/26/2007         Motorola         Changes for PTP.
+ * 01/09/2007         Motorola         Changes for PTP(PictSync) 
+ * 08/06/2008         Motorola         MaxPower =0xfa for PTP mode
  * This Program is distributed in the hope that it will
  * be useful, but WITHOUT ANY WARRANTY;
  * without even the implied warranty of
@@ -109,6 +111,8 @@ static char default_predefined_configuration[] = "msc";
 static char default_predefined_configuration[] = "mtp";
 #elif CONFIG_OTG_GENERIC_CONFIG_PBG
 static char default_predefined_configuration[] = "pbg";
+#elif CONFIG_OTG_GENERIC_CONFIG_PTP
+static char default_predefined_configuration[] = "ptp";
 
 #elif CONFIG_OTG_GENERIC_CONFIG_MOUSE2
 static char default_predefined_configuration[] = "mouse2";
@@ -266,6 +270,22 @@ struct generic_config generic_configs[] = {
         .configuration_description.bMaxPower = 0x32, /* 100mA */
         },
         #endif /* defined(CONFIG_OTG_PBG)  */
+		#if defined(CONFIG_OTG_PTP) || defined(CONFIG_OTG_PTP_MODULE) 
+        {
+        .composite_driver.driver.name = "ptp",
+        .interface_names = "pbg-if",
+        .configuration_description.iConfiguration = "Motorola PTP Configuration",
+        .device_description.bDeviceClass = 0,
+        .device_description.bDeviceSubClass = 0,
+        .device_description.bDeviceProtocol = 0,
+        .device_description.idVendor = __constant_cpu_to_le16(CONFIG_OTG_PBG_VENDORID),
+        .device_description.idProduct = __constant_cpu_to_le16(CONFIG_OTG_PBG_PRODUCTID),
+        .device_description.bcdDevice = __constant_cpu_to_le16(CONFIG_OTG_PBG_BCDDEVICE),
+        .device_description.iManufacturer = CONFIG_OTG_GENERIC_MANUFACTURER,
+        .device_description.iProduct = CONFIG_OTG_PBG_PRODUCT_NAME,
+        .configuration_description.bMaxPower = 0xfa, /* 500mA */
+        },
+        #endif /* defined(CONFIG_OTG_PTP)  */
 
         #if defined(CONFIG_OTG_MOUSE) || defined(CONFIG_OTG_MOUSE_MODULE)
         {

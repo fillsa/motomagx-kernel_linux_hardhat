@@ -362,9 +362,9 @@ static void get_hardware_info(POWER_IC_HARDWARE_T * info)
 #else
     info->form_factor = POWER_IC_FORM_FACTOR_UNKNOWN;
 #endif
-#if defined CONFIG_MACH_NEVIS
+//#if defined CONFIG_MACH_NEVIS
     info->soc_bt_shared = 1;
-#endif
+//#endif
 }
 
 /*!

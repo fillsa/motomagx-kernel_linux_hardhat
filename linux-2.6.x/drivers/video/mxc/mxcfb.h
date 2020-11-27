@@ -28,6 +28,11 @@
 
 #include <linux/fb.h>
 
+#define MXCFB_SCREEN_TOP_OFFSET         0
+#define MXCFB_SCREEN_LEFT_OFFSET        2
+#define MXCFB_SCREEN_WIDTH              240
+#define MXCFB_SCREEN_HEIGHT             320
+
 /*
  * Bits per pixel defines
  */
@@ -42,6 +47,31 @@
 #define MXCFB_MAIN_DEVICE       "/dev/fb/0"
 #define MXCFB_OVERLAY_DEVICE    "/dev/fb/1"
 #define MXCFB_CLI_DEVICE        "/dev/fb/2"
+
+#define	NOP			0x00	// No Operation 
+#define	SWRESET		0x01	// Software reset
+#define	RDDIDIF		0x04	// Read display identification information
+#define	SLPIN		0x10	// Sleep in
+#define	SLPOUT		0x11	// Sleep out
+#define	PTLON		0x12	// Partial mode on
+#define	NORON		0x13	// Normal display mode on
+#define	INVOFF		0x20	// Display Inversion off
+#define	INVON		0x21	// Display inversion on
+#define	DISPOFF		0x28	// Display off
+#define	DISPON		0x29	// Display on 41
+#define	RAMWR		0x2C	// Memory write
+#define	RAMRD		0x2E	// Memory read
+#define	PTLAR		0x30	// Partial area
+#define	TEOFF		0x34	// Tearing effect line off
+#define	TEON		0x35	// Tearing effect line on
+#define	MADCTL		0x36	// Memory access control
+#define	IDMOFF		0x38	// Idle mode off
+#define	IDMON		0x39	// Idle mode on
+#define	VSYNCOUT	0xBC	// External VSYNC disable
+#define	VSYNCIN		0xBD	// External VSYNC enable
+#define	DTRNSE		0xBF	// Data trans end
+#define	IFMOD		0xC2	// Interface mode select
+#define	ATRFSH		0xC3	// Auto refresh
 
 struct mxcfb_gbl_alpha {
 	int enable;

@@ -159,7 +159,7 @@ Let's name the configuration option CONFIG_MOT_FEAT_HOLOGRAPH_DRIVER.
 Now, edit /vobs/jem/hardhat/Makefile and add something similar to the
 following to the area of the file dealing with PRODUCT_SPECIFIC_DEFCONFIGS:
 
-    ifneq($(HW_HOLOGRAPHIC_PROJECTOR),0)
+    ifneq ($(HW_HOLOGRAPHIC_PROJECTOR),0)
         PRODUCT_SPECIFIC_DEFCONFIGS += ${LJAPDEFCONFIGSRC}/feature/holograph.config
     endif
 

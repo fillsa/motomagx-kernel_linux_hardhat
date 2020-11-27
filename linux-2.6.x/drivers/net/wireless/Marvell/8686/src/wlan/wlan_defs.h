@@ -28,7 +28,10 @@ Change log:
 /*****************************************************
  Date         Author         Comment
  ==========   ===========    ==========================
+ 21-Mar-2008  Motorola       Integrate Marvell recovery mechanism in getSNR
  19-May-2008  Motorola       Add MPM support.
+ 12-Jun-2008  Motorola       Integrate Marvell fix for ARP filtering
+ 13-Jun-2008  Motorola       Increase Timer on getSNR.
  17-Jun-2008  Motorola       WIFI driver :integrate Marvell 8686 release (81048p5_26340p78)
 *******************************************************/
 
@@ -271,9 +274,12 @@ hexdump(char *prompt, u8 * buf, int len)
 #define MRVDRV_TIMER_10S		10000
 #define MRVDRV_TIMER_5S			5000
 #define MRVDRV_TIMER_1S			1000
+//#define MRVDRV_TIMER_2S			2*HZ
+//#define MRVDRV_TIME_OUT_5S		5*HZ
+#define MRVDRV_CMD_TIME_OUT_5S	5*HZ
+
 #define MRVDRV_SNAP_HEADER_LEN          8
 #define MRVDRV_ETH_HEADER_SIZE          14
-#define MRVDRV_CMD_TIME_OUT_5S	5*HZ
 #define ARP_FILTER_MAX_BUF_SIZE		68
 
 #define	WLAN_UPLD_SIZE			2312

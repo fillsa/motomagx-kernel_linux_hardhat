@@ -19,6 +19,10 @@
  * Motorola 2008-Jul-07 - Change keypad current level of Nevis to 6MA
  * Motorola 2008-Apr-29 - Support keypad light ramping up and down
  * Motorola 2008-Mar-28 - Fix the ABMODE bits
+ * Motorola 2008-Mar-03 - Change brightness
+ * Motorola 2008-Mar-11 - Added handling of MORPHING_MODE_PHONE_WITHOUT_REVIEW.
+ * Motorola 2008-Feb-25 - Change brightness and made it possible to turn on/off keypad 
+ *                                     and display backlight individually
  * Motorola 2008-Feb-18 - Support Nevis Lighting
  * Motorola 2008-Jan-29 - Add xPIXL morphing mode support
  * Motorola 2008-Jan-10 - Make the share LED working on keypad
@@ -96,8 +100,11 @@ static bool lights_fl_region_main_display_maxim(const LIGHTS_FL_LED_CTL_T *pCtlD
 static bool lights_fl_region_main_display_max6946(const LIGHTS_FL_LED_CTL_T *pCtlData, LIGHTS_FL_COLOR_T nStep);
 static bool lights_fl_region_main_display_max7314(const LIGHTS_FL_LED_CTL_T *pCtlData, LIGHTS_FL_COLOR_T nStep);
 static bool lights_fl_region_main_cli_display(const LIGHTS_FL_LED_CTL_T *pCtlData, LIGHTS_FL_COLOR_T nStep);
-static bool lights_fl_region_keypad(const LIGHTS_FL_LED_CTL_T *pCtlData, LIGHTS_FL_COLOR_T nStep);
+#ifdef CONFIG_MACH_NEVIS
 static bool lights_fl_region_keypad_nevis(const LIGHTS_FL_LED_CTL_T *pCtlData, LIGHTS_FL_COLOR_T nStep);
+#else
+static bool lights_fl_region_keypad(const LIGHTS_FL_LED_CTL_T *pCtlData, LIGHTS_FL_COLOR_T nStep);
+#endif
 #ifdef CONFIG_MACH_XPIXL
 static int lights_fl_region_keypad_set_section(LIGHTS_FL_COLOR_T nStep);
 static bool lights_fl_region_ledkp(const LIGHTS_FL_LED_CTL_T *pCtlData, LIGHTS_FL_COLOR_T nColor); 
@@ -117,7 +124,7 @@ enum
     LIGHTS_FL_LEDR2_NAVI,
     LIGHTS_FL_LEDR3_TRASH,
     LIGHTS_FL_LEDG1_SHARE,
-    LIGHTS_FL_LEDG2_KODAK,
+    LIGHTS_FL_LEDG2_REVIEW, //	LIGHTS_FL_LEDG2_KODAK,
     LIGHTS_FL_LEDG3_NUMBER_A,
     LIGHTS_FL_LEDB2_CAPTURE_PLAYBACK,
     LIGHTS_FL_LEDB3_NUMBER_B,
@@ -147,7 +154,7 @@ typedef struct
 typedef struct
 {
     unsigned int navi_on;
-    unsigned int kodak_on;
+    unsigned int /*kodak_on*/ review_on ;
     unsigned int number_on;
     unsigned int toggle_on;
     unsigned int share_on;
@@ -218,6 +225,13 @@ typedef struct
 /*@}*/
 
 /*!
+ * @name Register LED Control 5
+ */
+/*@{*/
+#define LIGHTS_FL_DUTY_CYCLE_SHIFT           3
+/*@}*/
+
+/*!
  * @bits GPO1EN and GPO1STBY in register PWR MISC 
  */
 /*@{*/
@@ -254,8 +268,10 @@ typedef struct
 #define LIGHTS_FL_LEDR3_TRASH_RAMPDOWN                  0x008000
 #define LIGHTS_FL_LEDG1_SHARE_RAMPUP                    0x000002
 #define LIGHTS_FL_LEDG1_SHARE_RAMPDOWN                  0x000010
-#define LIGHTS_FL_LEDG2_KODAK_RAMPUP                    0x000080
-#define LIGHTS_FL_LEDG2_KODAK_RAMPDOWN                  0x000400
+//#define LIGHTS_FL_LEDG2_KODAK_RAMPUP                    0x000080
+//#define LIGHTS_FL_LEDG2_KODAK_RAMPDOWN                  0x000400
+#define LIGHTS_FL_LEDG2_REVIEW_RAMPUP                   0x000080
+#define LIGHTS_FL_LEDG2_REVIEW_RAMPDOWN                 0x000400
 #define LIGHTS_FL_LEDG3_NUMBER_A_RAMPUP                 0x002000
 #define LIGHTS_FL_LEDG3_NUMBER_A_RAMPDOWN               0x010000
 #define LIGHTS_FL_LEDB2_CAPTURE_PLAYBACK_RAMPUP         0x000100
@@ -263,6 +279,10 @@ typedef struct
 #define LIGHTS_FL_LEDB3_NUMBER_B_RAMPUP                 0x004000
 #define LIGHTS_FL_LEDB3_NUMBER_B_RAMPDOWN               0x020000
 /*@}*/
+
+/* TCMD Test Modes */
+#define TCMD_TEST_MODE_OFF 0
+#define TCMD_TEST_MODE_ON  1
 
 /* Defines the brightness of main and cli display.*/
 const static struct
@@ -308,6 +328,8 @@ const static struct
 /* and used in xPIXL baseline only.  */
 #define PWMSAR              IO_ADDRESS(PWM_BASE_ADDR + 0x0c)
 #endif 
+
+#ifdef CONFIG_MACH_NEVIS
 /*!
  * @name Adaptive boost defines
  */
@@ -339,6 +361,7 @@ const static struct
  * @name OFF value for duty cycle and current level
  */
 #define DC_CL_OFF  0x000010
+#endif
 
 /*******************************************************************************************
  * GLOBAL VARIABLES
@@ -379,7 +402,7 @@ const LIGHTS_FL_REGION_CFG_T LIGHTS_FL_region_ctl_tb[LIGHTS_FL_MAX_REGIONS] =
     { NULL,                                        {0, NULL}}, /* Motorola Logo */
     {(void*)lights_fl_region_gpio,                 {0, power_ic_gpio_lights_set_keypad_slider}},  /* Navigation Keypad Backlight */
     {(void*)lights_fl_region_gpio,                 {0, power_ic_gpio_lights_set_keypad_base}}, /* Keypad Backlight */
-    {(void*)lights_fl_region_tri_color,            {3, NULL}}, /* Bluetooth Status LED */
+    {(void*)lights_fl_region_tri_color,            {/*1*/3, NULL}}, /* Bluetooth Status LED */
     {(void*)lights_fl_region_sol_led,              {0, NULL}}, /* SOL */
     { NULL,                                        {0, NULL}}, /* Privacy LED */
     {(void*)lights_fl_region_tri_color,            {1, NULL}}, /* Tri Color LED #1 */
@@ -392,7 +415,7 @@ const LIGHTS_FL_REGION_CFG_T LIGHTS_FL_region_ctl_tb[LIGHTS_FL_MAX_REGIONS] =
     {NULL,                                         {0, NULL}}, /* CLI Display Backlight */
     {NULL,                                         {0, NULL}}, /* Motorola Logo */
     {NULL,                                         {0, NULL}}, /* Navigation Keypad Backlight */
-    {NULL,                                         {0, NULL}}, /* Keypad Backlight */
+    {(void*)lights_fl_region_keypad,               {0, NULL}}, /* Keypad Backlight */
     {(void*)lights_fl_region_tri_color,            {3, NULL}}, /* Bluetooth Status LED */
     {(void*)lights_fl_region_sol_led,              {0, NULL}}, /* SOL */
     {(void*)lights_fl_region_ledkp,                {0, NULL}}, /* Privacy LED */
@@ -407,11 +430,11 @@ const LIGHTS_FL_REGION_CFG_T LIGHTS_FL_region_ctl_tb[LIGHTS_FL_MAX_REGIONS] =
     {NULL,                                         {0, NULL}}, /* Motorola Logo */
     {(void*)lights_fl_region_gpio,                 {0, power_ic_gpio_lights_set_keypad_base}},  /* Navigation Keypad Backlight */
     {(void*)lights_fl_region_gpio,                 {0, power_ic_gpio_lights_set_keypad_base}}, /* Keypad Backlight */
-    {(void*)lights_fl_region_tri_color,            {3, NULL}}, /* Bluetooth Status LED */
+    {(void*)lights_fl_region_tri_color,            {/*1*/3, NULL}}, /* Bluetooth Status LED */
     {(void*)lights_fl_region_sol_led,              {0, NULL}}, /* SOL */
-    {NULL,                                         {1, NULL}}, /* Privacy LED */
-    {NULL,                                         {0, NULL}}, /* Tri Color LED #1 */
-    {NULL,                                         {0, NULL}}, /* Tri Color LED #2 */
+    {NULL,                                         {/*0*/1, NULL}}, /* Privacy LED */
+    {NULL,                                         {/*1*/0, NULL}}, /* Tri Color LED #1 */
+    {NULL,                                         {/*2*/0, NULL}}, /* Tri Color LED #2 */
     {NULL,                                         {0, NULL}}, /* WiFi Status LED */
 
 #elif defined(CONFIG_MACH_NEVIS)
@@ -435,7 +458,7 @@ const LIGHTS_FL_REGION_CFG_T LIGHTS_FL_region_ctl_tb[LIGHTS_FL_MAX_REGIONS] =
     { NULL,                                        {0, NULL}}, /* Motorola Logo */
     {(void*)lights_fl_region_gpio,                 {0, power_ic_gpio_lights_set_keypad_slider}},  /* Navigation Keypad Backlight */
     {(void*)lights_fl_region_gpio,                 {0, power_ic_gpio_lights_set_keypad_base}}, /* Keypad Backlight */
-    {(void*)lights_fl_region_tri_color,            {3, NULL}}, /* Bluetooth Status LED */
+    {(void*)lights_fl_region_tri_color,            {/*1*/3, NULL}}, /* Bluetooth Status LED */
     {(void*)lights_fl_region_sol_led,              {0, NULL}},  /* SOL */
     {NULL,                                         {0, NULL}}, /* Privacy LED */
     {(void*)lights_fl_region_tri_color,            {1, NULL}}, /* Tri Color LED #1 */
@@ -449,7 +472,7 @@ const LIGHTS_FL_REGION_CFG_T LIGHTS_FL_region_ctl_tb[LIGHTS_FL_MAX_REGIONS] =
     {NULL,                                         {0, NULL}}, /* Motorola Logo */
     {NULL,                                         {0, NULL}}, /* Navigation Keypad Backlight */
     {(void*)lights_fl_region_keypad,               {0, NULL}}, /* Keypad Backlight */
-    {(void*)lights_fl_region_tri_color,            {3, NULL}}, /* Bluetooth Status LED */
+    {(void*)lights_fl_region_tri_color,            {/*1*/3, NULL}}, /* Bluetooth Status LED */
     {(void*)lights_fl_region_sol_led,              {0, NULL}}, /* SOL */
     {NULL,                                         {0, NULL}}, /* Privacy LED */
     {(void*)lights_fl_region_tri_color,            {1, NULL}}, /* Tri Color LED #1 */
@@ -463,7 +486,7 @@ const LIGHTS_FL_REGION_CFG_T LIGHTS_FL_region_ctl_tb[LIGHTS_FL_MAX_REGIONS] =
     {NULL,                                         {0, NULL}}, /* Motorola Logo */
     {NULL,                                         {0, NULL}}, /* Navigation Keypad Backlight */
     {NULL,                                         {0, NULL}}, /* Keypad Backlight */
-    {NULL,                                         {0, NULL}}, /* Bluetooth Status LED */
+    {NULL,                                         {/*1*/0, NULL}}, /* Bluetooth Status LED */
     {NULL,                                         {0, NULL}}, /* SOL */
     {NULL,                                         {0, NULL}}, /* Privacy LED */
     {NULL,                                         {0, NULL}}, /* Tri Color LED #1 */
@@ -491,7 +514,7 @@ const LIGHTS_FL_REGION_CFG_T LIGHTS_FL_region_ctl_tb[LIGHTS_FL_MAX_REGIONS] =
     {NULL,                                         {0, NULL}}, /* Motorola Logo */
     {(void*)lights_fl_region_keypad,               {0, NULL}}, /* Navigation Keypad Backlight */
     {(void*)lights_fl_region_keypad,               {0, NULL}}, /* Keypad Backlight */
-    {(void*)lights_fl_region_tri_color,            {3, NULL}}, /* Bluetooth Status LED */
+    {(void*)lights_fl_region_tri_color,            {/*1*/3, NULL}}, /* Bluetooth Status LED */
     {(void*)lights_fl_region_sol_led,              {0, NULL}}, /* SOL */
     {NULL,                                         {0, NULL}}, /* Privacy LED */
     {(void*)lights_fl_region_tri_color,            {1, NULL}}, /* Tri Color LED #1 */
@@ -505,6 +528,9 @@ const LIGHTS_FL_REGION_CFG_T LIGHTS_FL_region_ctl_tb[LIGHTS_FL_MAX_REGIONS] =
  */
 static MORPHING_DATA_T morping_data = {MORPHING_MODE_PHONE, true, false, 0};
 
+/* TCMD test mode flag */
+static bool tcmd_test_mode = TCMD_TEST_MODE_OFF;
+
 /*
  * xPIXL pwm brightness table, convert nStep to pwm(%)
  */
@@ -513,7 +539,7 @@ const unsigned char bl_pwm_brightness_tb[LIGHTS_NUM_DISPLAY_STEPS] =
     /* PWM is not handled by ATLAS for xPIXL. Thus the code is located here to minimize effort */
     /* PWM duty cycle = 100 is used, i.e. it corresponds to a procentage (number 100 = 100%)   */ 
     /* See settings for PWM in ./jem/hardhat/linux-2.6.x/arch/arm/mach-mxc91231/mot-gpio/mot-gpio-scma11.h */
-    0, 10, 25, 40, 55, 70, 85, 100 
+    0, 8, 20, 30, 45, 60, 75, 100 
 };
 
 /*
@@ -521,10 +547,11 @@ const unsigned char bl_pwm_brightness_tb[LIGHTS_NUM_DISPLAY_STEPS] =
  */
 static const MORPHING_SEGMENT_T led_onoff_tb[MORPHING_MODE_NUM] =
 {
-    /*  navi           kodak         number        toggle        share        trash   */
+    /*  navi           kodak(review)         number        toggle        share        trash   */
     {SET_INACTIVE, SET_INACTIVE, SET_INACTIVE, SET_INACTIVE, SET_INACTIVE, SET_INACTIVE}, /* standby  */
     {SET_ACTIVE  , SET_INACTIVE, SET_INACTIVE, SET_INACTIVE, SET_INACTIVE, SET_INACTIVE}, /* navi     */
-    {SET_ACTIVE  , SET_ACTIVE  , SET_ACTIVE  , SET_INACTIVE, SET_INACTIVE, SET_INACTIVE}, /* phone    */
+    {SET_ACTIVE  , SET_ACTIVE  , SET_ACTIVE  , SET_INACTIVE, SET_INACTIVE, SET_INACTIVE}, /* phone    */	
+    {SET_ACTIVE  , SET_INACTIVE, SET_ACTIVE  , SET_INACTIVE, SET_INACTIVE, SET_INACTIVE}, /* phone w/o review    */
     {SET_ACTIVE  , SET_INACTIVE, SET_INACTIVE, SET_ACTIVE  , SET_INACTIVE, SET_INACTIVE}, /* capture  */
     {SET_ACTIVE  , SET_INACTIVE, SET_INACTIVE, SET_ACTIVE  , SET_ACTIVE  , SET_ACTIVE  }, /* playback */
     {SET_ACTIVE  , SET_INACTIVE, SET_INACTIVE, SET_ACTIVE  , SET_INACTIVE, SET_ACTIVE  }, /* playback w/o share  */
@@ -540,83 +567,83 @@ static const MORPHING_SEGMENT_T led_onoff_tb[MORPHING_MODE_NUM] =
 const int led_bl_tb[LIGHTS_FL_TOTAL_LED_SEGMENT][LIGHTS_NUM_DISPLAY_STEPS] =
 {
     { /* LIGHTS_FL_LEDR1_NUMBER */
-        {(0x00 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
-        {(0x05 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
-        {(0x09 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
-        {(0x0D << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
-        {(0x12 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
-        {(0x16 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
-        {(0x1A << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
-        {(0x1F << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)}
+        {(0x00 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x03 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
+        {(0x02 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x03 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
+        {(0x06 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x03 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
+        {(0x09 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x03 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
+        {(0x0D << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x03 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
+        {(0x12 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x03 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
+        {(0x18 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x03 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
+        {(0x1F << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x03 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)}
     },
     { /* LIGHTS_FL_LEDR2_NAVI */
         {(0x00 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
-        {(0x05 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
+        {(0x02 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
+        {(0x06 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
         {(0x09 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
         {(0x0D << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
         {(0x12 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
-        {(0x16 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
-        {(0x1A << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
+        {(0x18 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
         {(0x1F << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x02 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)}
     },
     { /* LIGHTS_FL_LEDR3_TRASH */
         {(0x00 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
-        {(0x05 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
+        {(0x02 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
+        {(0x06 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
         {(0x09 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
         {(0x0D << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
         {(0x12 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
-        {(0x16 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
-        {(0x1A << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
+        {(0x18 << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)},
         {(0x1F << LIGHTS_FL_TRI_COLOR_RED_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_RED_CL_INDEX)}
     },
     { /* LIGHTS_FL_LEDG1_SHARE */
-        {(0x00 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
-        {(0x05 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
-        {(0x09 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
-        {(0x0D << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
-        {(0x12 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
-        {(0x16 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
-        {(0x1A << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
-        {(0x1F << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)}
+        {(0x00 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
+        {(0x02 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
+        {(0x06 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
+        {(0x09 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
+        {(0x0D << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
+        {(0x12 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
+        {(0x18 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
+        {(0x1F << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)}
     },
-    { /* LIGHTS_FL_LEDG2_KODAK */
+    { /* LIGHTS_FL_LEDG2_REVIEW(LIGHTS_FL_LEDG2_KODAK) */
         {(0x00 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
-        {(0x05 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
+        {(0x02 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
+        {(0x06 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
         {(0x09 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
         {(0x0D << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
         {(0x12 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
-        {(0x16 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
-        {(0x1A << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
+        {(0x18 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
         {(0x1F << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)}
     },
     { /* LIGHTS_FL_LEDG3_NUMBER_A */
         {(0x00 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
-        {(0x05 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
+        {(0x02 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
+        {(0x06 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
         {(0x09 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
         {(0x0D << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
         {(0x12 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
-        {(0x16 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
-        {(0x1A << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
+        {(0x18 << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)},
         {(0x1F << LIGHTS_FL_TRI_COLOR_GREEN_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_GREEN_CL_INDEX)}
     },
     { /* LIGHTS_FL_LEDB2_CAPTURE_PLAYBACK */
         {(0x00 << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
-        {(0x05 << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
+        {(0x02 << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
+        {(0x06 << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
         {(0x09 << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
         {(0x0D << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
         {(0x12 << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
-        {(0x16 << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
-        {(0x1A << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
+        {(0x18 << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
         {(0x1F << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x01 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)}
     },
     { /* LIGHTS_FL_LEDB3_NUMBER_B */
         {(0x00 << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
-        {(0x05 << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
+        {(0x02 << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
+        {(0x06 << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
         {(0x09 << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
         {(0x0D << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
         {(0x12 << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
-        {(0x16 << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
-        {(0x1A << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
+        {(0x18 << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)},
         {(0x1F << LIGHTS_FL_TRI_COLOR_BLUE_DC_INDEX) | (0x00 << LIGHTS_FL_TRI_COLOR_BLUE_CL_INDEX)}
     }
 };
@@ -730,8 +757,13 @@ static bool lights_fl_region_main_display
 
 #ifdef CONFIG_MACH_XPIXL
     lights_funlights_set_bl_pwm_brightness(bl_pwm_brightness_tb[nStep]);
-    error = lights_fl_region_keypad_set_section(nStep);
-#else 
+	if ((MORPHING_MODE_NUM > morping_data.mode) && (tcmd_test_mode == TCMD_TEST_MODE_OFF))
+    {
+        error = lights_fl_region_keypad_set_section(nStep);
+    }
+
+    tcmd_test_mode = TCMD_TEST_MODE_OFF; // Make sure TCMD test mode is disabled again
+#else
 #ifndef CONFIG_MACH_NEVIS
     if(nStep)
     {
@@ -980,45 +1012,7 @@ static bool lights_fl_region_main_cli_display
     return (error != 0);
 }
 
-/*!
- * @brief Update keypad backlight
- *
- * Turn on or off the keypad backlight when it is connected to the power IC.
- *
- * @param  pCtlData    Pointer to the control data for the region. 
- * @param  nStep       The brightness step to set the region to. 
- *
- * @return     true  region updated
- *             false region not updated
- */
-static bool lights_fl_region_keypad
-(
-    const LIGHTS_FL_LED_CTL_T *pCtlData, 
-    LIGHTS_FL_COLOR_T nStep
-)    
-{
-    int error = 0;
-   
-    tracemsg(_k_d("=>Update the keypad backlight with step %d"), nStep);
-    if (nStep >= LIGHTS_NUM_KEYPAD_STEPS)
-    {
-        nStep = LIGHTS_NUM_KEYPAD_STEPS-1;
-    }
-
-    if(nStep)
-    {
-        error = power_ic_set_reg_mask(POWER_IC_REG_ATLAS_LED_CONTROL_2,
-                                      LIGHTS_FL_KEYPAD_DC_MASK,
-                                      LIGHTS_FL_KEYPAD_DC_MASK);
-    }
-    else
-    {
-        error = power_ic_set_reg_mask(POWER_IC_REG_ATLAS_LED_CONTROL_2,
-                                      LIGHTS_FL_KEYPAD_DC_MASK,
-                                      0);
-    }
-    return (error != 0);
-}
+#if defined(CONFIG_MACH_NEVIS)
 /*!
  * @brief Update keypad backlight for Nevis
  *
@@ -1088,8 +1082,56 @@ static bool lights_fl_region_keypad_nevis
     }
     return (error != 0);
 }
+#else
+
+/*!
+ * @brief Update keypad backlight
+ *
+ * Turn on or off the keypad backlight when it is connected to the power IC.
+ *
+ * @param  pCtlData    Pointer to the control data for the region. 
+ * @param  nStep       The brightness step to set the region to. 
+ *
+ * @return     true  region updated
+ *             false region not updated
+ */
+static bool lights_fl_region_keypad
+(
+    const LIGHTS_FL_LED_CTL_T *pCtlData, 
+    LIGHTS_FL_COLOR_T nStep
+)    
+{
+    int error = 0;
+   
+    tracemsg(_k_d("=>Update the keypad backlight with step %d"), nStep);
+    if (nStep >= LIGHTS_NUM_KEYPAD_STEPS)
+    {
+        nStep = LIGHTS_NUM_KEYPAD_STEPS-1;
+    }
 
 #ifdef CONFIG_MACH_XPIXL
+    morping_data.mode = MORPHING_MODE_PHONE;
+    error = lights_fl_region_keypad_set_section(nStep);
+#else
+    if(nStep)
+    {
+        error = power_ic_set_reg_mask(POWER_IC_REG_ATLAS_LED_CONTROL_2,
+                                      LIGHTS_FL_KEYPAD_DC_MASK,
+                                      LIGHTS_FL_KEYPAD_DC_MASK);
+    }
+    else
+    {
+        error = power_ic_set_reg_mask(POWER_IC_REG_ATLAS_LED_CONTROL_2,
+                                      LIGHTS_FL_KEYPAD_DC_MASK,
+                                      0);
+    }
+#endif
+    return (error != 0);
+}
+
+#endif
+
+#if defined(CONFIG_MACH_XPIXL)
 /*!
  * @brief Update keypad morphing lighting
  *
@@ -1128,8 +1170,9 @@ static int lights_fl_region_keypad_set_section
                                       (led_onoff_tb[morping_data.mode].number_on & LIGHTS_FL_LEDR1_NUMBER_RAMPUP) | 
                                       (led_onoff_tb[morping_data.mode].navi_on & LIGHTS_FL_LEDR2_NAVI_RAMPUP) | 
                                       (led_onoff_tb[morping_data.mode].trash_on & LIGHTS_FL_LEDR3_TRASH_RAMPUP) | 
-                                      (led_onoff_tb[morping_data.mode].share_on & LIGHTS_FL_LEDG1_SHARE_RAMPUP) | 
-                                      (led_onoff_tb[morping_data.mode].kodak_on & LIGHTS_FL_LEDG2_KODAK_RAMPUP) | 
+                                      (led_onoff_tb[morping_data.mode].share_on & LIGHTS_FL_LEDG1_SHARE_RAMPUP) |
+//                                      (led_onoff_tb[morping_data.mode].kodak_on & LIGHTS_FL_LEDG2_KODAK_RAMPUP) | 
+                                      (led_onoff_tb[morping_data.mode].review_on & LIGHTS_FL_LEDG2_REVIEW_RAMPUP) |
                                       (led_onoff_tb[morping_data.mode].number_on & LIGHTS_FL_LEDG3_NUMBER_A_RAMPUP) | 
                                       (led_onoff_tb[morping_data.mode].toggle_on & LIGHTS_FL_LEDB2_CAPTURE_PLAYBACK_RAMPUP) |
                                       (led_onoff_tb[morping_data.mode].number_on & LIGHTS_FL_LEDB3_NUMBER_B_RAMPUP)); 
@@ -1142,7 +1185,8 @@ static int lights_fl_region_keypad_set_section
                                       LIGHTS_FL_LEDR2_NAVI_RAMPDOWN |
                                       LIGHTS_FL_LEDR3_TRASH_RAMPDOWN |
                                       LIGHTS_FL_LEDG1_SHARE_RAMPDOWN |
-                                      LIGHTS_FL_LEDG2_KODAK_RAMPDOWN |
+//                                      LIGHTS_FL_LEDG2_KODAK_RAMPDOWN |
+									  LIGHTS_FL_LEDG2_REVIEW_RAMPDOWN |
                                       LIGHTS_FL_LEDG3_NUMBER_A_RAMPDOWN |
                                       LIGHTS_FL_LEDB2_CAPTURE_PLAYBACK_RAMPDOWN |
                                       LIGHTS_FL_LEDB3_NUMBER_B_RAMPDOWN);
@@ -1162,7 +1206,7 @@ static int lights_fl_region_keypad_set_section
     error |= power_ic_set_reg_mask(POWER_IC_REG_ATLAS_LED_CONTROL_4,
                                   LIGHTS_FL_KEYPAD_C4_MASK,
                                   ((led_onoff_tb[morping_data.mode].navi_on ? led_bl_tb[LIGHTS_FL_LEDR2_NAVI][nStep] : 0) |
-                                  (led_onoff_tb[morping_data.mode].kodak_on ? led_bl_tb[LIGHTS_FL_LEDG2_KODAK][nStep] : 0) |
+                                  (led_onoff_tb[morping_data.mode]./*kodak_on*/review_on ? led_bl_tb[/*LIGHTS_FL_LEDG2_KODAK*/LIGHTS_FL_LEDG2_REVIEW][nStep] : 0) |
                                   (led_onoff_tb[morping_data.mode].toggle_on ? led_bl_tb[LIGHTS_FL_LEDB2_CAPTURE_PLAYBACK][nStep] : 0)));
 
     error |= power_ic_set_reg_mask(POWER_IC_REG_ATLAS_LED_CONTROL_5,
@@ -1557,7 +1601,11 @@ bool lights_funlights_set_morphing_mode(MORPHING_MODE_E modeId)
     int error = 0;
     tracemsg(_k_d("set the morphing mode %d"), modeId);
 
-    if ((MORPHING_MODE_NUM > modeId) && (modeId > MORPHING_MODE_KEEP_CURRENT))
+    if (modeId == MORPHING_MODE_TEST)
+    {
+        tcmd_test_mode = TCMD_TEST_MODE_ON;
+    }
+    else if ((MORPHING_MODE_NUM > modeId) && (modeId > MORPHING_MODE_KEEP_CURRENT))
     {
         morping_data.mode = modeId;
         if (morping_data.is_keypad_leds_turned_on)

@@ -44,6 +44,8 @@
  * =======   ===========   ====================================================
  * Motorola  11/30/2007    Limit mss to be no bigger than 1372(0x55C) to solve 
  *                         compatibility issue with CMCC
+ * Motorola  07/02/2008    Limit mss to be no bigger than 1000 to solve 
+ *                         compatibility issue with Spain
  */
 
 #include <net/tcp.h>
@@ -61,6 +63,14 @@
 #define LJ_MAX_TCP_SEGMENT_SIZE 0x055C
 #endif
 
+#ifdef CONFIG_MOT_FEAT_MSS_XL_SPAIN
+/* 
+ * Limit mss to be not bigger than 1000 
+ * to solve compatiblity issue with XL SPAIN 
+ */
+#define LJ_MAX_TCP_SEGMENT_SIZE 1000
+
+#endif
 
 /* People can turn this off for buggy TCP's found in printers etc. */
 int sysctl_tcp_retrans_collapse = 1;
@@ -119,6 +129,17 @@ static __u16 tcp_advertise_mss(struct sock *sk)
         /*	
          * Limit mss to be not bigger than 1372(0x55C)
 	 * to solve compatiblity issue with CMCC
+	 */
+	if (mss > LJ_MAX_TCP_SEGMENT_SIZE) {
+		mss = LJ_MAX_TCP_SEGMENT_SIZE;
+		tp->advmss = mss; 
+	}
+#endif	
+	
+#ifdef CONFIG_MOT_FEAT_MSS_XL_SPAIN
+	/*	
+	 * Limit mss to be not bigger than 1000
+	 * to solve compatiblity issue with Spain
 	 */
 	if (mss > LJ_MAX_TCP_SEGMENT_SIZE) {
 		mss = LJ_MAX_TCP_SEGMENT_SIZE;
@@ -667,9 +688,19 @@ unsigned int tcp_sync_mss(struct sock *sk, u32 pmtu)
 		mss_now = tp->mss_clamp;
 
 #ifdef CONFIG_MOT_FEAT_MSS_CMCC
-	/* 
-	 * Limit mss to be not bigger than 1372(0x55C)
+	/*
+	 * Limit mss to be not bigger than 1372(0x055C)
 	 * to solve compatiblity issue with CMCC
+	 */
+	if (mss_now > LJ_MAX_TCP_SEGMENT_SIZE) {
+		mss_now = LJ_MAX_TCP_SEGMENT_SIZE;
+	}
+#endif
+		
+#ifdef CONFIG_MOT_FEAT_MSS_XL_SPAIN
+	/* 
+	 * Limit mss to be not bigger than 1000
+	 * to solve compatiblity issue with Spain
 	 */
 	if (mss_now > LJ_MAX_TCP_SEGMENT_SIZE) {
 		mss_now = LJ_MAX_TCP_SEGMENT_SIZE;

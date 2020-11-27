@@ -36,7 +36,9 @@ Change log:
 /*****************************************************
  Date         Author         Comment
  ==========   ===========    ==========================
+ 21-Mar-2008  Motorola       Integrate Marvell recovery mechanism in getSNR
  15-May-2008  Motorola       Add MPM support.
+ 13-Jun-2008  Motorola       Increase Timer on getSNR.
  17-Jun-2008  Motorola       WIFI driver :integrate Marvell 8686 release (81048p5_26340p78)
 *******************************************************/
 

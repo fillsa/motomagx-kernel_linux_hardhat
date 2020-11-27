@@ -21,7 +21,10 @@
  *
  * Date          Author        Comments
  * ===========   ==========    ==========================================
+ * 01-Jan-2006  Motorola        Initial version.
+ * 28-Jun-2007  Motorola        Removed MARCO specific signal code in relation to xPIXL.
  * 20-Mar-2008   Motorola      Remove code not related to singals in Nevis product
+ * 03-Jul-2008  Motorola        OSS CV fix.
  */
 
 #include <linux/kernel.h>

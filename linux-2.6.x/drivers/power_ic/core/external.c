@@ -1,6 +1,6 @@
 /*
  * Copyright 2004 Freescale Semiconductor, Inc.
- * Copyright (C) 2004-2007 Motorola, Inc.
+ * Copyright (C) 2004-2008 Motorola, Inc.
  * 
  * The code contained herein is licensed under the GNU General Public
  * License. You may obtain a copy of the GNU General Public License
@@ -9,6 +9,7 @@
  * http://www.opensource.org/licenses/gpl-license.html
  * http://www.gnu.org/copyleft/gpl.html
  *
+ * Motorola 2008-May-15 - Do not store AHSREN and AHLREN in RAM
  * Motorola 2007-Jun-20 - Do not write when read for Power Gate SPI Enable bits.
  * Motorola 2007-Jun-19 - NAND secure boot time improvement 
  * Motorola 2007-Mar-14 - Do not read before write when writing to interrupt status regs.
@@ -214,7 +215,7 @@ static const unsigned int power_ic_register_no_write_masks[POWER_IC_REG_NUM_REGS
     0x0000000,  /* Regulator Mode 1 */
     0x0FE003F,  /* Power Miscellaneous */
     0x0FFFFFF,  /* Power Spare */
-    0x0100000,  /* Audio Rx 0 */
+    0x0100600,  /* Audio Rx 0 */
     0x0C00000,  /* Audio Rx 1 */
     0x0000010,  /* Audio Tx */
     0x0E00003,  /* SSI Network */

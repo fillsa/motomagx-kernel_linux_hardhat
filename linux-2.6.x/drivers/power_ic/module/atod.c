@@ -168,6 +168,7 @@
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 EXPORT_SYMBOL(power_ic_atod_single_channel);
 EXPORT_SYMBOL(power_ic_atod_general_conversion);
+//remove 2008-Feb-20 EXPORT_SYMBOL(power_ic_atod_current_and_batt_conversion);
 EXPORT_SYMBOL(power_ic_atod_raw_conversion);
 #endif
 

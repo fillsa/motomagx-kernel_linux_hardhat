@@ -899,6 +899,10 @@ static int mxcfb_ioctl(struct inode *inode, struct file *file,
 			MXCFB_DOWN_INTERRUPTIBLE(&mxcfb_global_state.g_sem);
 #if defined(CONFIG_MOT_FEAT_GPIO_API_LIGHTING_LCD)
                         gpio_lcd_backlight_enable(false);
+#elif defined(CONFIG_MACH_MARCO)
+			/* Ascension does not have a separate GPIO to control
+                         * backlight on/off */
+			lights_backlightset(LIGHTS_BACKLIGHT_DISPLAY, 0);
 #endif /* CONFIG_MOT_FEAT_GPIO_API_LIGHTING_LCD */
 			mxcfb_global_state.backlight_state &= ~BKLIGHT_ON;
 			MXCFB_UP(&mxcfb_global_state.g_sem);
@@ -907,6 +911,11 @@ static int mxcfb_ioctl(struct inode *inode, struct file *file,
 			MXCFB_DOWN_INTERRUPTIBLE(&mxcfb_global_state.g_sem);
 #if defined(CONFIG_MOT_FEAT_GPIO_API_LIGHTING_LCD)
                         gpio_lcd_backlight_enable(true);
+#elif defined(CONFIG_MACH_MARCO)
+			/* Ascension does not have a separate GPIO to control
+                         * backlight on/off */
+			lights_backlightset(LIGHTS_BACKLIGHT_DISPLAY,
+                                    mxcfb_global_state.brightness);
 #endif /* CONFIG_MOT_FEAT_GPIO_API_LIGHTING_LCD */
 			mxcfb_global_state.backlight_state |= BKLIGHT_ON;
 			MXCFB_UP(&mxcfb_global_state.g_sem);
@@ -957,7 +966,19 @@ static int mxcfb_ioctl(struct inode *inode, struct file *file,
 #else	
 		backlight_set.bl_select = LIGHTS_BACKLIGHT_DISPLAY;
 		backlight_set.bl_brightness = arg;
+#if defined(CONFIG_MACH_MARCO)		
+#if !defined(CONFIG_MACH_SCMA11REF) 
+		/* Do not change the brightness if the backlight state is
+                 * currently off */
+		if (mxcfb_global_state.backlight_state & BKLIGHT_ON) {
+#endif /* !CONFIG_MACH_SCMA11REF */
+		lights_backlightset(backlight_set.bl_select,
+                                    backlight_set.bl_brightness);
+#if !defined(CONFIG_MACH_SCMA11REF)
+		}
+#endif /* !CONFIG_MACH_SCMA11REF */
 #endif
+#endif /*defined(CONFIG_MACH_MARCO)*/
 		mxcfb_global_state.brightness = arg;
 		MXCFB_UP(&mxcfb_global_state.g_sem);
 		break;
@@ -2017,6 +2038,10 @@ static int mxcfb_probe(struct device *dev)
 #if defined(CONFIG_MOT_FEAT_BOOT_BACKLIGHT)
 #if defined(CONFIG_MOT_FEAT_GPIO_API_LIGHTING_LCD)
         gpio_lcd_backlight_enable(true);
+#elif defined(CONFIG_MACH_MARCO)
+        /* Ascension does not have a separate GPIO to control backlight on/off */
+        lights_backlightset(LIGHTS_BACKLIGHT_DISPLAY,
+                            mxcfb_global_state.bklight_main_brightness);
 #endif /* CONFIG_MOT_FEAT_GPIO_API_LIGHTING_LCD */
 #endif /* CONFIG_MOT_FEAT_BOOT_BACKLIGHT */
 

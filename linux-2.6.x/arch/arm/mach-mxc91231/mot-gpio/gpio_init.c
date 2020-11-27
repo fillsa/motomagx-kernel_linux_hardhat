@@ -26,6 +26,7 @@
  * 19-Oct-2006  Motorola        Initial revision.
  * 02-Jan-2007  Motorola        Added support for Lido P2.
  * 31-Jan-2007  Motorola        Bluetooth current drain improvements.
+ * 28-Jun-2007  Motorola        Pin remapping for xPIXL.
  * 13-Aug-2008  Motorola	GP_AP_C8 toggle workaround for 300uA BT power issue.
  */
 
@@ -52,6 +53,8 @@ void __init scma11phone_gpio_init(void)
     elba_gpio_signal_fixup();
 #elif defined(CONFIG_MACH_LIDO)
     lido_gpio_signal_fixup();
+#elif defined(CONFIG_MACH_XPIXL)
+    pixl_gpio_signal_fixup();
 #endif
 
     /* configure GPIO registers to desired initial state */
@@ -90,6 +93,8 @@ void __init scma11phone_gpio_init(void)
     scma11ref_iomux_mux_fixup();
 #elif defined(CONFIG_MACH_LIDO)
     lido_iomux_mux_fixup();
+#elif defined(CONFIG_MACH_XPIXL)
+    pixl_iomux_mux_fixup();
 #endif
 
 #if defined(CONFIG_MOT_FEAT_GPIO_API_BTPOWER)

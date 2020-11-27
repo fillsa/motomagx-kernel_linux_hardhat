@@ -355,9 +355,9 @@ EXPORT_SYMBOL(gpio_bluetooth_wake_set_data);
 EXPORT_SYMBOL(gpio_bluetooth_wake_get_data);
 EXPORT_SYMBOL(gpio_bluetooth_power_set_data);
 EXPORT_SYMBOL(gpio_bluetooth_power_get_data);
-#if defined(CONFIG_MACH_NEVIS)
+//#if defined(CONFIG_MACH_NEVIS)
 EXPORT_SYMBOL(gpio_bluetooth_power_fixup);
-#endif /* CONFIG_MACH_NEVIS */
+//#endif /* CONFIG_MACH_NEVIS */
 #endif /* CONFIG_MOT_FEAT_GPIO_API_BTPOWER */
 
 

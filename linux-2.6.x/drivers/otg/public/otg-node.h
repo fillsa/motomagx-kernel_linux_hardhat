@@ -1,6 +1,6 @@
 /*
  *
- * Copyright (c) 2006 Motorola, Inc, All Rights Reserved.
+ * Copyright (c) 2006-2007 Motorola, Inc, All Rights Reserved.
  *
  * This program is licensed under a BSD license with the following terms:
  *
@@ -32,7 +32,8 @@
  * Date               Author           Comment
  * -----------------------------------------------------------------------------
  * 01/08/2006         Motorola         initial version
- *
+ * 02/26/2007         Motorola         Added PTP driver name
+ * 01/09/2007         Motorola         Added PTP driver name(PictSync) 
  *
  * otg-node.h - OTG stack device names and nodes
  *
@@ -65,6 +66,7 @@ extern "C" {
 #define MTP_CTL_PROC_NAME "mtpctl"	/**< MTP proc interface */
 #define MTP_DEV_NAME      "mtp"		/**< MTP device node */
 #define PBG_DRIVER_NAME   "pbg-if"      /**< PBG driver name */
+#define PTP_DRIVER_NAME   "ptp"      /**< PBG driver name */
 
 #define OTG_MESSAGE	"otg_message"	/**< OTG state machine */
 
@@ -74,6 +76,7 @@ extern "C" {
 #define MSC_AGENT	"msc_if"	/**< MSC Hotplug agent name**/
 #define MTP_AGENT	"mtp_if"	/**< MTP Hotplug agent name**/
 #define PBG_AGENT	"pbg_if"	/**< PBG Hotplug agent name**/
+#define PTP_AGENT	"ptp_if"	/**< PTP Hotplug agent name**/
 #define USB_VENDOR_AGENT "usb_vendor" 	/**< USB Vendor Hotplug agent name**/
 
 #ifdef __cplusplus

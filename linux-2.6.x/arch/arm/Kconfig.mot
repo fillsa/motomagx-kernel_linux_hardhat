@@ -27,6 +27,7 @@
 # 03/2008      Motorola        Added MOT_FEAT_LOG_SCHEDULE_EVENTS
 # 04/2008      Motorola        Added MOT_FEAT_GETTIMEOFFSET_2618
 # 04/2008      Motorola        Added MOT_FEAT_DISPLAY_EPSON
+# 07/2008      Motorola        Added MOT_FEAT_FLUSH_LOCKED_TLB
 # 07/2008      Motorola        Added MOT_FEAT_APP_COREDUMP_DISPLAY
 # 07/2008      Motorola        Added MOT_FEAT_32_BIT_DISPLAY
 menu "Motorola Features"
@@ -1054,6 +1055,12 @@ config MOT_FEAT_DSCP_UMA
         help
            DSCP values of inner and outer ip packets is stored when tunnelled data is received 
            and used when sending tunnelled data
+
+config MOT_FEAT_FLUSH_LOCKED_TLB
+	bool "Enable flush main locked TLB"
+	default n
+  	help
+  	   If this feature is enabled, it will flush main locked TLB.
 
 config MOT_WFN482
 	bool "Fix high resolution timer bug"

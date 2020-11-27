@@ -29,6 +29,11 @@ Change log:
     05/03/06: Add auto_tx hostcmd
     05/04/06: Add IBSS coalescing related new hostcmd and event
 ********************************************************/
+/*****************************************************
+ Date         Author         Comment
+ ==========   ===========    ==========================
+ 21-Mar-2008  Motorola       Integrate Marvell recovery mechanism in getSNR
+*******************************************************/
 
 #ifndef _HOST_H_
 #define _HOST_H_
