@@ -42,13 +42,15 @@
 #include <linux/init.h>
 #include <linux/compiler.h>
 #include <linux/idr.h>
+#include <linux/hrtime.h>
 #include <linux/posix-timers.h>
 #include <linux/syscalls.h>
 #include <linux/wait.h>
+#include <linux/sc_math.h>
+#include <asm/div64.h>
 #include <linux/workqueue.h>
 
 #ifndef div_long_long_rem
-#include <asm/div64.h>
 
 #define div_long_long_rem(dividend,divisor,remainder) ({ \
 		       u64 result = dividend;		\
@@ -58,10 +60,6 @@
 #endif
 #define CLOCK_REALTIME_RES TICK_NSEC  /* In nano seconds. */
 
-static inline u64  mpy_l_X_l_ll(unsigned long mpy1,unsigned long mpy2)
-{
-	return (u64)mpy1 * mpy2;
-}
 /*
  * Management arrays for POSIX timers.	 Timers are kept in slab memory
  * Timer ids are allocated by an external routine that keeps track of the
@@ -85,7 +83,7 @@ static inline u64  mpy_l_X_l_ll(unsigned long mpy1,unsigned long mpy2)
  */
 static kmem_cache_t *posix_timers_cache;
 static struct idr posix_timers_id;
-static spinlock_t idr_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(idr_lock);
 
 /*
  * Just because the timer is not in the timer list does NOT mean it is
@@ -94,7 +92,7 @@ static spinlock_t idr_lock = SPIN_LOCK_UNLOCKED;
 #define TIMER_INACTIVE 1
 #define TIMER_RETRY 1
 
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) || defined(CONFIG_PREEMPT_SOFTIRQS)
 # define timer_active(tmr) \
 		((tmr)->it_timer.entry.prev != (void *)TIMER_INACTIVE)
 # define set_timer_inactive(tmr) \
@@ -102,8 +100,26 @@ static spinlock_t idr_lock = SPIN_LOCK_UNLOCKED;
 			(tmr)->it_timer.entry.prev = (void *)TIMER_INACTIVE; \
 		} while (0)
 #else
-# define timer_active(tmr) BARFY	// error to use outside of SMP
+# define timer_active(tmr) BARFY   /* error to use outside of SMP | RT */
 # define set_timer_inactive(tmr) do { } while (0)
+#endif
+/*
+ * For RT the timer call backs are preemptable.  This means that folks
+ * trying to delete timers may run into timers that are "active" for
+ * long times.  To help out with this we provide a wake up function to
+ * wake up a caller who wants waking when a timer clears the call back.
+ * This is the same sort of thing that the del_timer_sync does, but we
+ * need (in the HRT case) to cover two lists and not just the one.
+ */
+#ifdef CONFIG_PREEMPT_SOFTIRQS
+#include <linux/wait.h>
+static DECLARE_WAIT_QUEUE_HEAD(timer_wake_queue);
+#define wake_timer_waiters() wake_up(&timer_wake_queue)
+#define wait_for_timer(timer) wait_event(timer_wake_queue, !timer_active(timer))
+
+#else
+#define wake_timer_waiters()
+#define wait_for_timer(timer)
 #endif
 /*
  * we assume that the new SIGEV_THREAD_ID shares no bits with the other
@@ -137,7 +153,7 @@ static spinlock_t idr_lock = SPIN_LOCK_UNLOCKED;
  * RESOLUTION: Clock resolution is used to round up timer and interval
  *	    times, NOT to report clock times, which are reported with as
  *	    much resolution as the system can muster.  In some cases this
- *	    resolution may depend on the underlying clock hardware and
+ *	    resolution may depend on the underlaying clock hardware and
  *	    may not be quantifiable until run time, and only then is the
  *	    necessary code is written.	The standard says we should say
  *	    something about this issue in the documentation...
@@ -155,7 +171,7 @@ static spinlock_t idr_lock = SPIN_LOCK_UNLOCKED;
  *
  *          At this time all functions EXCEPT clock_nanosleep can be
  *          redirected by the CLOCKS structure.  Clock_nanosleep is in
- *          there, but the code ignores it.
+ *          there, but the code ignors it.
  *
  * Permissions: It is assumed that the clock_settime() function defined
  *	    for each clock will take care of permission checks.	 Some
@@ -166,6 +182,7 @@ static spinlock_t idr_lock = SPIN_LOCK_UNLOCKED;
  */
 
 static struct k_clock posix_clocks[MAX_CLOCKS];
+IF_HIGH_RES(static long arch_res_by_2;)
 /*
  * We only have one real clock that can be set so we need only one abs list,
  * even if we should want to have several clocks with differing resolutions.
@@ -187,7 +204,7 @@ static struct k_clock_abs abs_list = {.list = LIST_HEAD_INIT(abs_list.list),
 
 static int do_posix_gettime(struct k_clock *clock, struct timespec *tp);
 static u64 do_posix_clock_monotonic_gettime_parts(
-	struct timespec *tp, struct timespec *mo);
+	struct timespec *tp, struct timespec *mo, long *arch_cycle);
 int do_posix_clock_monotonic_gettime(struct timespec *tp);
 static struct k_itimer *lock_timer(timer_t timer_id, unsigned long *flags);
 
@@ -216,20 +233,34 @@ static __init int init_posix_timers(void)
 	posix_timers_cache = kmem_cache_create("posix_timers_cache",
 					sizeof (struct k_itimer), 0, 0, NULL, NULL);
 	idr_init(&posix_timers_id);
+#ifdef CONFIG_HIGH_RES_TIMERS
+	/*
+	 * Possibly switched out at boot time
+	 */
+	if (hrtimer_use) {
+		clock_realtime.res = hr_time_resolution;
+		register_posix_clock(CLOCK_REALTIME_HR, &clock_realtime);
+		clock_monotonic.res = hr_time_resolution;
+		register_posix_clock(CLOCK_MONOTONIC_HR, &clock_monotonic);
+	}
+	arch_res_by_2 = nsec_to_arch_cycle(hr_time_resolution >> 1);
+#endif
+
+#ifdef	final_clock_init
+	final_clock_init();	/* defined as needed by arch header file */
+#endif
+
 	return 0;
 }
 
 __initcall(init_posix_timers);
-
+#ifndef CONFIG_HIGH_RES_TIMERS
 static void tstojiffie(struct timespec *tp, int res, u64 *jiff)
 {
-	long sec = tp->tv_sec;
-	long nsec = tp->tv_nsec + res - 1;
+	struct timespec tv = *tp;
+	tv.tv_nsec += res - 1;
 
-	if (nsec > NSEC_PER_SEC) {
-		sec++;
-		nsec -= NSEC_PER_SEC;
-	}
+	timespec_norm(&tv);
 
 	/*
 	 * The scaling constants are defined in <linux/time.h>
@@ -237,10 +268,47 @@ static void tstojiffie(struct timespec *tp, int res, u64 *jiff)
 	 * res rounding and compute a 64-bit result (well so does that
 	 * but it then throws away the high bits).
   	 */
-	*jiff =  (mpy_l_X_l_ll(sec, SEC_CONVERSION) +
-		  (mpy_l_X_l_ll(nsec, NSEC_CONVERSION) >> 
+	*jiff =  (((u64)tv.tv_sec * SEC_CONVERSION) +
+		  (((u64)tv.tv_nsec * NSEC_CONVERSION) >>
 		   (NSEC_JIFFIE_SC - SEC_JIFFIE_SC))) >> SEC_JIFFIE_SC;
 }
+#else
+static long tstojiffie(struct timespec *tp, int res, u64 *jiff)
+{
+	struct timespec tv = *tp;
+	u64 raw_jiff;
+	unsigned long mask_jiff;
+	long rtn;
+
+	tv.tv_nsec += res - 1;
+
+	timespec_norm(&tv);
+
+	/*
+	 * This much like the above, except, well you know that bit
+	 * we shift off the right end to get jiffies.  Well that is
+	 * the arch_cycle part and here we pick that up and convert
+	 * it to arch_cycles.
+	 *
+	 * Also, we need to be a bit more rigorous about resolution,
+	 * See the next line...
+	 */
+	tv.tv_nsec -= tv.tv_nsec % res;
+
+	raw_jiff =  (((u64)tv.tv_sec * SEC_CONVERSION) +
+		     (((u64)tv.tv_nsec * NSEC_CONVERSION) >>
+		(NSEC_JIFFIE_SC - SEC_JIFFIE_SC)));
+	*jiff = raw_jiff >> SEC_JIFFIE_SC;
+
+	mask_jiff = raw_jiff & ((1 << SEC_JIFFIE_SC) -1);
+
+	rtn = ((u64)mask_jiff * arch_cycles_per_jiffy +
+		(1 << SEC_JIFFIE_SC) -1) >> SEC_JIFFIE_SC;
+
+	return rtn;
+}
+#endif
+
 
 /*
  * This function adjusts the timer as needed as a result of the clock
@@ -250,7 +318,7 @@ static void tstojiffie(struct timespec *tp, int res, u64 *jiff)
  * reference wall_to_monotonic value.  It is complicated by the fact
  * that tstojiffies() only handles positive times and it needs to work
  * with both positive and negative times.  Also, for negative offsets,
- * we need to defeat the res round up.
+ * we need to make the res round up actually round up (not down).
  *
  * Return is true if there is a new time, else false.
  */
@@ -258,8 +326,8 @@ static long add_clockset_delta(struct k_itimer *timr,
 			       struct timespec *new_wall_to)
 {
 	struct timespec delta;
-	int sign = 0;
 	u64 exp;
+	IF_HIGH_RES(long arch_cycle);
 
 	set_normalized_timespec(&delta,
 				new_wall_to->tv_sec -
@@ -269,15 +337,28 @@ static long add_clockset_delta(struct k_itimer *timr,
 	if (likely(!(delta.tv_sec | delta.tv_nsec)))
 		return 0;
 	if (delta.tv_sec < 0) {
-		set_normalized_timespec(&delta,
+		/* clock advanced */
+		set_normalized_timespec(&delta, 
 					-delta.tv_sec,
-					1 - delta.tv_nsec -
-					posix_clocks[timr->it_clock].res);
-		sign++;
+					-posix_clocks[timr->it_clock].res - 
+					delta.tv_nsec);
+		IF_HIGH_RES(arch_cycle = -)
+			tstojiffie(&delta, posix_clocks[timr->it_clock].res,
+				   &exp);
+		exp = -exp;
+	} else {
+		/* clock retarded */
+		IF_HIGH_RES(arch_cycle = )
+			tstojiffie(&delta, posix_clocks[timr->it_clock].res, 
+				   &exp);
 	}
-	tstojiffie(&delta, posix_clocks[timr->it_clock].res, &exp);
 	timr->wall_to_prev = *new_wall_to;
-	timr->it_timer.expires += (sign ? -exp : exp);
+	timr->it_timer.expires += exp;
+#ifdef CONFIG_HIGH_RES_TIMERS
+	timr->it_timer.arch_cycle_expires += arch_cycle;
+	full_normalize_jiffies(&timr->it_timer.expires,
+			       &timr->it_timer.arch_cycle_expires);
+#endif
 	return 1;
 }
 
@@ -309,9 +390,15 @@ static void schedule_next_timer(struct k_itimer *timr)
 	 * "other" CLOCKs "next timer" code (which, I suppose should
 	 * also be added to the k_clock structure).
 	 */
-	if (!timr->it_incr) 
-		return;
 
+	/* Set up the timer for the next interval (if there is one) */
+#ifdef CONFIG_HIGH_RES_TIMERS
+	if (!(timr->it_incr | timr->it_arch_cycle_incr))
+		return;
+#else
+	if (!(timr->it_incr))
+		return;
+#endif
 	do {
 		seq = read_seqbegin(&xtime_lock);
 		new_wall_to =	wall_to_monotonic;
@@ -322,11 +409,11 @@ static void schedule_next_timer(struct k_itimer *timr)
 		spin_lock(&abs_list.lock);
 		add_clockset_delta(timr, &new_wall_to);
 
-		posix_bump_timer(timr, now);
+		posix_bump_timer(timr, &now);
 
 		spin_unlock(&abs_list.lock);
 	} else {
-		posix_bump_timer(timr, now);
+		posix_bump_timer(timr, &now);
 	}
 	timr->it_overrun_last = timr->it_overrun;
 	timr->it_overrun = -1;
@@ -412,9 +499,10 @@ static void posix_timer_fn(unsigned long __data)
 	struct timespec delta, new_wall_to;
 	u64 exp = 0;
 	int do_notify = 1;
+	IF_HIGH_RES(long arch_cycle);
 
 	spin_lock_irqsave(&timr->it_lock, flags);
- 	set_timer_inactive(timr);
+	set_timer_inactive(timr);
 	if (!list_empty(&timr->abs_timer_entry)) {
 		spin_lock(&abs_list.lock);
 		do {
@@ -432,11 +520,17 @@ static void posix_timer_fn(unsigned long __data)
 			/* do nothing, timer is already late */
 		} else {
 			/* timer is early due to a clock set */
+			IF_HIGH_RES(arch_cycle = )
 			tstojiffie(&delta,
 				   posix_clocks[timr->it_clock].res,
 				   &exp);
 			timr->wall_to_prev = new_wall_to;
-			timr->it_timer.expires += exp;
+			timr->it_timer.expires += exp; 
+#ifdef CONFIG_HIGH_RES_TIMERS
+			timr->it_timer.arch_cycle_expires += arch_cycle;
+			normalize_jiffies(&timr->it_timer.expires,
+					  &timr->it_timer.arch_cycle_expires);
+#endif
 			add_timer(&timr->it_timer);
 			do_notify = 0;
 		}
@@ -446,7 +540,7 @@ static void posix_timer_fn(unsigned long __data)
 	if (do_notify)  {
 		int si_private=0;
 
-		if (timr->it_incr)
+		if (timr->it_incr IF_HIGH_RES( | timr->it_arch_cycle_incr))
 			si_private = ++timr->it_requeue_pending;
 		else {
 			remove_from_abslist(timr);
@@ -461,6 +555,7 @@ static void posix_timer_fn(unsigned long __data)
 			schedule_next_timer(timr);
 	}
 	unlock_timer(timr, flags); /* hold thru abs lock to keep irq off */
+	wake_timer_waiters();
 }
 
 
@@ -625,11 +720,14 @@ sys_timer_create(clockid_t which_clock,
 				new_timer->it_process = process;
 				list_add(&new_timer->list,
 					 &process->signal->posix_timers);
-				spin_unlock_irqrestore(&process->sighand->siglock, flags);
-				if (new_timer->it_sigev_notify == (SIGEV_SIGNAL|SIGEV_THREAD_ID))
+				spin_unlock_irqrestore(
+					&process->sighand->siglock, flags);
+				if (new_timer->it_sigev_notify == 
+				    (SIGEV_SIGNAL|SIGEV_THREAD_ID))
 					get_task_struct(process);
 			} else {
-				spin_unlock_irqrestore(&process->sighand->siglock, flags);
+				spin_unlock_irqrestore(
+					&process->sighand->siglock, flags);
 				process = NULL;
 			}
 		}
@@ -733,38 +831,60 @@ static struct k_itimer * lock_timer(timer_t timer_id, unsigned long *flags)
  * it is the same as a requeue pending timer WRT to what we should
  * report.
  */
+
+#ifdef CONFIG_HIGH_RES_TIMERS 
+struct now_struct zero_now = {0, 0};
+#define timeleft (expire.jiffies | expire.arch_cycle)
+#else
+struct now_struct zero_now = {0};
+#define timeleft (expire.jiffies)
+#endif
+
 static void
 do_timer_gettime(struct k_itimer *timr, struct itimerspec *cur_setting)
 {
-	unsigned long expires;
-	struct now_struct now;
+	struct now_struct now, expire;
 
-	do
-		expires = timr->it_timer.expires;
-	while ((volatile long) (timr->it_timer.expires) != expires);
+	do {
+		get_expire(&expire, timr);
+	} while ((volatile long) (timr->it_timer.expires) != expire.jiffies);
 
 	posix_get_now(&now);
 
-	if (expires &&
-	    ((timr->it_sigev_notify & ~SIGEV_THREAD_ID) == SIGEV_NONE) &&
-	    !timr->it_incr &&
-	    posix_time_before(&timr->it_timer, &now))
-		timr->it_timer.expires = expires = 0;
-	if (expires) {
+	if (timeleft && 
+	    ((timr->it_sigev_notify & ~SIGEV_THREAD_ID) == SIGEV_NONE) && 
+	    !(timr->it_incr IF_HIGH_RES(| timr->it_arch_cycle_incr)) &&
+	    posix_time_before(&timr->it_timer, &now)) {
+		put_expire(&zero_now, timr);
+		expire = zero_now;
+	}
+	if (timeleft) {
 		if (timr->it_requeue_pending & REQUEUE_PENDING ||
 		    (timr->it_sigev_notify & ~SIGEV_THREAD_ID) == SIGEV_NONE) {
-			posix_bump_timer(timr, now);
-			expires = timr->it_timer.expires;
+			posix_bump_timer(timr, &now);
+			get_expire(&expire, timr);
 		}
 		else
 			if (!timer_pending(&timr->it_timer))
-				expires = 0;
-		if (expires)
-			expires -= now.jiffies;
+				expire = zero_now;
+		if (timeleft) {
+			sub_now(&expire, &now);
+		}
 	}
-	jiffies_to_timespec(expires, &cur_setting->it_value);
+	jiffies_to_timespec(expire.jiffies, &cur_setting->it_value);
 	jiffies_to_timespec(timr->it_incr, &cur_setting->it_interval);
 
+#ifdef CONFIG_HIGH_RES_TIMERS 
+	set_normalized_timespec(&cur_setting->it_value, 
+				cur_setting->it_value.tv_sec, 
+				cur_setting->it_value.tv_nsec +
+				arch_cycle_to_nsec(expire.arch_cycle));
+
+	set_normalized_timespec(&cur_setting->it_interval, 
+				cur_setting->it_interval.tv_sec,
+				cur_setting->it_interval.tv_nsec +
+				arch_cycle_to_nsec(timr->it_arch_cycle_incr));
+#endif
 	if (cur_setting->it_value.tv_sec < 0) {
 		cur_setting->it_value.tv_nsec = 1;
 		cur_setting->it_value.tv_sec = 0;
@@ -827,26 +947,36 @@ sys_timer_getoverrun(timer_t timer_id)
  *
  * If it is relative time, we need to add the current (CLOCK_MONOTONIC)
  * time to it to get the proper time for the timer.
+ *
+ * err will be set to -EINVAL if offset is larger than MAX_JIFFY_OFFSET.
+ * Caller should set err otherwise prior to call if he desires to test
+ * this value.
  */
-static int adjust_abs_time(struct k_clock *clock, struct timespec *tp, 
-			   int abs, u64 *exp, struct timespec *wall_to)
+static int adjust_abs_time(struct k_clock *clock, 
+			   struct timespec *tp, 
+			   int abs, 
+			   u64 *exp, 
+			   struct timespec *wall_to,
+			   int *err)
 {
 	struct timespec now;
 	struct timespec oc = *tp;
 	u64 jiffies_64_f;
+	long arch_cycle;
 	int rtn =0;
 
 	if (abs) {
 		/*
-		 * The mask pick up the 4 basic clocks 
+		 * The mask picks up the 4 basic clocks
 		 */
-		if (!((clock - &posix_clocks[0]) & ~CLOCKS_MASK)) {
+		if ((clock - &posix_clocks[0]) <= CLOCK_MONOTONIC_HR) {
 			jiffies_64_f = do_posix_clock_monotonic_gettime_parts(
-				&now,  wall_to);
+				&now,  wall_to, &arch_cycle);
 			/*
 			 * If we are doing a MONOTONIC clock
 			 */
-			if((clock - &posix_clocks[0]) & CLOCKS_MONO){
+			if(clock->clock_get ==
+			    posix_clocks[CLOCK_MONOTONIC].clock_get){
 				now.tv_sec += wall_to->tv_sec;
 				now.tv_nsec += wall_to->tv_nsec;
 			}
@@ -854,7 +984,7 @@ static int adjust_abs_time(struct k_clock *clock, struct timespec *tp,
 			/*
 			 * Not one of the basic clocks
 			 */
-			do_posix_gettime(clock, &now);	
+			do_posix_gettime(clock, &now);
 			jiffies_64_f = get_jiffies_64();
 		}
 		/*
@@ -865,41 +995,54 @@ static int adjust_abs_time(struct k_clock *clock, struct timespec *tp,
 		/*
 		 * Normalize...
 		 */
-		while ((oc.tv_nsec - NSEC_PER_SEC) >= 0) {
-			oc.tv_nsec -= NSEC_PER_SEC;
-			oc.tv_sec++;
-		}
+		timespec_norm(&oc);
 		while ((oc.tv_nsec) < 0) {
 			oc.tv_nsec += NSEC_PER_SEC;
 			oc.tv_sec--;
 		}
 	}else{
+#ifdef CONFIG_HIGH_RES_TIMERS
+		do_atomic_on_xtime_seq(
+			jiffies_64_f = jiffies_64;
+			arch_cycle = get_arch_cycles((u32) jiffies_64_f);
+			);
+#else
 		jiffies_64_f = get_jiffies_64();
+#endif
 	}
 	/*
 	 * Check if the requested time is prior to now (if so set now)
 	 */
 	if (oc.tv_sec < 0)
 		oc.tv_sec = oc.tv_nsec = 0;
-	tstojiffie(&oc, clock->res, exp);
 
-	/*
-	 * Check if the requested time is more than the timer code
-	 * can handle (if so we error out but return the value too).
-	 */
-	if (*exp > ((u64)MAX_JIFFY_OFFSET))
-			/*
-			 * This is a considered response, not exactly in
-			 * line with the standard (in fact it is silent on
-			 * possible overflows).  We assume such a large 
-			 * value is ALMOST always a programming error and
-			 * try not to compound it by setting a really dumb
-			 * value.
-			 */
-			rtn = -EINVAL;
+	if (oc.tv_sec | oc.tv_nsec) {
+		oc.tv_nsec += clock->res;
+		timespec_norm(&oc);
+	}
+
+	IF_HIGH_RES(rtn = arch_cycle + )
+		tstojiffie(&oc, clock->res, exp);
+
 	/*
 	 * return the actual jiffies expire time, full 64 bits
 	 */
+#ifdef CONFIG_HIGH_RES_TIMERS
+	/*
+	 * If a low res clock don't confuse things with arch cycles.
+	 */
+	if (clock->res != tick_nsec) {
+		while (rtn >= arch_cycles_per_jiffy) {
+			rtn -= arch_cycles_per_jiffy;
+			jiffies_64_f++;
+		}
+	} else {
+		rtn = 0;
+	}
+#endif
+	if (*exp > ((u64)MAX_JIFFY_OFFSET))
+		*err = -EINVAL;
+
 	*exp += jiffies_64_f;
 	return rtn;
 }
@@ -912,28 +1055,33 @@ do_timer_settime(struct k_itimer *timr, int flags,
 {
 	struct k_clock *clock = &posix_clocks[timr->it_clock];
 	u64 expire_64;
+	int rtn = 0;
+	IF_HIGH_RES(long arch_cycle_expire;)
 
 	if (old_setting)
 		do_timer_gettime(timr, old_setting);
 
 	/* disable the timer */
 	timr->it_incr = 0;
+	IF_HIGH_RES(timr->it_arch_cycle_incr = 0;)
 	/*
 	 * careful here.  If smp we could be in the "fire" routine which will
 	 * be spinning as we hold the lock.  But this is ONLY an SMP issue.
 	 */
-#ifdef CONFIG_SMP
-	if (timer_active(timr) && !del_timer(&timr->it_timer))
+#if defined(CONFIG_SMP) || defined(CONFIG_PREEMPT_SOFTIRQS)
+	if (timer_active(timr) && !del_timer(&timr->it_timer)) {
 		/*
-		 * It can only be active if on an other cpu.  Since
-		 * we have cleared the interval stuff above, it should
-		 * clear once we release the spin lock.  Of course once
-		 * we do that anything could happen, including the
-		 * complete melt down of the timer.  So return with
-		 * a "retry" exit status.
+		 * It can only be active if on an other cpu (unless RT).
+		 * Since we have cleared the interval stuff above, it
+		 * should clear once we release the spin lock.  Of
+		 * course once we do that anything could happen,
+		 * including the complete melt down of the timer.  So
+		 * return with a "retry" exit status.  If RT we do a
+		 * formal wait as the function code is fully
+		 * preemptable...
 		 */
 		return TIMER_RETRY;
-
+	}
 	set_timer_inactive(timr);
 #else
 	del_timer(&timr->it_timer);
@@ -949,16 +1097,37 @@ do_timer_settime(struct k_itimer *timr, int flags,
 	 */
 	if (!new_setting->it_value.tv_sec && !new_setting->it_value.tv_nsec) {
 		timr->it_timer.expires = 0;
+		IF_HIGH_RES(timr->it_timer.arch_cycle_expires = 0;)
 		return 0;
 	}
 
-	if (adjust_abs_time(clock,
-			    &new_setting->it_value, flags & TIMER_ABSTIME, 
-			    &expire_64, &(timr->wall_to_prev))) {
-		return -EINVAL;
-	}
-	timr->it_timer.expires = (unsigned long)expire_64;	
-	tstojiffie(&new_setting->it_interval, clock->res, &expire_64);
+	IF_HIGH_RES(arch_cycle_expire = )
+		adjust_abs_time(clock, &new_setting->it_value, 
+				flags & TIMER_ABSTIME, &expire_64, 
+				&(timr->wall_to_prev), &rtn);
+	/*
+	 * Check if the requested time is more than the timer code
+	 * can handle (if so we error out).
+	 */
+	if (rtn)
+			/*
+			 * This is a considered response, not exactly in
+			 * line with the standard (in fact it is silent on
+			 * possible overflows).  We assume such a large
+			 * value is ALMOST always a programming error and
+			 * try not to compound it by setting a really dumb
+			 * value.
+			 */
+		return rtn;
+
+	timr->it_timer.expires = (unsigned long)expire_64;
+	IF_HIGH_RES(timr->it_timer.arch_cycle_expires = arch_cycle_expire;)
+	IF_HIGH_RES(timr->it_arch_cycle_incr =)
+		tstojiffie(&new_setting->it_interval, clock->res, &expire_64);
+#ifdef HIGH_RES_TIMERS
+	if (clock->res == tick_nsec)
+		timr->it_arch_cycle_incr = 0;
+#endif
 	timr->it_incr = (unsigned long)expire_64;
 
 	/*
@@ -1011,7 +1180,8 @@ retry:
 							       &new_spec, rtn);
 	unlock_timer(timr, flag);
 	if (error == TIMER_RETRY) {
-		rtn = NULL;	// We already got the old time...
+		wait_for_timer(timr);
+		rtn = NULL;	/* We already got the old time... */
 		goto retry;
 	}
 
@@ -1025,17 +1195,20 @@ retry:
 static inline int do_timer_delete(struct k_itimer *timer)
 {
 	timer->it_incr = 0;
-#ifdef CONFIG_SMP
-	if (timer_active(timer) && !del_timer(&timer->it_timer))
+	IF_HIGH_RES(timer->it_arch_cycle_incr = 0;)
+#if defined(CONFIG_SMP) || defined(CONFIG_PREEMPT_SOFTIRQS)
+	if (timer_active(timer) && !del_timer(&timer->it_timer)) {
 		/*
-		 * It can only be active if on an other cpu.  Since
-		 * we have cleared the interval stuff above, it should
-		 * clear once we release the spin lock.  Of course once
-		 * we do that anything could happen, including the
-		 * complete melt down of the timer.  So return with
-		 * a "retry" exit status.
+		 * It can only be active if on an other cpu (unless RT).
+		 * Since we have cleared the interval stuff above, it
+		 * should clear once we release the spin lock.  Of
+		 * course once we do that anything could happen,
+		 * including the complete melt down of the timer.  So
+		 * return with a "retry" exit status.  For RT we do a
+		 * formal wait as it could take a while.
 		 */
 		return TIMER_RETRY;
+	}
 #else
 	del_timer(&timer->it_timer);
 #endif
@@ -1051,7 +1224,7 @@ sys_timer_delete(timer_t timer_id)
 	struct k_itimer *timer;
 	long flags;
 
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) || defined(CONFIG_PREEMPT_SOFTIRQS)
 	int error;
 retry_delete:
 #endif
@@ -1059,11 +1232,12 @@ retry_delete:
 	if (!timer)
 		return -EINVAL;
 
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) || defined(CONFIG_PREEMPT_SOFTIRQS)
 	error = p_timer_del(&posix_clocks[timer->it_clock], timer);
 
 	if (error == TIMER_RETRY) {
 		unlock_timer(timer, flags);
+		wait_for_timer(timer);
 		goto retry_delete;
 	}
 #else
@@ -1092,17 +1266,18 @@ static inline void itimer_delete(struct k_itimer *timer)
 {
 	unsigned long flags;
 
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) || defined(CONFIG_PREEMPT_SOFTIRQS)
 	int error;
 retry_delete:
 #endif
 	spin_lock_irqsave(&timer->it_lock, flags);
 
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) || defined(CONFIG_PREEMPT_SOFTIRQS)
 	error = p_timer_del(&posix_clocks[timer->it_clock], timer);
 
 	if (error == TIMER_RETRY) {
 		unlock_timer(timer, flags);
+		wait_for_timer(timer);
 		goto retry_delete;
 	}
 #else
@@ -1143,12 +1318,36 @@ void exit_itimers(struct signal_struct *sig)
  * spin_lock_irq() held and from clock calls with no locking.	They must
  * use the save flags versions of locks.
  */
+extern unsigned long wall_jiffies;
+
+static void get_wall_time(struct timespec *tp)
+{
+#ifdef CONFIG_HIGH_RES_TIMERS
+	*tp = xtime;
+	tp->tv_nsec += arch_cycle_to_nsec(get_arch_cycles(wall_jiffies));
+#else
+	getnstimeofday(tp);
+#endif
+}
+/*
+ * The sequence lock below does not need the irq part with real
+ * sequence locks (i.e. in 2.6).  We do need them in 2.4 where
+ * we emulate the sequence lock... shame really.
+ */
 static int do_posix_gettime(struct k_clock *clock, struct timespec *tp)
 {
+	unsigned int seq;
+
 	if (clock->clock_get)
 		return clock->clock_get(tp);
 
-	getnstimeofday(tp);
+	do {
+		seq = read_seqbegin(&xtime_lock);
+		get_wall_time(tp);
+	} while(read_seqretry(&xtime_lock, seq));
+
+	timespec_norm(tp);
+
 	return 0;
 }
 
@@ -1161,18 +1360,26 @@ static int do_posix_gettime(struct k_clock *clock, struct timespec *tp)
  */
 
 static u64 do_posix_clock_monotonic_gettime_parts(
-	struct timespec *tp, struct timespec *mo)
+		struct timespec *tp, struct timespec *mo, long *arch_cycle)
 {
 	u64 jiff;
 	unsigned int seq;
 
 	do {
 		seq = read_seqbegin(&xtime_lock);
-		getnstimeofday(tp);
+		get_wall_time(tp);
 		*mo = wall_to_monotonic;
 		jiff = jiffies_64;
+		IF_HIGH_RES(*arch_cycle = get_arch_cycles((u32)jiff);)
 
 	} while(read_seqretry(&xtime_lock, seq));
+
+#ifdef CONFIG_HIGH_RES_TIMERS
+	while(*arch_cycle >= arch_cycles_per_jiffy) {
+		*arch_cycle -= arch_cycles_per_jiffy;
+		jiff++;
+	}
+#endif
 
 	return jiff;
 }
@@ -1180,16 +1387,14 @@ static u64 do_posix_clock_monotonic_gettime_parts(
 int do_posix_clock_monotonic_gettime(struct timespec *tp)
 {
 	struct timespec wall_to_mono;
+	long arch_cycle;
 
-	do_posix_clock_monotonic_gettime_parts(tp, &wall_to_mono);
+	do_posix_clock_monotonic_gettime_parts(tp, &wall_to_mono, &arch_cycle);
 
 	tp->tv_sec += wall_to_mono.tv_sec;
 	tp->tv_nsec += wall_to_mono.tv_nsec;
 
-	if ((tp->tv_nsec - NSEC_PER_SEC) > 0) {
-		tp->tv_nsec -= NSEC_PER_SEC;
-		tp->tv_sec++;
-	}
+	timespec_norm(tp);
 	return 0;
 }
 
@@ -1272,7 +1477,6 @@ sys_clock_getres(clockid_t which_clock, struct timespec __user *tp)
 static void nanosleep_wake_up(unsigned long __data)
 {
 	struct task_struct *p = (struct task_struct *) __data;
-
 	wake_up_process(p);
 }
 
@@ -1369,6 +1573,14 @@ void clock_was_set(void)
 		list_del_init(&timr->abs_timer_entry);
 		if (add_clockset_delta(timr, &new_wall_to) &&
 		    del_timer(&timr->it_timer))  /* timer run yet? */
+			/*
+			 * Note that we only do this if the timer is/was
+			 * in the list.  If it happens to be active an
+			 * not in the timer list, it must be in the call
+			 * back function, we leave it to that code to do
+			 * the right thing.  I.e we do NOT need
+			 * del_timer_sync()
+			 */
 			add_timer(&timr->it_timer);
 		list_add(&timr->abs_timer_entry, &abs_list.list);
 		spin_unlock_irq(&abs_list.lock);
@@ -1416,6 +1628,27 @@ sys_clock_nanosleep(clockid_t which_clock, int flags,
 		return -EFAULT;
 	return ret;
 }
+#ifdef CONFIG_HIGH_RES_TIMERS
+#define get_jiffies_time(result)				\
+({								\
+	unsigned int seq;					\
+	u64 jiff;						\
+	do {							\
+		seq = read_seqbegin(&xtime_lock);		\
+		jiff = jiffies_64;				\
+		*result = get_arch_cycles((unsigned long)jiff);	\
+	} while(read_seqretry(&xtime_lock, seq));		\
+        while(*result >= arch_cycles_per_jiffy) {		\
+                *result -= arch_cycles_per_jiffy;		\
+                jiff++;						\
+        }							\
+	jiff;							\
+})
+
+#else
+#define get_jiffies_time(result) get_jiffies_64()
+
+#endif
 
 long
 do_clock_nanosleep(clockid_t which_clock, int flags, struct timespec *tsave)
@@ -1424,10 +1657,11 @@ do_clock_nanosleep(clockid_t which_clock, int flags, struct timespec *tsave)
 	struct timer_list new_timer;
 	DECLARE_WAITQUEUE(abs_wqueue, current);
 	u64 rq_time = (u64)0;
-	s64 left;
+	s64 left, jiff_u64_f;
+	IF_HIGH_RES(long arch_cycle_left;)
 	int abs;
 	struct restart_block *restart_block =
-	    &current_thread_info()->restart_block;
+	    &(current_thread_info()->restart_block);
 
 	abs_wqueue.flags = 0;
 	init_timer(&new_timer);
@@ -1447,9 +1681,18 @@ do_clock_nanosleep(clockid_t which_clock, int flags, struct timespec *tsave)
 		rq_time = (rq_time << 32) + restart_block->arg2;
 		if (!rq_time)
 			return -EINTR;
-		left = rq_time - get_jiffies_64();
+		IF_HIGH_RES(new_timer.arch_cycle_expires = restart_block->arg4;)
+		left = rq_time - get_jiffies_time(&arch_cycle_left);
+
+
+#ifndef CONFIG_HIGH_RES_TIMERS
 		if (left <= (s64)0)
 			return 0;	/* Already passed */
+#else
+		if ((left < (s64)0) || 
+		    ((left == (s64)0) && (new_timer.arch_cycle_expires <= arch_cycle_left)))
+			return 0;
+#endif
 	}
 
 	if (abs && (posix_clocks[which_clock].clock_get !=
@@ -1458,33 +1701,50 @@ do_clock_nanosleep(clockid_t which_clock, int flags, struct timespec *tsave)
 
 	do {
 		t = *tsave;
-		if (abs || !rq_time) {
+		if (abs || !(rq_time IF_HIGH_RES(| new_timer.arch_cycle_expires))) {
+			int dum2;
+			IF_HIGH_RES(new_timer.arch_cycle_expires =)
 			adjust_abs_time(&posix_clocks[which_clock], &t, abs,
-					&rq_time, &dum);
-			rq_time += (t.tv_sec || t.tv_nsec);
+					&rq_time, &dum, &dum2);
 		}
 
-		left = rq_time - get_jiffies_64();
+		jiff_u64_f = get_jiffies_time(&arch_cycle_left);
+		left = rq_time - jiff_u64_f;
 		if (left >= (s64)MAX_JIFFY_OFFSET)
 			left = (s64)MAX_JIFFY_OFFSET;
+#ifndef CONFIG_HIGH_RES_TIMERS
 		if (left < (s64)0)
 			break;
+#else
+		if ((left < (s64)0) || 
+		    ((left == (s64)0) && (new_timer.arch_cycle_expires <= arch_cycle_left)))
+			break;
+#endif
 
-		new_timer.expires = jiffies + left;
+		new_timer.expires = (unsigned long)jiff_u64_f + left;
 		__set_current_state(TASK_INTERRUPTIBLE);
 		add_timer(&new_timer);
-
 		schedule();
 
 		del_timer_sync(&new_timer);
-		left = rq_time - get_jiffies_64();
-	} while (left > (s64)0 && !test_thread_flag(TIF_SIGPENDING));
+		left = rq_time - get_jiffies_time(&arch_cycle_left);
+	} while ((left > (s64)0  
+#ifdef CONFIG_HIGH_RES_TIMERS
+		  || (left == (s64)0 && (new_timer.arch_cycle_expires > arch_cycle_left))
+#endif
+			 ) &&  !test_thread_flag(TIF_SIGPENDING));
 
 	if (abs_wqueue.task_list.next)
 		finish_wait(&nanosleep_abs_wqueue, &abs_wqueue);
 
-	if (left > (s64)0) {
 
+#ifdef CONFIG_HIGH_RES_TIMERS
+	if (left > (s64)0 || 
+	    (left == (s64)0 && (new_timer.arch_cycle_expires > arch_cycle_left)))
+#else
+	if (left > (s64)0 )
+#endif
+	{
 		/*
 		 * Always restart abs calls from scratch to pick up any
 		 * clock shifting that happened while we are away.
@@ -1493,6 +1753,9 @@ do_clock_nanosleep(clockid_t which_clock, int flags, struct timespec *tsave)
 			return -ERESTARTNOHAND;
 
 		left *= TICK_NSEC;
+#ifdef CONFIG_HIGH_RES_TIMERS
+		left += arch_cycle_to_nsec(new_timer.arch_cycle_expires - arch_cycle_left);
+#endif
 		tsave->tv_sec = div_long_long_rem(left, 
 						  NSEC_PER_SEC, 
 						  &tsave->tv_nsec);
@@ -1512,10 +1775,10 @@ do_clock_nanosleep(clockid_t which_clock, int flags, struct timespec *tsave)
 		 */
 		restart_block->arg2 = rq_time & 0xffffffffLL;
 		restart_block->arg3 = rq_time >> 32;
+		IF_HIGH_RES(restart_block->arg4 = new_timer.arch_cycle_expires;)
 
 		return -ERESTART_RESTARTBLOCK;
 	}
-
 	return 0;
 }
 /*

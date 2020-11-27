@@ -34,6 +34,7 @@
 #include <asm/arch/udc.h>
 #include <asm/arch/pxafb.h>
 #include <asm/arch/mmc.h>
+#include <asm/arch/irda.h>
 
 #include "generic.h"
 
@@ -92,7 +93,7 @@ EXPORT_SYMBOL(pxa_set_cken);
  */
 static struct map_desc standard_io_desc[] __initdata = {
  /* virtual     physical    length      type */
-  { 0xf2000000, 0x40000000, 0x01800000, MT_DEVICE }, /* Devs */
+  { 0xf2000000, 0x40000000, 0x02000000, MT_DEVICE }, /* Devs */
   { 0xf4000000, 0x44000000, 0x00100000, MT_DEVICE }, /* LCD */
   { 0xf6000000, 0x48000000, 0x00100000, MT_DEVICE }, /* Mem Ctl */
   { 0xf8000000, 0x4c000000, 0x00100000, MT_DEVICE }, /* USB host */
@@ -220,6 +221,21 @@ static struct platform_device stuart_device = {
 	.id		= 2,
 };
 
+static struct platform_device i2c_device = {
+	.name 	= "pxa2xx-i2c",
+	.id 	= 0,
+};
+
+static struct platform_device pxaficp_device = {
+	.name		= "pxa2xx-ir",
+	.id		= -1,
+};
+
+void __init pxa_set_ficp_info(struct pxaficp_platform_data *info)
+{
+	pxaficp_device.dev.platform_data = info;
+}
+
 static struct platform_device *devices[] __initdata = {
 	&pxamci_device,
 	&udc_device,
@@ -227,6 +243,8 @@ static struct platform_device *devices[] __initdata = {
 	&ffuart_device,
 	&btuart_device,
 	&stuart_device,
+	&i2c_device,
+	&pxaficp_device,
 };
 
 static int __init pxa_init(void)

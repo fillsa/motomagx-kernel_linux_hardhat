@@ -27,16 +27,35 @@
 
 /*
  * This is for peripheral IRQs internal to the PXA chip.
+ * Using coprocessor-register access mode instead of 
+ * memory-mapped-register access mode for PXA27x family
+ * to reduce access times.
  */
 
 static void pxa_mask_low_irq(unsigned int irq)
 {
+#ifdef CONFIG_PXA27x
+	u32 value = 0;
+
+	__asm__ __volatile__("mrc p6, 0, %0, c1, c0, 0": "=r"(value));
+	value &= ~(1 << (irq + PXA_IRQ_SKIP));
+	__asm__ __volatile__("mcr p6, 0, %0, c1, c0, 0": :"r"(value));
+#else
 	ICMR &= ~(1 << (irq + PXA_IRQ_SKIP));
+#endif
 }
 
 static void pxa_unmask_low_irq(unsigned int irq)
 {
+#ifdef CONFIG_PXA27x
+	u32 value = 0;
+
+	__asm__ __volatile__("mrc p6, 0, %0, c1, c0, 0": "=r"(value));
+	value |= (1 << (irq + PXA_IRQ_SKIP));
+	__asm__ __volatile__("mcr p6, 0, %0, c1, c0, 0": :"r"(value));
+#else
 	ICMR |= (1 << (irq + PXA_IRQ_SKIP));
+#endif
 }
 
 static struct irqchip pxa_internal_chip_low = {
@@ -53,12 +72,28 @@ static struct irqchip pxa_internal_chip_low = {
 
 static void pxa_mask_high_irq(unsigned int irq)
 {
+#ifdef CONFIG_PXA27x
+	u32 value = 0;
+
+	__asm__ __volatile__("mrc p6, 0, %0, c7, c0, 0": "=r"(value));
+	value &= ~(1 << (irq - 32 + PXA_IRQ_SKIP));
+	__asm__ __volatile__("mcr p6, 0, %0, c7, c0, 0": :"r"(value));
+#else
 	ICMR2 &= ~(1 << (irq - 32 + PXA_IRQ_SKIP));
+#endif
 }
 
 static void pxa_unmask_high_irq(unsigned int irq)
 {
+#ifdef CONFIG_PXA27x
+	u32 value = 0;
+
+	__asm__ __volatile__("mrc p6, 0, %0, c7, c0, 0": "=r"(value));
+	value |= (1 << (irq - 32 + PXA_IRQ_SKIP));
+	__asm__ __volatile__("mcr p6, 0, %0, c7, c0, 0": :"r"(value));
+#else
 	ICMR2 |= (1 << (irq - 32 + PXA_IRQ_SKIP));
+#endif
 }
 
 static struct irqchip pxa_internal_chip_high = {

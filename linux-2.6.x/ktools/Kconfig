@@ -1,0 +1,91 @@
+
+menu "MontaVista System tools"
+
+config ILATENCY
+       bool "Interrupt Latency Instrumentation"
+       default n
+       depends on !CRITICAL_IRQSOFF_TIMING && !KFI && !MOT_FEAT_32KHZ_GPT
+       help
+         This option turns on instrumentation in the kernel to measure the
+         interrupt overhead and interrupt hold off times of the kernel and
+         driver set for a particular system.  The measurement provides
+         interrupt latency data to gain an understanding of what interrupt
+         latencies look like for that system.
+
+	 This instrumentation is mutually exclusive to CRITICAL_IRQSOFF_TIMING
+         and Kernel Functional Instrumentation.
+	 If you are analyzing interrupt latency and off times with DevRocket
+	 you must use Interrupt Latency Instrumentation (ILATENCY).
+
+         The data is collected in /proc/ilatcurve, outlier data, or the
+         maximum interrupt off offenders are collected in /proc/imaxoff.  This
+         file has the longest interrupt off times and the file and line number
+         of the interrupt off/on pair.  This file is useful for finding and
+         debugging drivers that have poor interrupt latencies.
+
+         Interrupt Latency Instrumentation should NOT be used in production
+         systems.  It has a fairly large overhead to measure and collect the
+         data.  It also should not be used with kernel preemption latency
+         times collection as they will interfere with each other.
+
+	 To set the interrupt latency timer speed pass tpu=XXX
+	 on the command line, where XXX is the rate of the timer.  
+	 If you do not know the rate of the timer being used on your system 
+	 for interrupt latency measurement say N
+	 to this feature.
+
+         Say Y to this option if you are trying to understand the interrupt
+         latency curve of your board.  This should be only used in the design
+         and debug phase of your product.
+
+config START_TMU1
+	bool 
+	default y
+	depends on ILATENCY && SUPERH
+
+config KFI
+       bool "Kernel Function Instrumentation"
+       default n
+       help
+         Say Y here to enable kernel function instrumentation.  This feature
+         is used to measure boot times. The instrumentation shows the
+         functions called in the boot path, for example, and the time
+         spent in each function.
+
+         Kernel Function Instrumentation is mutually exclusive with Interrupt
+         Latency Instrumentation.  Turning on Kernel Function Instrumentation
+         will turn off Interrupt Latency Instrumentation automatically.
+
+         Say N if you are not timing the boot sequence, this feature produces
+         a large performance penalty and is NOT intended for production
+         code or systems that will be used in measuring ANY aspect of
+         system performance. KFI and ILATENCY are mutually exclusive.
+
+config KFI_BOOT_TIMING
+       depends on KFI
+       bool "  Measure boot time to user space"
+         help
+         Say Y here if you have wish to use the default
+         static config file that measures boot time to user space.
+
+config PRIORITIZED_OOM_KILL
+       bool "User prioritizable oom killer"
+       help
+         Say Y here ro enable the prioritizable oom kill functions.
+         This option allows the super user to set 2 lists in the /proc file
+         system that control which processes are killed first and which
+         processes are NOT to be killed.  The /proc/sys/kernel/oom/dontkill
+         file has a list of process names that are NOT to be kill by the OOM
+         killer.  The /proc/sys/kernel/oom/killable file contains a list of
+         processes that can be killed in situations of extreme low memory.
+         The list is prioritzed in FIFO fashion.  The first entry in the list
+         is the first OOM victim.
+
+         Both files can be erased by passing the word 'erase' to the file.
+         E.g. echo erase > /proc/sys/kernel/oom/killable
+
+         Typical processes that are added to the don't kill list may include,
+         init, bash, portmap, keventd, kswapd, etc.
+
+
+endmenu

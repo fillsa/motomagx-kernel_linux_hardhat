@@ -32,6 +32,8 @@
  */
 #include <linux/kernel.h>
 #include <linux/bitops.h>
+
+#include <asm/div64.h>
 #include <asm/ptrace.h>
 #include <asm/vfp.h>
 
@@ -201,7 +203,7 @@ u32 vfp_single_normaliseround(int sd, struct vfp_single *vs, u32 fpscr, u32 exce
 		vfp_put_float(sd, d);
 	}
 
-	return exceptions & ~VFP_NAN_FLAG;
+	return exceptions;
 }
 
 /*
@@ -303,7 +305,11 @@ u32 vfp_estimate_sqrt_significand(u32 exponent, u32 significand)
 		if (z <= a)
 			return (s32)a >> 1;
 	}
-	return (u32)(((u64)a << 31) / z) + (z >> 1);
+	{
+		u64 v = (u64)a << 31;
+		do_div(v, z);
+		return v + (z >> 1);
+	}
 }
 
 static u32 vfp_single_fsqrt(int sd, int unused, s32 m, u32 fpscr)
@@ -626,6 +632,7 @@ static u32 vfp_single_ftosi(int sd, int unused, s32 m, u32 fpscr)
 	struct vfp_single vsm;
 	u32 d, exceptions = 0;
 	int rmode = fpscr & FPSCR_RMODE_MASK;
+	int tm;
 
 	vfp_single_unpack(&vsm, m);
 	vfp_single_dump("VSM", &vsm);
@@ -633,10 +640,14 @@ static u32 vfp_single_ftosi(int sd, int unused, s32 m, u32 fpscr)
 	/*
 	 * Do we have a denormalised number?
 	 */
+	tm = vfp_single_type(&vsm);
 	if (vfp_single_type(&vsm) & VFP_DENORMAL)
 		exceptions |= FPSCR_IDC;
 
-	if (vsm.exponent >= 127 + 32) {
+	if (tm & VFP_NAN) {
+		d = 0;
+		exceptions |= FPSCR_IOC;
+	} else if (vsm.exponent >= 127 + 32) {
 		/*
 		 * m >= 2^31-2^7: invalid
 		 */
@@ -1107,7 +1118,11 @@ static u32 vfp_single_fdiv(int sd, int sn, s32 m, u32 fpscr)
 		vsn.significand >>= 1;
 		vsd.exponent++;
 	}
-	vsd.significand = ((u64)vsn.significand << 32) / vsm.significand;
+	{
+		u64 significand = (u64)vsn.significand << 32;
+		do_div(significand, vsm.significand);
+		vsd.significand = significand;
+	}
 	if ((vsd.significand & 0x3f) == 0)
 		vsd.significand |= ((u64)vsm.significand * vsd.significand != (u64)vsn.significand << 32);
 
@@ -1178,7 +1193,7 @@ u32 vfp_single_cpdo(u32 inst, u32 fpscr)
 	pr_debug("VFP: vecstride=%u veclen=%u\n", vecstride,
 		 (veclen >> FPSCR_LENGTH_BIT) + 1);
 
-	fop = (op == FOP_EXT) ? fop_extfns[sn] : fop_fns[FOP_TO_IDX(op)];
+	fop = (op == FOP_EXT) ? fop_extfns[FEXT_TO_IDX(inst)] : fop_fns[FOP_TO_IDX(op)];
 	if (!fop)
 		goto invalid;
 

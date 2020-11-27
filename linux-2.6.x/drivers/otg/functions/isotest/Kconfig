@@ -1,0 +1,78 @@
+
+# @(#) balden@seth2.belcarratech.com|otg/functions/isotest/Kconfig|20051116204957|12979
+#
+#      Copyright (c) 2005-2006 Motorola, Inc.
+#
+# Changelog:
+# Date               Author           Comment
+# -----------------------------------------------------------------------------
+# 12/12/2005         Motorola         dn Initial distribution
+# 10/18/2006         Motorola         ma sk pw Add Open Src Software language
+#
+# This Program is distributed in the hope that it will
+# be useful, but WITHOUT ANY WARRANTY;
+# without even the implied warranty of
+# MERCHANTIBILITY or FITNESS FOR A
+# PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+
+# This program is free software; you can redistribute it
+# and/or modify it under the terms of the GNU General
+# Public License as published by the Free Software
+# Foundation; either version 2 of the License, or (at
+# your option) any later version.  You should have
+# received a copy of the GNU General Public License
+# along with this program; if not, write to the Free
+# Software Foundation, Inc., 675 Mass Ave,
+# Cambridge, MA 02139, USA
+
+menu "OTG ISO Loop Test function"
+	depends on OTG
+
+config OTG_ISOTEST
+        tristate "  ISO Loop Test Function"
+        depends on OTG
+
+menu "OTG ISO Loop Test function options"
+	depends on OTG && OTG_ISOTEST
+
+config OTG_ISOTEST_VENDORID
+        hex "VendorID (hex value)"
+        depends on OTG && OTG_ISOTEST
+        default "0x15ec"
+
+config OTG_ISOTEST_PRODUCTID
+        hex "ProductID (hex value)"
+        depends on OTG && OTG_ISOTEST
+        default "0xf004"
+
+config OTG_ISOTEST_BCDDEVICE
+        hex "bcdDevice (binary-coded decimal)"
+        depends on OTG && OTG_ISOTEST
+        default "0x0100"
+
+config OTG_ISOTEST_MANUFACTURER
+        string "iManufacturer (string)"
+        depends on OTG && OTG_ISOTEST
+        default "Belcarra"
+
+config OTG_ISOTEST_PRODUCT_NAME
+        string "iProduct (string)"
+        depends on OTG && OTG_ISOTEST
+        default "ISO Loop Test Storage Class - Bulk Only"
+
+config OTG_ISOTEST_INTF
+        string "ISO Loop Test Bulk Only iInterface (string)"
+        depends on OTG && OTG_ISOTEST
+        default "ISOTEST BO Data Intf"
+
+config OTG_ISOTEST_DESC
+        string "Data Interface iConfiguration (string)"
+        depends on OTG && OTG_ISOTEST
+        default "ISO Loop Test BO Configuration"
+
+endmenu
+
+endmenu
+
+

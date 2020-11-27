@@ -1011,7 +1011,7 @@ int locks_mandatory_locked(struct inode *inode)
  * @count:      length of area to check
  *
  * Searches the inode's list of locks to find any POSIX locks which conflict.
- * This function is called from locks_verify_area() and
+ * This function is called from rw_verify_area() and
  * locks_verify_truncate().
  */
 int locks_mandatory_area(int read_write, struct inode *inode,
@@ -1662,7 +1662,11 @@ int fcntl_setlk(struct file *filp, unsigned int cmd, struct flock __user *l)
 
 	if (filp->f_op && filp->f_op->lock != NULL) {
 		error = filp->f_op->lock(filp, cmd, file_lock);
-		goto out;
+#define MVISTA_NFS_11447
+#ifdef MVISTA_NFS_11447
+		if (error < 0)
+#endif
+			goto out;
 	}
 
 	for (;;) {
@@ -1796,7 +1800,10 @@ int fcntl_setlk64(struct file *filp, unsigned int cmd, struct flock64 __user *l)
 
 	if (filp->f_op && filp->f_op->lock != NULL) {
 		error = filp->f_op->lock(filp, cmd, file_lock);
-		goto out;
+#ifdef MVISTA_NFS_11447
+		if (error < 0)
+#endif
+			goto out;
 	}
 
 	for (;;) {
@@ -1848,7 +1855,9 @@ void locks_remove_posix(struct file *filp, fl_owner_t owner)
 
 	if (filp->f_op && filp->f_op->lock != NULL) {
 		filp->f_op->lock(filp, F_SETLK, &lock);
+#ifndef MVISTA_NFS_11447
 		goto out;
+#endif
 	}
 
 	/* Can't use posix_lock_file here; we need to remove it no matter
@@ -1864,7 +1873,10 @@ void locks_remove_posix(struct file *filp, fl_owner_t owner)
 		before = &fl->fl_next;
 	}
 	unlock_kernel();
-out:
+
+#ifndef MVISTA_NFS_11447
+ out:
+#endif
 	if (lock.fl_ops && lock.fl_ops->fl_release_private)
 		lock.fl_ops->fl_release_private(&lock);
 }

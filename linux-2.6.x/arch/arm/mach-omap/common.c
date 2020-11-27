@@ -18,6 +18,7 @@
 #include <linux/tty.h>
 #include <linux/serial_8250.h>
 #include <linux/serial_reg.h>
+#include <linux/kgdb.h>
 
 #include <asm/hardware.h>
 #include <asm/system.h>
@@ -30,8 +31,6 @@
 #include <asm/arch/board.h>
 #include <asm/arch/mux.h>
 #include <asm/arch/fpga.h>
-#include <asm/arch/serial.h>
-
 
 #include "clock.h"
 
@@ -265,9 +264,6 @@ static void __init _omap_map_io(void)
 	iotable_init(omap_io_desc, ARRAY_SIZE(omap_io_desc));
 	omap_check_revision();
 
-	/* clear BM to canonicalize CS0 (not CS3) at 0000:0000 */
-	omap_writel(omap_readl(EMIFS_CONFIG) & 0x0d, EMIFS_CONFIG);
-
 #ifdef CONFIG_ARCH_OMAP730
 	if (cpu_is_omap730()) {
 		iotable_init(omap730_io_desc, ARRAY_SIZE(omap730_io_desc));
@@ -307,14 +303,14 @@ void omap_map_io(void)
 		_omap_map_io();
 }
 
-static inline unsigned int omap_serial_in(struct plat_serial8250_port *up, 
+static inline unsigned int omap_serial_in(struct uart_port *up,
 					  int offset)
 {
 	offset <<= up->regshift;
 	return (unsigned int)__raw_readb(up->membase + offset);
 }
 
-static inline void omap_serial_outp(struct plat_serial8250_port *p, int offset, 
+static inline void omap_serial_outp(struct uart_port *p, int offset,
 				    int value)
 {
 	offset <<= p->regshift;
@@ -323,12 +319,14 @@ static inline void omap_serial_outp(struct plat_serial8250_port *p, int offset,
 
 /*
  * Internal UARTs need to be initialized for the 8250 autoconfig to work
- * properly.
+ * properly. Note that the TX watermark initialization may not be needed
+ * once the 8250.c watermark handling code is merged.
  */
-static void __init omap_serial_reset(struct plat_serial8250_port *p)
+static void __init omap_serial_reset(struct uart_port *p)
 {
-	omap_serial_outp(p, UART_OMAP_MDR1, 0x07); /* disable UART */
-	omap_serial_outp(p, UART_OMAP_MDR1, 0x00); /* enable UART */
+	omap_serial_outp(p, UART_OMAP_MDR1, 0x07);	/* disable UART */
+	omap_serial_outp(p, UART_OMAP_SCR, 0x08);	/* TX watermark */
+	omap_serial_outp(p, UART_OMAP_MDR1, 0x00);	/* enable UART */
 
 	if (!cpu_is_omap1510()) {
 		omap_serial_outp(p, UART_OMAP_SYSC, 0x01);
@@ -336,7 +334,7 @@ static void __init omap_serial_reset(struct plat_serial8250_port *p)
 	}
 }
 
-static struct plat_serial8250_port serial_platform_data[] = {
+static struct uart_port serial_platform_data[] = {
 	{
 		.membase	= (char*)IO_ADDRESS(OMAP_UART1_BASE),
 		.mapbase	= (unsigned long)OMAP_UART1_BASE,
@@ -365,14 +363,6 @@ static struct plat_serial8250_port serial_platform_data[] = {
 		.uartclk	= OMAP16XX_BASE_BAUD * 16,
 	},
 	{ },
-};
-
-static struct platform_device serial_device = {
-	.name			= "serial8250",
-	.id			= 0,
-	.dev			= {
-		.platform_data	= serial_platform_data,
-	},
 };
 
 /*
@@ -406,6 +396,8 @@ void __init omap_serial_init(int ports[OMAP_MAX_NR_PORTS])
 			continue;
 		}
 
+		serial_platform_data[i].line = i;
+
 		switch (i) {
 		case 0:
 			if (cpu_is_omap1510()) {
@@ -436,15 +428,24 @@ void __init omap_serial_init(int ports[OMAP_MAX_NR_PORTS])
 				omap_cfg_reg(UART3_TX);
 				omap_cfg_reg(UART3_RX);
 			}
+			if (cpu_is_omap1710()) {
+				clk_enable(clk_get(0, "uart3_ck"));
+			}
 			break;
 		}
 		omap_serial_reset(&serial_platform_data[i]);
+#ifdef CONFIG_SERIAL_8250
+		early_serial_setup(&serial_platform_data[i]);
+#endif
+#ifdef CONFIG_KGDB_8250
+		kgdb8250_add_port(i, &serial_platform_data[i]);
+#endif
 	}
 }
 
 static int __init omap_init(void)
 {
-	return platform_device_register(&serial_device);
+	return 0;
 }
 arch_initcall(omap_init);
 

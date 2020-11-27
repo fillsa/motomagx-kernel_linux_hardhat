@@ -43,24 +43,21 @@ struct sec_path *secpath_dup(struct sec_path *src)
 
 /* Fetch spi and seq from ipsec header */
 
-int xfrm_parse_spi(struct sk_buff *skb, u8 nexthdr, u32 *spi, u32 *seq)
+int xfrm_parse_spi(struct sk_buff *skb, u8 nexthdr, u32 *spi)
 {
-	int offset, offset_seq;
+	int offset;
 
 	switch (nexthdr) {
 	case IPPROTO_AH:
 		offset = offsetof(struct ip_auth_hdr, spi);
-		offset_seq = offsetof(struct ip_auth_hdr, seq_no);
 		break;
 	case IPPROTO_ESP:
 		offset = offsetof(struct ip_esp_hdr, spi);
-		offset_seq = offsetof(struct ip_esp_hdr, seq_no);
 		break;
 	case IPPROTO_COMP:
 		if (!pskb_may_pull(skb, sizeof(struct ip_comp_hdr)))
 			return -EINVAL;
 		*spi = ntohl(ntohs(*(u16*)(skb->h.raw + 2)));
-		*seq = 0;
 		return 0;
 	default:
 		return 1;
@@ -70,7 +67,6 @@ int xfrm_parse_spi(struct sk_buff *skb, u8 nexthdr, u32 *spi, u32 *seq)
 		return -EINVAL;
 
 	*spi = *(u32*)(skb->h.raw + offset);
-	*seq = *(u32*)(skb->h.raw + offset_seq);
 	return 0;
 }
 

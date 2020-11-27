@@ -2,6 +2,7 @@
  * Header for MultiMediaCard (MMC)
  *
  * Copyright 2002 Hewlett-Packard Company
+ * Copyright (C) 2006,2008 Motorola
  *
  * Use consistent with the GNU GPL is permitted,
  * provided that this copyright notice is
@@ -18,21 +19,44 @@
  * Author: Yong-iL Joh <tolkien@mizi.com>
  * Date  : $Date: 2002/06/18 12:37:30 $
  *
- * Author:  Andrew Christian
- *          15 May 2002
+ * This program is free software; you can redistribute it
+ * and/or modify it under the terms of the GNU General
+ * Public License as published by the Free Software
+ * Foundation; either version 2 of the License, or (at
+ * your option) any later version.  You should have
+ * received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free
+ * Software Foundation, Inc., 675 Mass Ave,
+ * Cambridge, MA 02139, USA
+ *
+ * This Program is distributed in the hope that it will
+ * be useful, but WITHOUT ANY WARRANTY;
+ * without even the implied warranty of
+ * MERCHANTIBILITY or FITNESS FOR A
+ * PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * Date		Author			Comment
+ * 05/15/2002	Andrew Christian
+ * 11/17/2006	Motorola		Support SDA 2.0
+ * 11/28/2006   Motorola                Support MMCA 4.1 movinand 4-bit mode
+ * 07/31/2008	Motorola		Fix 4bit issue
+ * 09/32/2008   Motorola        	Support erase command
  */
 
 #ifndef MMC_MMC_PROTOCOL_H
 #define MMC_MMC_PROTOCOL_H
 
-/* Standard MMC commands (3.1)           type  argument     response */
+/* Standard MMC commands (4.1)           type  argument     response */
    /* class 1 */
 #define	MMC_GO_IDLE_STATE         0   /* bc                          */
 #define MMC_SEND_OP_COND          1   /* bcr  [31:0] OCR         R3  */
 #define MMC_ALL_SEND_CID          2   /* bcr                     R2  */
 #define MMC_SET_RELATIVE_ADDR     3   /* ac   [31:16] RCA        R1  */
 #define MMC_SET_DSR               4   /* bc   [31:16] RCA            */
+#define MMC_SWITCH                6   /* ac   [31:0] See below   R1b */
 #define MMC_SELECT_CARD           7   /* ac   [31:16] RCA        R1  */
+#define MMC_SEND_EXT_CSD          8   /* adtc [31:0] stuff bits  R1  */
 #define MMC_SEND_CSD              9   /* ac   [31:16] RCA        R2  */
 #define MMC_SEND_CID             10   /* ac   [31:16] RCA        R2  */
 #define MMC_READ_DAT_UNTIL_STOP  11   /* adtc [31:0] dadr        R1  */
@@ -61,9 +85,11 @@
 #define MMC_SEND_WRITE_PROT      30   /* adtc [31:0] wpdata addr R1  */
 
   /* class 5 */
+#define MMC_ERASE_BLK_START      32   /* ac   [31:0] data addr   R1  */
+#define MMC_ERASE_BLK_END        33   /* ac   [31:0] data addr   R1  */
 #define MMC_ERASE_GROUP_START    35   /* ac   [31:0] data addr   R1  */
 #define MMC_ERASE_GROUP_END      36   /* ac   [31:0] data addr   R1  */
-#define MMC_ERASE                37   /* ac                      R1b */
+#define MMC_ERASE                38   /* ac                      R1b */
 
   /* class 9 */
 #define MMC_FAST_IO              39   /* ac   <Complex>          R4  */
@@ -75,6 +101,56 @@
   /* class 8 */
 #define MMC_APP_CMD              55   /* ac   [31:16] RCA        R1  */
 #define MMC_GEN_CMD              56   /* adtc [0] RD/WR          R1b */
+
+/* SD commands                           type  argument     response */
+  /* class 0 */
+/* This is basically the same command as for MMC with some quirks. */
+#define SD_SEND_RELATIVE_ADDR     3   /* ac                      R6  */
+#ifdef CONFIG_MOT_FEAT_MMCSD_HCSD
+#define SD_SEND_IF_COND		  8   /* bcr  [11:8]VHS [7:0]cp  R7  */
+#endif
+
+  /* class 10 */
+#define SD_SWITCH                 6   /* adtc [31:0] See below   R1  */
+
+  /* Application commands */
+#define SD_APP_SET_BUS_WIDTH      6   /* ac   [1:0] bus width    R1  */
+#define SD_APP_SEND_NUM_WR_BLKS  22   /* adtc                    R1  */
+#define SD_APP_OP_COND           41   /* bcr  [31:0] OCR         R3  */
+#define SD_APP_SEND_SCR          51   /* adtc                    R1  */
+#define SD_APP_SD_STATUS         13   /* adtc [31:0]             R1  */
+
+/*
+ * MMC_SWITCH argument format:
+ *
+ *	[31:26] Always 0
+ *	[25:24] Access Mode
+ *	[23:16] Location of target Byte in EXT_CSD
+ *	[15:08] Value Byte
+ *	[07:03] Always 0
+ *	[02:00] Command Set
+ */
+
+/*
+ * SD_SWITCH argument format:
+ *
+ *      [31] Check (0) or switch (1)
+ *      [30:24] Reserved (0)
+ *      [23:20] Function group 6
+ *      [19:16] Function group 5
+ *      [15:12] Function group 4
+ *      [11:8] Function group 3
+ *      [7:4] Function group 2
+ *      [3:0] Function group 1
+ */
+
+/*
+ * SD_SEND_IF_COND argument format:
+ *
+ *	[31:12] Reserved (0)
+ *	[11:8] Host Voltage Supply Flags
+ *	[7:0] Check Pattern (0xAA)
+ */
 
 /*
   MMC status in R1
@@ -113,7 +189,7 @@
 #define R1_STATUS(x)            (x & 0xFFFFE000)
 #define R1_CURRENT_STATE(x)    	((x & 0x00001E00) >> 9)	/* sx, b (4 bits) */
 #define R1_READY_FOR_DATA	(1 << 8)	/* sx, a */
-#define R1_APP_CMD		(1 << 7)	/* sr, c */
+#define R1_APP_CMD		(1 << 5)	/* sr, c */
 
 /* These are unpacked versions of the actual responses */
 
@@ -198,6 +274,63 @@ struct _mmc_csd {
 #define CSD_SPEC_VER_1      1           /* Implements system specification 1.4 */
 #define CSD_SPEC_VER_2      2           /* Implements system specification 2.0 - 2.2 */
 #define CSD_SPEC_VER_3      3           /* Implements system specification 3.1 */
+#define CSD_SPEC_VER_4      4           /* Implements system specification 4.0 - 4.1 */
+
+
+/*
+ * EXT_CSD fields
+ */
+#define EXT_CSD_BUS_WIDTH	183	/* WO */
+#define EXT_CSD_HS_TIMING	185	/* R/W */
+#define EXT_CSD_CARD_TYPE	196	/* RO */
+
+/*
+ * EXT_CSD field definitions
+ */
+
+#define EXT_CSD_CMD_SET_NORMAL		(1<<0)
+#define EXT_CSD_CMD_SET_SECURE		(1<<1)
+#define EXT_CSD_CMD_SET_CPSECURE	(1<<2)
+
+#define EXT_CSD_CARD_TYPE_26	(1<<0)	/* Card can run at 26MHz */
+#define EXT_CSD_CARD_TYPE_52	(1<<1)	/* Card can run at 52MHz */
+
+/*
+ * MMC_SWITCH access modes
+ */
+
+#define MMC_SWITCH_MODE_CMD_SET		0x00	/* Change the command set */
+#define MMC_SWITCH_MODE_SET_BITS	0x01	/* Set bits which are 1 in value */
+#define MMC_SWITCH_MODE_CLEAR_BITS	0x02	/* Clear bits which are 1 in value */
+#define MMC_SWITCH_MODE_WRITE_BYTE	0x03	/* Set target to value */
+
+/*
+ * SD bus widths
+ */
+#define SD_BUS_WIDTH_1      0
+#define SD_BUS_WIDTH_4      2
+
+#ifdef CONFIG_MOT_FEAT_MMCSD_HCSD
+/*
+ * SD2 host high capacity support bit
+ */
+#define SD_HOST_HCS	    0x40000000
+#define SD_CARD_CAP_HIGH    0x40000000
+#endif
+
+#ifdef CONFIG_MMC_DEBUG
+#ifndef CONFIG_MMC_DEBUG_VERBOSE
+#define CONFIG_MMC_DEBUG_VERBOSE 1
+#endif
+
+#define DBG(n,args...)\
+	if( n<= CONFIG_MMC_DEBUG_VERBOSE ){ \
+		printk(args); \
+	}
+
+#else
+#define DBG(x...)       do { } while (0)
+#endif
+
 
 #endif  /* MMC_MMC_PROTOCOL_H */
-

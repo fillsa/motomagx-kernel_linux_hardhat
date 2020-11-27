@@ -89,4 +89,13 @@ void prom_smp_finish(void)
  */
 void prom_cpus_done(void)
 {
+#ifdef CONFIG_CPU_TIMER
+	/*
+	 * Now that all the slave processors are up and running, 
+	 * sync the count registers accross all
+	 */
+	extern void sync_c0_count_master(void);
+
+	sync_c0_count_master();
+#endif
 }

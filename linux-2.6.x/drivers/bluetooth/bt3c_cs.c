@@ -19,9 +19,20 @@
  *  <dahinds@users.sourceforge.net>.  Portions created by David A. Hinds
  *  are Copyright (C) 1999 David A. Hinds.  All Rights Reserved.
  *
+ *
+ *
+ *     Copyright (C) 2007 - Motorola
+ *
+ *     Date         Author           Comment
+ *     -----------  --------------   --------------------------------
+ *     02-FEB-2007  Motorola         ModKconfig Build System Change
+ *
  */
 
 #include <linux/config.h>
+#ifdef MODKCONFIG
+#include "modkconfig/config.h"
+#endif
 #include <linux/module.h>
 
 #include <linux/kernel.h>

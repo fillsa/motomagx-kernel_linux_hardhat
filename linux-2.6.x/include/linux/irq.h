@@ -17,9 +17,11 @@
 #include <linux/cache.h>
 #include <linux/spinlock.h>
 #include <linux/cpumask.h>
+#include <linux/wait.h>
 
 #include <asm/irq.h>
 #include <asm/ptrace.h>
+#include <asm/timex.h>
 
 /*
  * IRQ line status.
@@ -33,6 +35,15 @@
 #define IRQ_LEVEL	64	/* IRQ level triggered */
 #define IRQ_MASKED	128	/* IRQ masked - shouldn't be seen again */
 #define IRQ_PER_CPU	256	/* IRQ is per CPU */
+#define IRQ_NODELAY	512	/* IRQ must run immediately */
+
+/*
+ * Not used on any of the architectures, but feel free to provide
+ * your own per-arch one:
+ */
+#ifndef SA_NODELAY
+# define SA_NODELAY 0x01000000
+#endif
 
 /*
  * Interrupt controller descriptor. This is all we need
@@ -65,7 +76,10 @@ typedef struct irq_desc {
 	unsigned int depth;		/* nested irq disables */
 	unsigned int irq_count;		/* For detecting broken interrupts */
 	unsigned int irqs_unhandled;
-	spinlock_t lock;
+	struct task_struct *thread;
+	wait_queue_head_t wait_for_handler;
+	cycles_t timestamp;
+	raw_spinlock_t lock;
 } ____cacheline_aligned irq_desc_t;
 
 extern irq_desc_t irq_desc [NR_IRQS];
@@ -86,7 +100,16 @@ extern void note_interrupt(unsigned int irq, irq_desc_t *desc, int action_ret);
 extern void report_bad_irq(unsigned int irq, irq_desc_t *desc, int action_ret);
 extern int can_request_irq(unsigned int irq, unsigned long irqflags);
 
+extern void early_init_hardirqs(void);
 extern void init_irq_proc(void);
+extern cycles_t irq_timestamp(unsigned int irq);
+#else
+static inline void early_init_hardirqs(void) { }
+#endif
+#if defined(CONFIG_PREEMPT_HARDIRQS)
+extern void init_hardirqs(void);
+#else
+static inline void init_hardirqs(void) { }
 #endif
 
 extern hw_irq_controller no_irq_type;  /* needed in every arch ? */

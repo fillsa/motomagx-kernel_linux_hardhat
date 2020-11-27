@@ -75,8 +75,7 @@
 #include <linux/timer.h>
 #include <linux/list.h>
 #include <linux/interrupt.h>
-#include <linux/uts.h>
-#include <linux/version.h>
+#include <linux/utsname.h>
 #include <linux/device.h>
 #include <linux/moduleparam.h>
 
@@ -920,6 +919,9 @@ zero_setup (struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 	struct zero_dev		*dev = get_gadget_data (gadget);
 	struct usb_request	*req = dev->req;
 	int			value = -EOPNOTSUPP;
+	u16			wIndex = le16_to_cpu(ctrl->wIndex);
+	u16			wValue = le16_to_cpu(ctrl->wValue);
+	u16			wLength = le16_to_cpu(ctrl->wLength);
 
 	/* usually this stores reply data in the pre-allocated ep0 buffer,
 	 * but config change events will reconfigure hardware.
@@ -930,17 +932,17 @@ zero_setup (struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 	case USB_REQ_GET_DESCRIPTOR:
 		if (ctrl->bRequestType != USB_DIR_IN)
 			goto unknown;
-		switch (ctrl->wValue >> 8) {
+		switch (wValue >> 8) {
 
 		case USB_DT_DEVICE:
-			value = min (ctrl->wLength, (u16) sizeof device_desc);
+			value = min (wLength, (u16) sizeof device_desc);
 			memcpy (req->buf, &device_desc, value);
 			break;
 #ifdef CONFIG_USB_GADGET_DUALSPEED
 		case USB_DT_DEVICE_QUALIFIER:
 			if (!gadget->is_dualspeed)
 				break;
-			value = min (ctrl->wLength, (u16) sizeof dev_qualifier);
+			value = min (wLength, (u16) sizeof dev_qualifier);
 			memcpy (req->buf, &dev_qualifier, value);
 			break;
 
@@ -951,10 +953,10 @@ zero_setup (struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 #endif /* CONFIG_USB_GADGET_DUALSPEED */
 		case USB_DT_CONFIG:
 			value = config_buf (gadget, req->buf,
-					ctrl->wValue >> 8,
-					ctrl->wValue & 0xff);
+					wValue >> 8,
+					wValue & 0xff);
 			if (value >= 0)
-				value = min (ctrl->wLength, (u16) value);
+				value = min (wLength, (u16) value);
 			break;
 
 		case USB_DT_STRING:
@@ -964,9 +966,9 @@ zero_setup (struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 			 * any UTF-8 characters
 			 */
 			value = usb_gadget_get_string (&stringtab,
-					ctrl->wValue & 0xff, req->buf);
+					wValue & 0xff, req->buf);
 			if (value >= 0)
-				value = min (ctrl->wLength, (u16) value);
+				value = min (wLength, (u16) value);
 			break;
 		}
 		break;
@@ -982,14 +984,14 @@ zero_setup (struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 		else
 			VDBG (dev, "HNP inactive\n");
 		spin_lock (&dev->lock);
-		value = zero_set_config (dev, ctrl->wValue, GFP_ATOMIC);
+		value = zero_set_config (dev, wValue, GFP_ATOMIC);
 		spin_unlock (&dev->lock);
 		break;
 	case USB_REQ_GET_CONFIGURATION:
 		if (ctrl->bRequestType != USB_DIR_IN)
 			goto unknown;
 		*(u8 *)req->buf = dev->config;
-		value = min (ctrl->wLength, (u16) 1);
+		value = min (wLength, (u16) 1);
 		break;
 
 	/* until we add altsetting support, or other interfaces,
@@ -1000,7 +1002,7 @@ zero_setup (struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 		if (ctrl->bRequestType != USB_RECIP_INTERFACE)
 			goto unknown;
 		spin_lock (&dev->lock);
-		if (dev->config && ctrl->wIndex == 0 && ctrl->wValue == 0) {
+		if (dev->config && wIndex == 0 && wValue == 0) {
 			u8		config = dev->config;
 
 			/* resets interface configuration, forgets about
@@ -1021,12 +1023,12 @@ zero_setup (struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 			goto unknown;
 		if (!dev->config)
 			break;
-		if (ctrl->wIndex != 0) {
+		if (wIndex != 0) {
 			value = -EDOM;
 			break;
 		}
 		*(u8 *)req->buf = 0;
-		value = min (ctrl->wLength, (u16) 1);
+		value = min (wLength, (u16) 1);
 		break;
 
 	/*
@@ -1037,23 +1039,23 @@ zero_setup (struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 	case 0x5b:	/* control WRITE test -- fill the buffer */
 		if (ctrl->bRequestType != (USB_DIR_OUT|USB_TYPE_VENDOR))
 			goto unknown;
-		if (ctrl->wValue || ctrl->wIndex)
+		if (wValue || wIndex)
 			break;
 		/* just read that many bytes into the buffer */
-		if (ctrl->wLength > USB_BUFSIZ)
+		if (wLength > USB_BUFSIZ)
 			break;
-		value = ctrl->wLength;
+		value = wLength;
 		break;
 	case 0x5c:	/* control READ test -- return the buffer */
 		if (ctrl->bRequestType != (USB_DIR_IN|USB_TYPE_VENDOR))
 			goto unknown;
-		if (ctrl->wValue || ctrl->wIndex)
+		if (wValue || wIndex)
 			break;
 		/* expect those bytes are still in the buffer; send back */
-		if (ctrl->wLength > USB_BUFSIZ
-				|| ctrl->wLength != req->length)
+		if (wLength > USB_BUFSIZ
+				|| wLength != req->length)
 			break;
-		value = ctrl->wLength;
+		value = wLength;
 		break;
 
 	default:
@@ -1061,13 +1063,13 @@ unknown:
 		VDBG (dev,
 			"unknown control req%02x.%02x v%04x i%04x l%d\n",
 			ctrl->bRequestType, ctrl->bRequest,
-			ctrl->wValue, ctrl->wIndex, ctrl->wLength);
+			wValue, wIndex, wLength);
 	}
 
 	/* respond with data transfer before status phase? */
 	if (value >= 0) {
 		req->length = value;
-		req->zero = value < ctrl->wLength
+		req->zero = value < wLength
 				&& (value % gadget->ep0->maxpacket) == 0;
 		value = usb_ep_queue (gadget->ep0, req, GFP_ATOMIC);
 		if (value < 0) {
@@ -1138,6 +1140,13 @@ zero_bind (struct usb_gadget *gadget)
 {
 	struct zero_dev		*dev;
 	struct usb_ep		*ep;
+	int			gcnum;
+
+	/* FIXME this can't yet work right with SH ... it has only
+	 * one configuration, numbered one.
+	 */
+	if (gadget_is_sh(gadget))
+		return -ENODEV;
 
 	/* Bulk-only drivers like this one SHOULD be able to
 	 * autoconfigure on any sane usb controller driver,
@@ -1160,39 +1169,10 @@ autoconf_fail:
 	EP_OUT_NAME = ep->name;
 	ep->driver_data = ep;	/* claim */
 
-
-	/*
-	 * DRIVER POLICY CHOICE:  you may want to do this differently.
-	 * One thing to avoid is reusing a bcdDevice revision code
-	 * with different host-visible configurations or behavior
-	 * restrictions -- using ep1in/ep2out vs ep1out/ep3in, etc
-	 */
-	if (gadget_is_net2280 (gadget)) {
-		device_desc.bcdDevice = __constant_cpu_to_le16 (0x0201);
-	} else if (gadget_is_pxa (gadget)) {
-		device_desc.bcdDevice = __constant_cpu_to_le16 (0x0203);
-#if 0
-	} else if (gadget_is_sh(gadget)) {
-		device_desc.bcdDevice = __constant_cpu_to_le16 (0x0204);
-		/* SH has only one configuration; see "loopdefault" */
-		device_desc.bNumConfigurations = 1;
-		/* FIXME make 1 == default.bConfigurationValue */
-#endif
-	} else if (gadget_is_sa1100 (gadget)) {
-		device_desc.bcdDevice = __constant_cpu_to_le16 (0x0205);
-	} else if (gadget_is_goku (gadget)) {
-		device_desc.bcdDevice = __constant_cpu_to_le16 (0x0206);
-	} else if (gadget_is_mq11xx (gadget)) {
-		device_desc.bcdDevice = __constant_cpu_to_le16 (0x0207);
-	} else if (gadget_is_omap (gadget)) {
-		device_desc.bcdDevice = __constant_cpu_to_le16 (0x0208);
-	} else if (gadget_is_lh7a40x(gadget)) {
-		device_desc.bcdDevice = __constant_cpu_to_le16 (0x0209);
-	} else if (gadget_is_n9604(gadget)) {
-		device_desc.bcdDevice = __constant_cpu_to_le16 (0x0210);
-	} else if (gadget_is_pxa27x(gadget)) {
-		device_desc.bcdDevice = __constant_cpu_to_le16 (0x0211);
-	} else {
+	gcnum = usb_gadget_controller_number (gadget);
+	if (gcnum >= 0)
+		device_desc.bcdDevice = cpu_to_le16 (0x0200 + gcnum);
+	else {
 		/* gadget zero is so simple (for now, no altsettings) that
 		 * it SHOULD NOT have problems with bulk-capable hardware.
 		 * so warn about unrcognized controllers, don't panic.
@@ -1243,12 +1223,6 @@ autoconf_fail:
 		loopback_config.bmAttributes |= USB_CONFIG_ATT_WAKEUP;
 	}
 
-	if (gadget->is_otg) {
-		otg_descriptor.bmAttributes |= USB_OTG_HNP,
-		source_sink_config.bmAttributes |= USB_CONFIG_ATT_WAKEUP;
-		loopback_config.bmAttributes |= USB_CONFIG_ATT_WAKEUP;
-	}
-
 	usb_gadget_set_selfpowered (gadget);
 
 	init_timer (&dev->resume);
@@ -1265,8 +1239,8 @@ autoconf_fail:
 	INFO (dev, "using %s, OUT %s IN %s\n", gadget->name,
 		EP_OUT_NAME, EP_IN_NAME);
 
-	snprintf (manufacturer, sizeof manufacturer,
-		UTS_SYSNAME " " UTS_RELEASE " with %s",
+	snprintf (manufacturer, sizeof manufacturer, "%s %s with %s",
+		system_utsname.sysname, system_utsname.release,
 		gadget->name);
 
 	return 0;

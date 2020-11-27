@@ -8,16 +8,23 @@
  * published by the Free Software Foundation.
  *
  *  This is the "shell" of the ARMv6 processor support.
+ *
+ * Copyright 2006, Motorola
  */
 #include <linux/linkage.h>
 #include <linux/init.h>
 #include <asm/assembler.h>
+
+#ifdef CONFIG_MOT_WFN477
+#include <linux/config.h>
+#endif
 
 #include "proc-macros.S"
 
 #define HARVARD_CACHE
 #define CACHE_LINE_SIZE		32
 #define D_CACHE_LINE_SIZE	32
+#define BTB_FLUSH_SIZE		8
 
 /*
  *	v6_flush_cache_all()
@@ -30,7 +37,32 @@ ENTRY(v6_flush_kern_cache_all)
 	mov	r0, #0
 #ifdef HARVARD_CACHE
 	mcr	p15, 0, r0, c7, c14, 0		@ D cache clean+invalidate
+
+	/* Fix for ARM errata 411920 */
+#ifndef CONFIG_MOT_WFN477
 	mcr	p15, 0, r0, c7, c5, 0		@ I+BTB cache invalidate
+#else
+	mrs	r1, cpsr
+	cpsid	ifa						@ disable interrupts
+	mcr	p15, 0, r0, c7, c12, 5		@ Stop Prefetch Range
+	mcr	p15, 0, r0, c7, c5, 0		@ Invalidate Entire Instruction Cache
+	mcr	p15, 0, r0, c7, c5, 0		@ Invalidate Entire Instruction Cache
+	mcr	p15, 0, r0, c7, c5, 0		@ Invalidate Entire Instruction Cache
+	mcr	p15, 0, r0, c7, c5, 0		@ Invalidate Entire Instruction Cache
+	msr	cpsr_c, r1					@ reenable interrupts
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+#endif
+
 #else
 	mcr	p15, 0, r0, c7, c15, 0		@ Cache clean+invalidate
 #endif
@@ -91,19 +123,45 @@ ENTRY(v6_coherent_kern_range)
  *	- the Icache does not read data from the write buffer
  */
 ENTRY(v6_coherent_user_range)
-	bic	r0, r0, #CACHE_LINE_SIZE - 1
-1:
+
 #ifdef HARVARD_CACHE
-	mcr	p15, 0, r0, c7, c10, 1		@ clean D line
-	mcr	p15, 0, r0, c7, c5, 1		@ invalidate I line
-#endif
-	mcr	p15, 0, r0, c7, c5, 7		@ invalidate BTB entry
+	bic	r0, r0, #CACHE_LINE_SIZE - 1
+1:	mcr	p15, 0, r0, c7, c10, 1		@ clean D line
 	add	r0, r0, #CACHE_LINE_SIZE
 	cmp	r0, r1
 	blo	1b
-#ifdef HARVARD_CACHE
+#endif
 	mov	r0, #0
+#ifdef HARVARD_CACHE
 	mcr	p15, 0, r0, c7, c10, 4		@ drain write buffer
+
+	/* Fix for ARM errata 411920 */
+#ifndef CONFIG_MOT_WFN477
+	mcr	p15, 0, r0, c7, c5, 0		@ I+BTB cache invalidate
+#else
+	mrs	r1, cpsr
+	cpsid	ifa						@ disable interrupts
+	mcr	p15, 0, r0, c7, c12, 5		@ Stop Prefetch Range
+	mcr	p15, 0, r0, c7, c5, 0		@ Invalidate Entire Instruction Cache
+	mcr	p15, 0, r0, c7, c5, 0		@ Invalidate Entire Instruction Cache
+	mcr	p15, 0, r0, c7, c5, 0		@ Invalidate Entire Instruction Cache
+	mcr	p15, 0, r0, c7, c5, 0		@ Invalidate Entire Instruction Cache
+	msr	cpsr_c, r1					@ reenable interrupts
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+#endif
+
+#else
+	mcr	p15, 0, r0, c7, c5, 6		@ invalidate BTB
 #endif
 	mov	pc, lr
 

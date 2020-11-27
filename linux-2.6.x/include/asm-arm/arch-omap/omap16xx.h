@@ -56,8 +56,9 @@
  */
 
 #define OMAP1610_SRAM_IDLE_SUSPEND	(OMAP16XX_SRAM_BASE + OMAP1610_SRAM_SIZE - 0x200)
-#define OMAP5912_SRAM_IDLE_SUSPEND	(OMAP16XX_SRAM_BASE + OMAP5912_SRAM_SIZE - 0x200)
 #define OMAP1610_SRAM_API_SUSPEND	(OMAP1610_SRAM_IDLE_SUSPEND + 0x100)
+#define OMAP5912_SRAM_IDLE_SUSPEND	(OMAP16XX_SRAM_BASE + OMAP5912_SRAM_SIZE - 0x200)
+#define OMAP5912_SRAM_API_SUSPEND	(OMAP5912_SRAM_IDLE_SUSPEND + 0x100)
 
 /*
  * ---------------------------------------------------------------------------
@@ -118,6 +119,13 @@
 #define OMAP16XX_CONF_VOLTAGE_VDDSHV8	(1 << 10)
 #define OMAP16XX_CONF_VOLTAGE_VDDSHV9	(1 << 11)
 #define OMAP16XX_SUBLVDS_CONF_VALID	(1 << 13)
+
+/*
+ * ----------------------------------------------------------------------------
+ * System control registers
+ * ----------------------------------------------------------------------------
+ */
+#define OMAP1610_RESET_CONTROL  0xfffe1140
 
 /*
  * ---------------------------------------------------------------------------

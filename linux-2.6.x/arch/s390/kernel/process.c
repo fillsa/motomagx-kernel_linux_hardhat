@@ -37,6 +37,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/notifier.h>
+#include <linux/ltt-events.h>
 
 #include <asm/uaccess.h>
 #include <asm/pgtable.h>
@@ -193,6 +194,7 @@ __asm__(".align 4\n"
 int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 {
 	struct pt_regs regs;
+	long pid;
 
 	memset(&regs, 0, sizeof(regs));
 	regs.psw.mask = PSW_KERNEL_BITS | PSW_MASK_IO | PSW_MASK_EXT;
@@ -203,8 +205,12 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	regs.orig_gpr2 = -1;
 
 	/* Ok, create the new process.. */
-	return do_fork(flags | CLONE_VM | CLONE_UNTRACED,
-		       0, &regs, 0, NULL, NULL);
+	pid = do_fork(flags|CLONE_VM|CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
+#if (CONFIG_LTT)
+	if(pid >= 0)
+		ltt_ev_process(LTT_EV_PROCESS_KTHREAD, pid, (int) fn);
+#endif
+	return pid;
 }
 
 /*

@@ -59,15 +59,17 @@ extern int			addrconf_set_dstaddr(void __user *arg);
 extern int			ipv6_chk_addr(struct in6_addr *addr,
 					      struct net_device *dev,
 					      int strict);
+extern int			ipv6_chk_home_addr(struct in6_addr *addr);
 extern struct inet6_ifaddr *	ipv6_get_ifaddr(struct in6_addr *addr,
 						struct net_device *dev,
 						int strict);
-extern int			ipv6_get_saddr(struct dst_entry *dst, 
+extern int			ipv6_get_saddr(struct dst_entry *dst,
 					       struct in6_addr *daddr,
 					       struct in6_addr *saddr);
-extern int			ipv6_dev_get_saddr(struct net_device *dev, 
-					       struct in6_addr *daddr,
-					       struct in6_addr *saddr);
+extern int			__ipv6_dev_get_saddr(struct net_device *dev,
+						    struct in6_addr *daddr,
+						    struct in6_addr *saddr,
+						    int src_plen);
 extern int			ipv6_get_lladdr(struct net_device *dev, struct in6_addr *);
 extern int			ipv6_rcv_saddr_equal(const struct sock *sk, 
 						      const struct sock *sk2);
@@ -100,7 +102,10 @@ extern int ipv6_chk_mcast_addr(struct net_device *dev, struct in6_addr *group,
 		struct in6_addr *src_addr);
 extern int ipv6_is_mld(struct sk_buff *skb, int nexthdr);
 
-extern void addrconf_prefix_rcv(struct net_device *dev, u8 *opt, int len);
+extern void addrconf_prefix_rcv(struct net_device *dev, u8 *opt, int len,
+				int trusted);
+
+extern int ipv6_get_hoplimit(struct net_device *dev);
 
 /*
  *	anycast prototypes (anycast.c)
@@ -233,6 +238,13 @@ static inline int ipv6_addr_is_ll_all_routers(const struct in6_addr *addr)
 		addr->s6_addr32[1] == 0 &&
 		addr->s6_addr32[2] == 0 &&
 		addr->s6_addr32[3] == htonl(0x00000002));
+}
+
+static inline int ipv6_dev_get_saddr(struct net_device *dev,
+				     struct in6_addr *daddr,
+				     struct in6_addr *saddr)
+{
+	return __ipv6_dev_get_saddr(dev, daddr, saddr, 0);
 }
 
 #endif

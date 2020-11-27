@@ -1,0 +1,72 @@
+menu "MXC Security Drivers"
+
+config MXC_SECURITY_SCC
+	tristate "MXC SCC Driver"
+	depends on ARCH_MXC
+	default n
+	---help---
+	  This module contains the core API's for accessing the SCC module.
+	  If you are unsure about this, say N here.
+
+config MXC_SECURITY_RNGA
+	tristate "MXC RNGA Driver"
+	depends on ARCH_MXC
+	depends on !ARCH_MXC91321
+	default n
+	select MXC_SECURITY_CORE
+	---help---
+	  This module contains the core API's for accessing the RNGA module.
+	  If you are unsure about this, say N here.
+
+config MXC_RNGA_TEST_DEBUG
+	bool "MXC RNGA module debugging"
+	depends on MXC_SECURITY_RNGA
+	default n
+	---help---
+	  This is an option for use by developers; most people should
+	  say N here.  This enables RNGA module debugging.
+
+config MXC_SECURITY_HAC
+	tristate "MXC HAC Driver"
+	depends on ARCH_MXC
+	depends on !ARCH_MXC91321
+	depends on !ARCH_MX3
+	default n
+	select MXC_SECURITY_CORE
+	---help---
+	  This module contains the core API's for accessing the HAC module.
+	  If you are unsure about this, say N here.
+
+config MXC_HAC_TEST_DEBUG
+	bool "MXC HAC Module debugging"
+	depends on MXC_SECURITY_HAC
+	---help---
+        This is an option for use by developers; most people should
+        say N here.  This enables HAC module debugging.
+
+config MXC_SECURITY_RTIC
+	tristate "MXC RTIC Driver"
+	depends on ARCH_MXC
+	depends on !ARCH_MXC91131
+	default n
+	select MXC_SECURITY_CORE
+	---help---
+	  This module contains the core API's for accessing the RTIC module.
+	  If you are unsure about this, say N here.
+
+config MXC_RTIC_TEST_DEBUG
+	bool "MXC RTIC module debugging"
+	depends on MXC_SECURITY_RTIC
+	default n
+	---help---
+	  This is an option for use by developers; most people should
+	  say N here.  This enables RTIC module debugging.
+
+config MXC_SECURITY_CORE
+	tristate
+
+if (ARCH_MXC91231 || ARCH_MXC91321) && MXC_SECURITY_RNGA=n && MXC_SECURITY_HAC=n
+source "drivers/mxc/security/sahara2/Kconfig"
+endif
+
+endmenu

@@ -1,4 +1,15 @@
 /*
+ * Copyright 2006 Motorola, Inc.
+ *
+ * Revision History:
+ *
+ * Date        Author    Comment
+ * 10/04/2006  Motorola  Added a fix to deal with processes in
+ *                       uninterruptible sleep mode blocking the
+ *                       suspend sequence.
+ */
+
+/*
  * drivers/power/process.c - Functions for starting/stopping processes on 
  *                           suspend transitions.
  *
@@ -81,6 +92,13 @@ int freeze_processes(void)
 			spin_lock_irqsave(&p->sighand->siglock, flags);
 			signal_wake_up(p, 0);
 			spin_unlock_irqrestore(&p->sighand->siglock, flags);
+
+                        // Temporary workaround for uninterruptible processes
+                        if((p->flags & PF_FREEZE) &&
+                           (p->state == TASK_UNINTERRUPTIBLE)) {
+                          pr_debug("Skipping uninterruptible task %s\n", p->comm);
+                          continue;
+                        }
 			todo++;
 		} while_each_thread(g, p);
 		read_unlock(&tasklist_lock);

@@ -42,9 +42,6 @@
  *      ppc4xx_map_io				arch/ppc/syslib/ppc4xx_setup.c
  *  start_kernel				init/main.c
  *    setup_arch				arch/ppc/kernel/setup.c
- * #if defined(CONFIG_KGDB)
- *      *ppc_md.kgdb_map_scc() == gen550_kgdb_map_scc
- * #endif
  *      *ppc_md.setup_arch == ml300_setup_arch	this file
  *        ppc4xx_setup_arch			arch/ppc/syslib/ppc4xx_setup.c
  *          ppc4xx_find_bridges			arch/ppc/syslib/ppc405_pci.c
@@ -83,7 +80,6 @@ ml300_map_io(void)
 static void __init
 ml300_early_serial_map(void)
 {
-#ifdef CONFIG_SERIAL_8250
 	struct serial_state old_ports[] = { SERIAL_PORT_DFNS };
 	struct uart_port port;
 	int i;
@@ -99,11 +95,14 @@ ml300_early_serial_map(void)
 		port.flags = ASYNC_BOOT_AUTOCONF | ASYNC_SKIP_TEST;
 		port.line = i;
 
-		if (early_serial_setup(&port) != 0) {
+#ifdef CONFIG_SERIAL_8250
+		if (early_serial_setup(&port) != 0)
 			printk("Early serial init of port %d failed\n", i);
-		}
+#endif
+#ifdef CONFIG_KGDB_8250
+		kgdb8250_add_port(i, &port)
+#endif
 	}
-#endif /* CONFIG_SERIAL_8250 */
 }
 
 void __init
@@ -156,9 +155,4 @@ platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 #if defined(XPAR_POWER_0_POWERDOWN_BASEADDR)
 	ppc_md.power_off = xilinx_power_off;
 #endif
-
-#ifdef CONFIG_KGDB
-	ppc_md.early_serial_map = ml300_early_serial_map;
-#endif
 }
-

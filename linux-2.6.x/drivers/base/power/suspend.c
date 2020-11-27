@@ -3,13 +3,52 @@
  *
  * Copyright (c) 2003 Patrick Mochel
  * Copyright (c) 2003 Open Source Development Labs
+ * Copyright 2006 Motorola, Inc.
  *
  * This file is released under the GPLv2
  *
  */
 
+/*
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of the
+ * License, or (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
+ * USA
+ */
+
+/*
+ * Revision History:
+ *
+ * Date        Author    Comment
+ * 10/04/2006  Motorola  Enhanced debugging support for device suspend/resume.
+ *                       Added MPM logging for device suspend/resume.
+ */
+
 #include <linux/device.h>
 #include "power.h"
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+#include <linux/mpm.h>
+#endif
+
+#ifdef CONFIG_MOT_FEAT_PM_DEVICE_SUSPEND_DEBUG
+struct device *serial_dev=NULL;
+#ifdef CONFIG_ARCH_MXC91231
+/* Pointer for tracking serial device during suspend/resume */
+#define SERIAL_DEVICE_NAME "mxcintuart.2"
+#else
+#error CONFIG_MOT_FEAT_PM_DEVICE_SUSPEND_DEBUG is only supported for SCMA11
+#endif
+#endif
 
 extern int sysdev_suspend(u32 state);
 
@@ -46,6 +85,9 @@ int suspend_device(struct device * dev, u32 state)
 	if (dev->bus && dev->bus->suspend && !dev->power.power_state)
 		error = dev->bus->suspend(dev, state);
 
+	if (! error)
+		deassert_constraints(dev->constraints);
+
 	return error;
 }
 
@@ -78,6 +120,16 @@ int device_suspend(u32 state)
 		get_device(dev);
 		up(&dpm_list_sem);
 
+#ifdef CONFIG_MOT_FEAT_PM_DEVICE_SUSPEND_DEBUG
+                 /* Save the serial device to suspend last */
+                if(strcmp(kobject_name(&dev->kobj), SERIAL_DEVICE_NAME) == 0) {
+                        pr_debug("Leaving %s on for now\n", SERIAL_DEVICE_NAME);
+                        serial_dev = dev;
+                        /* Remove the item from the active list */
+                        list_del(&dev->power.entry);
+                        continue;
+                }
+#endif
 		error = suspend_device(dev, state);
 
 		down(&dpm_list_sem);
@@ -94,11 +146,29 @@ int device_suspend(u32 state)
 				error = 0;
 			}
 		}
-		if (error)
+		if (error) {
+#ifdef CONFIG_MOT_FEAT_PM
+                        printk("Delaying suspend sequence because device %s is busy "
+                               "(retval %d)\n", kobject_name(&dev->kobj), error);
+#else
 			printk(KERN_ERR "Could not suspend device %s: "
 				"error %d\n", kobject_name(&dev->kobj), error);
+#endif
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+                        MPM_REPORT_TEST_POINT(2, MPM_TEST_DEVICE_SUSPEND_FAILED,
+                                              kobject_name(&dev->kobj));
+#endif
+                }
 		put_device(dev);
 	}
+
+#ifdef CONFIG_MOT_FEAT_PM_DEVICE_SUSPEND_DEBUG
+        /* Now suspend the serial device */
+        if(serial_dev) {
+                error = suspend_device(serial_dev, state);
+        }
+#endif
+        
 	up(&dpm_list_sem);
 	if (error)
 		dpm_resume();
@@ -134,6 +204,10 @@ int device_power_down(u32 state)
  Done:
 	return error;
  Error:
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+        MPM_REPORT_TEST_POINT(2, MPM_TEST_DEVICE_SUSPEND_FAILED,
+                              kobject_name(&dev->kobj));
+#endif
 	dpm_power_up();
 	goto Done;
 }

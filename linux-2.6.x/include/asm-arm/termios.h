@@ -1,3 +1,11 @@
+/*
+ * Copyright 2006 Motorola, Inc.
+ *
+ * Date         Author          Comment
+ * 10/2006      Motorola        Added N_MODEM_RELAY for TTY line discipline
+ */
+
+
 #ifndef __ASM_ARM_TERMIOS_H
 #define __ASM_ARM_TERMIOS_H
 
@@ -66,6 +74,9 @@ struct termio {
 #define N_HDLC		13	/* synchronous HDLC */
 #define N_SYNC_PPP	14
 #define N_HCI		15  /* Bluetooth HCI UART */
+#ifdef CONFIG_MOT_FEAT_MODEM_RELAY
+#define N_MODEM_RELAY 	16 	/* Line discipline to bridge TTY devices */
+#endif /* CONFIG_MOT_FEAT_MODEM_RELAY */
 
 #ifdef __KERNEL__
 

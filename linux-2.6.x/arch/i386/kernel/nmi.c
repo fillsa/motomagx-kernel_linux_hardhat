@@ -31,12 +31,13 @@
 #include <asm/mtrr.h>
 #include <asm/mpspec.h>
 #include <asm/nmi.h>
+#include <linux/cpumask.h>
 
 #include "mach_traps.h"
 
 unsigned int nmi_watchdog = NMI_NONE;
 extern int unknown_nmi_panic;
-static unsigned int nmi_hz = HZ;
+static unsigned int nmi_hz = 1000;
 static unsigned int nmi_perfctr_msr;	/* the MSR to reset in NMI handler */
 static unsigned int nmi_p4_cccr_val;
 extern void show_registers(struct pt_regs *regs);
@@ -50,7 +51,7 @@ extern void show_registers(struct pt_regs *regs);
  * This is maintained separately from nmi_active because the NMI
  * watchdog may also be driven from the I/O APIC timer.
  */
-static spinlock_t lapic_nmi_owner_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(lapic_nmi_owner_lock);
 static unsigned int lapic_nmi_owner;
 #define LAPIC_NMI_WATCHDOG	(1<<0)
 #define LAPIC_NMI_RESERVED	(1<<1)
@@ -112,7 +113,7 @@ int __init check_nmi_watchdog (void)
 	for (cpu = 0; cpu < NR_CPUS; cpu++)
 		prev_nmi_count[cpu] = irq_stat[cpu].__nmi_count;
 	local_irq_enable();
-	mdelay((10*1000)/nmi_hz); // wait 10 ticks
+	mdelay((100*1000)/nmi_hz); // wait 100 ticks
 
 	/* FIXME: Only boot CPU is online at this stage.  Check CPUs
            as they come up. */
@@ -131,7 +132,7 @@ int __init check_nmi_watchdog (void)
 	/* now that we know it works we can reduce NMI frequency to
 	   something more reasonable; makes a difference in some configs */
 	if (nmi_watchdog == NMI_LOCAL_APIC)
-		nmi_hz = 1;
+		nmi_hz = 1000;
 
 	return 0;
 }
@@ -200,7 +201,7 @@ static void disable_lapic_nmi_watchdog(void)
 	}
 	nmi_active = -1;
 	/* tell do_nmi() and others that we're not active any more */
-	nmi_watchdog = 0;
+	nmi_watchdog = NMI_NONE;
 }
 
 static void enable_lapic_nmi_watchdog(void)
@@ -257,7 +258,7 @@ void enable_timer_nmi_watchdog(void)
 	}
 }
 
-#ifdef CONFIG_PM
+#if defined(CONFIG_PM) || defined(CONFIG_VST)
 
 static int nmi_pm_active; /* nmi_active before suspend */
 
@@ -273,6 +274,61 @@ static int lapic_nmi_resume(struct sys_device *dev)
 	if (nmi_pm_active > 0)
 		enable_lapic_nmi_watchdog();
 	return 0;
+}
+static int nmi_restart;
+static long nmi_apic_save;
+cpumask_t nmi_disabled_cpus;
+extern unsigned int
+	alert_counter [NR_CPUS];
+/*
+ * As I read the code, the NMI_LOCAL_APIC mode is only used in the UP
+ * systems and then only if the processer supports it.  This means that
+ * NMI_IO_APIC is ALWAYS used with SMP systems.  Here is the only
+ * disable/enable code for them.  In that case we need to have flags for
+ * each cpu to do the right thing.
+ */
+
+void disable_nmi_watchdog(void)
+{
+	struct sys_device * dum = NULL;
+	u32 state = 0;
+
+	if (cpu_isset(smp_processor_id(), nmi_disabled_cpus)) {
+		nmi_restart = nmi_watchdog;
+		switch (nmi_watchdog) {
+		case NMI_LOCAL_APIC:
+			lapic_nmi_suspend(dum, state);
+			break;
+		case NMI_IO_APIC:
+			nmi_apic_save = apic_read(APIC_LVT0);
+			apic_write_around(APIC_LVT0, APIC_LVT_MASKED);
+			cpu_set(smp_processor_id(), nmi_disabled_cpus);
+ 		default:
+			return;
+		}
+		cpu_set(smp_processor_id(), nmi_disabled_cpus);
+	}
+}
+void enable_nmi_watchdog(void)
+{
+	struct sys_device * dum = NULL;
+	int cpu = smp_processor_id();
+
+	if (!cpu_isset(cpu, nmi_disabled_cpus)) {
+		switch (nmi_restart) {
+		case NMI_LOCAL_APIC:
+			lapic_nmi_resume(dum);
+			break;
+		case NMI_IO_APIC:
+			apic_write_around(APIC_LVT0, nmi_apic_save);
+		default:
+			return;
+		}
+		cpu_clear(cpu, nmi_disabled_cpus);
+		alert_counter[cpu] = 0;
+		nmi_watchdog = nmi_restart;
+		nmi_restart = 0;
+	}
 }
 
 
@@ -332,8 +388,8 @@ static void setup_k7_watchdog(void)
 		| K7_NMI_EVENT;
 
 	wrmsr(MSR_K7_EVNTSEL0, evntsel, 0);
-	Dprintk("setting K7_PERFCTR0 to %08lx\n", -(cpu_khz/nmi_hz*1000));
-	wrmsr(MSR_K7_PERFCTR0, -(cpu_khz/nmi_hz*1000), -1);
+	Dprintk("setting K7_PERFCTR0 to %08lx\n", -(cpu_khz*1000/nmi_hz));
+	wrmsr(MSR_K7_PERFCTR0, -(cpu_khz*1000/nmi_hz), -1);
 	apic_write(APIC_LVTPC, APIC_DM_NMI);
 	evntsel |= K7_EVNTSEL_ENABLE;
 	wrmsr(MSR_K7_EVNTSEL0, evntsel, 0);
@@ -354,8 +410,8 @@ static void setup_p6_watchdog(void)
 		| P6_NMI_EVENT;
 
 	wrmsr(MSR_P6_EVNTSEL0, evntsel, 0);
-	Dprintk("setting P6_PERFCTR0 to %08lx\n", -(cpu_khz/nmi_hz*1000));
-	wrmsr(MSR_P6_PERFCTR0, -(cpu_khz/nmi_hz*1000), 0);
+	Dprintk("setting P6_PERFCTR0 to %08lx\n", -(cpu_khz*1000/nmi_hz));
+	wrmsr(MSR_P6_PERFCTR0, -(cpu_khz*1000/nmi_hz), 0);
 	apic_write(APIC_LVTPC, APIC_DM_NMI);
 	evntsel |= P6_EVNTSEL0_ENABLE;
 	wrmsr(MSR_P6_EVNTSEL0, evntsel, 0);
@@ -395,8 +451,8 @@ static int setup_p4_watchdog(void)
 
 	wrmsr(MSR_P4_CRU_ESCR0, P4_NMI_CRU_ESCR0, 0);
 	wrmsr(MSR_P4_IQ_CCCR0, P4_NMI_IQ_CCCR0 & ~P4_CCCR_ENABLE, 0);
-	Dprintk("setting P4_IQ_COUNTER0 to 0x%08lx\n", -(cpu_khz/nmi_hz*1000));
-	wrmsr(MSR_P4_IQ_COUNTER0, -(cpu_khz/nmi_hz*1000), -1);
+	Dprintk("setting P4_IQ_COUNTER0 to 0x%08lx\n", -(cpu_khz*1000/nmi_hz));
+	wrmsr(MSR_P4_IQ_COUNTER0, -(cpu_khz*1000/nmi_hz), -1);
 	apic_write(APIC_LVTPC, APIC_DM_NMI);
 	wrmsr(MSR_P4_IQ_CCCR0, nmi_p4_cccr_val, 0);
 	return 1;
@@ -469,7 +525,29 @@ void touch_nmi_watchdog (void)
 
 extern void die_nmi(struct pt_regs *, const char *msg);
 
-void nmi_watchdog_tick (struct pt_regs * regs)
+int nmi_show_regs[NR_CPUS];
+
+void nmi_show_all_regs(void)
+{
+	int i;
+
+	if (nmi_watchdog == NMI_NONE)
+		return;
+	if (system_state != SYSTEM_RUNNING) {
+		printk("nmi_show_all_regs(): system state %d, not doing.\n",
+			system_state);
+		return;
+	}
+		
+	for_each_online_cpu(i)
+		nmi_show_regs[i] = 1;
+	for_each_online_cpu(i)
+		while (nmi_show_regs[i] == 1)
+			barrier();
+}
+static DEFINE_RAW_SPINLOCK(nmi_print_lock);
+ 
+void notrace nmi_watchdog_tick (struct pt_regs * regs)
 {
 
 	/*
@@ -477,9 +555,16 @@ void nmi_watchdog_tick (struct pt_regs * regs)
 	 * always switch the stack NMI-atomically, it's safe to use
 	 * smp_processor_id().
 	 */
-	int sum, cpu = smp_processor_id();
+	int sum, cpu = _smp_processor_id();
 
 	sum = irq_stat[cpu].apic_timer_irqs;
+
+	if (nmi_show_regs[cpu]) {
+		nmi_show_regs[cpu] = 0;
+		spin_lock(&nmi_print_lock);
+		show_regs(regs);
+		spin_unlock(&nmi_print_lock);
+	}
 
 	if (last_irq_sums[cpu] == sum) {
 		/*
@@ -487,6 +572,13 @@ void nmi_watchdog_tick (struct pt_regs * regs)
 		 * wait a few IRQs (5 seconds) before doing the oops ...
 		 */
 		alert_counter[cpu]++;
+		if (alert_counter[cpu] == 5*nmi_hz) {
+			int i;
+
+			bust_spinlocks(1);
+			for (i = 0; i < NR_CPUS; i++)
+				nmi_show_regs[i] = 1;
+		}
 		if (alert_counter[cpu] == 5*nmi_hz)
 			die_nmi(regs, "NMI Watchdog detected LOCKUP");
 	} else {
@@ -511,7 +603,7 @@ void nmi_watchdog_tick (struct pt_regs * regs)
 			 * other P6 variant */
 			apic_write(APIC_LVTPC, APIC_DM_NMI);
 		}
-		wrmsr(nmi_perfctr_msr, -(cpu_khz/nmi_hz*1000), -1);
+		wrmsr(nmi_perfctr_msr, -(cpu_khz*1000/nmi_hz), -1);
 	}
 }
 

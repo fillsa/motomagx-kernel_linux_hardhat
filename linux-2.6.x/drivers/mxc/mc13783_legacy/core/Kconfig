@@ -1,0 +1,28 @@
+#
+# Character device configuration
+#
+
+menu "MC13783_LEGACY support"
+
+config MXC_MC13783_LEGACY
+	tristate "mc13783 core"
+	depends on ARCH_MXC
+	default y
+	---help---
+	  This is the mc13783 protocol driver for the Freescale MXC application.
+	  You must also use the 'MXC SPI support' option with this.
+
+config MXC_MC13783_PMIC
+	tristate "mc13783 PMIC core support (EXPERIMENTAL)"
+	depends on ARCH_MXC
+	depends on !MXC_MC13783_LEGACY   && MXC_SPI
+	default n
+	---help---
+      This is the PMIC API for mc13783 protocol driver for the Freescale MXC application.
+      It is an alpha version of the PMIC API for mc13783
+      You must also use the 'MXC SPI support' option with this.
+
+source "drivers/mxc/mc13783_legacy/module/Kconfig"
+
+endmenu
+

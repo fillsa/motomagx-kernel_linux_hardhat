@@ -17,8 +17,12 @@
 #define PTRACE_GETFPREGS	14
 #define PTRACE_SETFPREGS	15
 
+#define PTRACE_GETWMMXREGS	18
+#define PTRACE_SETWMMXREGS	19
+
 #define PTRACE_OLDSETOPTIONS	21
 
+#define PTRACE_GET_THREAD_AREA	22
 /*
  * PSR bits
  */
@@ -56,9 +60,11 @@
 
 #ifndef __ASSEMBLY__
 
-/* this struct defines the way the registers are stored on the
-   stack during a system call. */
-
+/*
+ * This struct defines the way the registers are stored on the
+ * stack during a system call.  Note that sizeof(struct pt_regs)
+ * has to be a multiple of 8.
+ */
 struct pt_regs {
 	long uregs[18];
 };

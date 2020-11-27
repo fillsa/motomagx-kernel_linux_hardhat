@@ -1,3 +1,15 @@
+/*
+ * Copyright 2006-2007 Motorola, Inc
+ */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 07-07-2006   Motorola   	Add link from super_block to vfsmount structure 
+ * 31-Oct-2006  Motorola        Added inotify
+ * 13-Jul-2007  Motorola        Fix the bug about st_ctime, and st_mtime field
+ *                              of a mapped region, and msync()
+ */
+
 #ifndef _LINUX_FS_H
 #define _LINUX_FS_H
 
@@ -7,26 +19,9 @@
  */
 
 #include <linux/config.h>
-#include <linux/linkage.h>
 #include <linux/limits.h>
-#include <linux/wait.h>
-#include <linux/types.h>
-#include <linux/kdev_t.h>
 #include <linux/ioctl.h>
-#include <linux/dcache.h>
-#include <linux/stat.h>
-#include <linux/cache.h>
-#include <linux/prio_tree.h>
-#include <linux/kobject.h>
-#include <asm/atomic.h>
-
-struct iovec;
-struct nameidata;
-struct pipe_inode_info;
-struct poll_table_struct;
-struct kstatfs;
-struct vm_area_struct;
-struct vfsmount;
+#include <linux/mempolicy.h>
 
 /*
  * It's silly to have NR_OPEN bigger than NR_FILE, but you can change
@@ -221,12 +216,34 @@ extern int dir_notify_enable;
 
 #ifdef __KERNEL__
 
+#include <linux/linkage.h>
+#include <linux/wait.h>
+#include <linux/types.h>
+#include <linux/kdev_t.h>
+#include <linux/dcache.h>
+#include <linux/stat.h>
+#include <linux/cache.h>
+#include <linux/kobject.h>
 #include <linux/list.h>
 #include <linux/radix-tree.h>
+#include <linux/prio_tree.h>
 #include <linux/audit.h>
 #include <linux/init.h>
+
+#include <asm/atomic.h>
 #include <asm/semaphore.h>
 #include <asm/byteorder.h>
+
+struct iovec;
+struct nameidata;
+struct pipe_inode_info;
+struct poll_table_struct;
+struct kstatfs;
+struct vm_area_struct;
+struct vfsmount;
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+struct inotify_inode_data;
+#endif
 
 /* Used to be a macro which just called the function, now just a function */
 extern void update_atime (struct inode *);
@@ -349,6 +366,7 @@ struct address_space {
 	struct address_space_operations *a_ops;	/* methods */
 	unsigned long		flags;		/* error bits/gfp mask */
 	struct backing_dev_info *backing_dev_info; /* device readahead, etc */
+	struct shared_policy    policy;         /* page alloc policy */
 	spinlock_t		private_lock;	/* for use by the address_space */
 	struct list_head	private_list;	/* ditto */
 	struct address_space	*assoc_mapping;	/* ditto */
@@ -471,6 +489,12 @@ struct inode {
 #ifdef CONFIG_DNOTIFY
 	unsigned long		i_dnotify_mask; /* Directory notify events */
 	struct dnotify_struct	*i_dnotify; /* for directory notifications */
+#endif
+
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+#ifdef CONFIG_INOTIFY
+	struct inotify_inode_data *inotify_data;
+#endif
 #endif
 
 	unsigned long		i_state;
@@ -791,6 +815,9 @@ struct super_block {
 	char s_id[32];				/* Informational name */
 
 	void 			*s_fs_info;	/* Filesystem private info */
+#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+        struct vfsmount 	*s_vfsmount; /* Used for pathname lookups */
+#endif /* CONFIG_MOT_FEAT_SECURE_DRM */
 
 	/*
 	 * The next field is for VFS *only*. No filesystems have any business
@@ -902,8 +929,8 @@ typedef int (*read_actor_t)(read_descriptor_t *, struct page *, unsigned long, u
 
 /*
  * NOTE:
- * read, write, poll, fsync, readv, writev can be called
- *   without the big kernel lock held in all filesystems.
+ * read, write, poll, fsync, readv, writev, unlocked_ioctl and compat_ioctl
+ * can be called without the big kernel lock held in all filesystems.
  */
 struct file_operations {
 	struct module *owner;
@@ -915,6 +942,8 @@ struct file_operations {
 	int (*readdir) (struct file *, void *, filldir_t);
 	unsigned int (*poll) (struct file *, struct poll_table_struct *);
 	int (*ioctl) (struct inode *, struct file *, unsigned int, unsigned long);
+	long (*unlocked_ioctl) (struct file *, unsigned int, unsigned long);
+	long (*compat_ioctl) (struct file *, unsigned int, unsigned long);
 	int (*mmap) (struct file *, struct vm_area_struct *);
 	int (*open) (struct inode *, struct file *);
 	int (*flush) (struct file *);
@@ -1210,14 +1239,7 @@ static inline int locks_verify_locked(struct inode *inode)
 	return 0;
 }
 
-static inline int locks_verify_area(int read_write, struct inode *inode,
-				    struct file *filp, loff_t offset,
-				    size_t count)
-{
-	if (inode->i_flock && MANDATORY_LOCK(inode))
-		return locks_mandatory_area(read_write, inode, filp, offset, count);
-	return 0;
-}
+extern int rw_verify_area(int, struct file *, loff_t *, size_t);
 
 static inline int locks_verify_truncate(struct inode *inode,
 				    struct file *filp,
@@ -1353,7 +1375,11 @@ extern void emergency_remount(void);
 extern int do_remount_sb(struct super_block *sb, int flags,
 			 void *data, int force);
 extern sector_t bmap(struct inode *, sector_t);
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+extern void setattr_mask(unsigned int, int *, u32 *);
+#else
 extern int setattr_mask(unsigned int);
+#endif
 extern int notify_change(struct dentry *, struct iattr *);
 extern int permission(struct inode *, int, struct nameidata *);
 extern int generic_permission(struct inode *, int,
@@ -1553,6 +1579,8 @@ extern int vfs_stat(char __user *, struct kstat *);
 extern int vfs_lstat(char __user *, struct kstat *);
 extern int vfs_fstat(unsigned int, struct kstat *);
 
+extern int vfs_ioctl(struct file *, unsigned int, unsigned int, unsigned long);
+
 extern struct file_system_type *get_fs_type(const char *name);
 extern struct super_block *get_super(struct block_device *);
 extern struct super_block *user_get_super(dev_t);
@@ -1592,6 +1620,13 @@ extern int inode_change_ok(struct inode *, struct iattr *);
 extern int __must_check inode_setattr(struct inode *, struct iattr *);
 
 extern void inode_update_time(struct inode *inode, int ctime_too);
+
+#ifdef CONFIG_MOT_WFN484
+static inline void file_update_time(struct file *file)
+{
+	inode_update_time(file->f_dentry->d_inode, 1);
+}
+#endif
 
 static inline ino_t parent_ino(struct dentry *dentry)
 {

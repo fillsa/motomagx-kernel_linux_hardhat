@@ -10,10 +10,22 @@ extern unsigned long __per_cpu_offset[NR_CPUS];
 /* Separate out the type, so (int[3], foo) works. */
 #define DEFINE_PER_CPU(type, name) \
     __attribute__((__section__(".data.percpu"))) __typeof__(type) per_cpu__##name
+#define DEFINE_PER_CPU_LOCKED(type, name) \
+    __attribute__((__section__(".data.percpu"))) spinlock_t per_cpu_lock__##name##_locked = SPIN_LOCK_UNLOCKED; \
+    __attribute__((__section__(".data.percpu"))) __typeof__(type) per_cpu__##name##_locked
 
 /* var is in discarded region: offset to particular copy we want */
 #define per_cpu(var, cpu) (*RELOC_HIDE(&per_cpu__##var, __per_cpu_offset[cpu]))
 #define __get_cpu_var(var) per_cpu(var, smp_processor_id())
+
+#define per_cpu_lock(var, cpu) \
+	(*RELOC_HIDE(&per_cpu_lock__##var##_locked, __per_cpu_offset[cpu]))
+#define per_cpu_var_locked(var, cpu) \
+		(*RELOC_HIDE(&per_cpu__##var##_locked, __per_cpu_offset[cpu]))
+#define __get_cpu_lock(var, cpu) \
+		per_cpu_lock(var, cpu)
+#define __get_cpu_var_locked(var, cpu) \
+		per_cpu_var_locked(var, cpu)
 
 /* A macro to avoid #include hell... */
 #define percpu_modcopy(pcpudst, src, size)			\
@@ -29,8 +41,14 @@ do {								\
 #define DEFINE_PER_CPU(type, name) \
     __typeof__(type) per_cpu__##name
 
+#define DEFINE_PER_CPU_LOCKED(type, name) \
+    spinlock_t per_cpu_lock__##name##_locked = SPIN_LOCK_UNLOCKED; \
+    __typeof__(type) per_cpu__##name##_locked
+
 #define per_cpu(var, cpu)			(*((void)cpu, &per_cpu__##var))
 #define __get_cpu_var(var)			per_cpu__##var
+#define __get_cpu_lock(var, cpu)		per_cpu_lock__##var##_locked
+#define __get_cpu_var_locked(var, cpu)		per_cpu__##var##_locked
 
 #endif	/* SMP */
 

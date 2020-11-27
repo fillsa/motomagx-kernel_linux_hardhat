@@ -45,14 +45,14 @@ extern struct timespec __xtime;
 extern volatile unsigned long __jiffies;
 extern unsigned long __wall_jiffies;
 extern struct timezone __sys_tz;
-extern seqlock_t __xtime_lock;
+extern raw_seqlock_t __xtime_lock;
 
 /* kernel space (writeable) */
 extern struct vxtime_data vxtime;
 extern unsigned long wall_jiffies;
 extern struct timezone sys_tz;
 extern int sysctl_vsyscall;
-extern seqlock_t xtime_lock;
+extern raw_seqlock_t xtime_lock;
 
 #define ARCH_HAVE_XTIME_LOCK 1
 

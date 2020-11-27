@@ -36,11 +36,31 @@
  *
  */
 
+/*
+ * Copyright (C) 2007 Motorola, Inc.
+ */
+/*
+ * Author     Date          Comment
+ * =======   ===========   ====================================================
+ * Motorola  11/30/2007    Limit mss to be no bigger than 1372(0x55C) to solve 
+ *                         compatibility issue with CMCC
+ */
+
 #include <net/tcp.h>
 
 #include <linux/compiler.h>
 #include <linux/module.h>
 #include <linux/smp_lock.h>
+
+
+#ifdef CONFIG_MOT_FEAT_MSS_CMCC
+/* 
+ * Limit mss to be not bigger than 1372(0x055C)
+ * to solve compatiblity issue with CMCC 
+ */
+#define LJ_MAX_TCP_SEGMENT_SIZE 0x055C
+#endif
+
 
 /* People can turn this off for buggy TCP's found in printers etc. */
 int sysctl_tcp_retrans_collapse = 1;
@@ -94,6 +114,17 @@ static __u16 tcp_advertise_mss(struct sock *sk)
 	struct tcp_opt *tp = tcp_sk(sk);
 	struct dst_entry *dst = __sk_dst_get(sk);
 	int mss = tp->advmss;
+
+#ifdef CONFIG_MOT_FEAT_MSS_CMCC
+        /*	
+         * Limit mss to be not bigger than 1372(0x55C)
+	 * to solve compatiblity issue with CMCC
+	 */
+	if (mss > LJ_MAX_TCP_SEGMENT_SIZE) {
+		mss = LJ_MAX_TCP_SEGMENT_SIZE;
+		tp->advmss = mss; 
+	}
+#endif
 
 	if (dst && dst_metric(dst, RTAX_ADVMSS) < mss) {
 		mss = dst_metric(dst, RTAX_ADVMSS);
@@ -634,6 +665,16 @@ unsigned int tcp_sync_mss(struct sock *sk, u32 pmtu)
 	/* Clamp it (mss_clamp does not include tcp options) */
 	if (mss_now > tp->mss_clamp)
 		mss_now = tp->mss_clamp;
+
+#ifdef CONFIG_MOT_FEAT_MSS_CMCC
+	/* 
+	 * Limit mss to be not bigger than 1372(0x55C)
+	 * to solve compatiblity issue with CMCC
+	 */
+	if (mss_now > LJ_MAX_TCP_SEGMENT_SIZE) {
+		mss_now = LJ_MAX_TCP_SEGMENT_SIZE;
+	}
+#endif
 
 	/* Now subtract optional transport overhead */
 	mss_now -= tp->ext_header_len + tp->ext2_header_len;

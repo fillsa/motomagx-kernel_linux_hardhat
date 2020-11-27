@@ -41,7 +41,7 @@ static u32 offset_tick;
 static u32 offset_delay;
 
 static unsigned long long monotonic_base;
-static seqlock_t monotonic_lock = SEQLOCK_UNLOCKED;
+static DECLARE_RAW_SEQLOCK(monotonic_lock);
 
 #define ACPI_PM_MASK 0xFFFFFF /* limit it to 24 bits */
 

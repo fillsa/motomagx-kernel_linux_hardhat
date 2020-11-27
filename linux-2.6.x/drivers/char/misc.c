@@ -5,6 +5,8 @@
  *
  * Based on code from Linus
  *
+ * Copyright 2006 Motorola, Inc.
+ *
  * Teemu Rantanen's Microsoft Busmouse support and Derrick Cole's
  *   changes incorporated into 0.97pl4
  *   by Peter Cervasio (pete%q106fm.uucp@wupost.wustl.edu) (08SEP92)
@@ -31,6 +33,11 @@
  *	Cyrus Durgin <cider@speakeasy.org>
  *
  * Added devfs support. Richard Gooch <rgooch@atnf.csiro.au>  10-Jan-1998
+ */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 31-Oct-2006  Motorola        Added inotify
  */
 
 #include <linux/module.h>
@@ -207,7 +214,9 @@ static struct file_operations misc_fops = {
 int misc_register(struct miscdevice * misc)
 {
 	struct miscdevice *c;
+#ifndef CONFIG_MOT_FEAT_INOTIFY
 	struct class_device *class;
+#endif
 	dev_t dev;
 	int err;
 	
@@ -240,10 +249,18 @@ int misc_register(struct miscdevice * misc)
 	}
 	dev = MKDEV(MISC_MAJOR, misc->minor);
 
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+	misc->class = class_simple_device_add(misc_class, dev,
+					      misc->dev, misc->name);
+	if (IS_ERR(misc->class)) {
+		err = PTR_ERR(misc->class);
+
+#else
 	class = class_simple_device_add(misc_class, dev,
 					misc->dev, misc->name);
 	if (IS_ERR(class)) {
 		err = PTR_ERR(class);
+#endif
 		goto out;
 	}
 

@@ -28,7 +28,7 @@ struct rwsem_waiter;
  * - if activity is -1 then there is one active writer
  * - if wait_list is not empty, then there are processes waiting for the semaphore
  */
-struct rw_semaphore {
+struct compat_rw_semaphore {
 	__s32			activity;
 	spinlock_t		wait_lock;
 	struct list_head	wait_list;
@@ -46,20 +46,20 @@ struct rw_semaphore {
 #define __RWSEM_DEBUG_INIT	/* */
 #endif
 
-#define __RWSEM_INITIALIZER(name) \
+#define __COMPAT_RWSEM_INITIALIZER(name) \
 { 0, SPIN_LOCK_UNLOCKED, LIST_HEAD_INIT((name).wait_list) __RWSEM_DEBUG_INIT }
 
-#define DECLARE_RWSEM(name) \
-	struct rw_semaphore name = __RWSEM_INITIALIZER(name)
+#define COMPAT_DECLARE_RWSEM(name) \
+	struct rw_semaphore name = __COMPAT_RWSEM_INITIALIZER(name)
 
-extern void FASTCALL(init_rwsem(struct rw_semaphore *sem));
-extern void FASTCALL(__down_read(struct rw_semaphore *sem));
-extern int FASTCALL(__down_read_trylock(struct rw_semaphore *sem));
-extern void FASTCALL(__down_write(struct rw_semaphore *sem));
-extern int FASTCALL(__down_write_trylock(struct rw_semaphore *sem));
-extern void FASTCALL(__up_read(struct rw_semaphore *sem));
-extern void FASTCALL(__up_write(struct rw_semaphore *sem));
-extern void FASTCALL(__downgrade_write(struct rw_semaphore *sem));
+extern void FASTCALL(compat_init_rwsem(struct compat_rw_semaphore *sem));
+extern void FASTCALL(__down_read(struct compat_rw_semaphore *sem));
+extern int FASTCALL(__down_read_trylock(struct compat_rw_semaphore *sem));
+extern void FASTCALL(__down_write(struct compat_rw_semaphore *sem));
+extern int FASTCALL(__down_write_trylock(struct compat_rw_semaphore *sem));
+extern void FASTCALL(__up_read(struct compat_rw_semaphore *sem));
+extern void FASTCALL(__up_write(struct compat_rw_semaphore *sem));
+extern void FASTCALL(__downgrade_write(struct compat_rw_semaphore *sem));
 
 #endif /* __KERNEL__ */
 #endif /* _LINUX_RWSEM_SPINLOCK_H */

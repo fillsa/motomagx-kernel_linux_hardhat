@@ -1130,7 +1130,11 @@ _GLOBAL(cvt_df)
  * Create a kernel thread
  *   kernel_thread(fn, arg, flags)
  */
+#if (CONFIG_LTT)
+_GLOBAL(original_kernel_thread)
+#else
 _GLOBAL(kernel_thread)
+#endif /* (CONFIG_LTT) */
 	stwu	r1,-16(r1)
 	stw	r30,8(r1)
 	stw	r31,12(r1)
@@ -1434,7 +1438,7 @@ _GLOBAL(sys_call_table)
 	.long sys_fstatfs64
 	.long ppc_fadvise64_64
 	.long sys_ni_syscall		/* 255 - rtas (used on ppc64) */
-	.long sys_ni_syscall		/* 256 reserved for sys_debug_setcontext */
+	.long sys_debug_setcontext
 	.long sys_ni_syscall		/* 257 reserved for vserver */
 	.long sys_ni_syscall		/* 258 reserved for new sys_remap_file_pages */
 	.long sys_ni_syscall		/* 259 reserved for new sys_mbind */

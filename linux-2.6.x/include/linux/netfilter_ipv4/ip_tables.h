@@ -293,7 +293,11 @@ struct ipt_get_entries
 static __inline__ struct ipt_entry_target *
 ipt_get_target(struct ipt_entry *e)
 {
+#ifdef CONFIG_MOT_WFN440
+	return (struct ipt_entry_target *)((char *)e + e->target_offset);
+#else
 	return (void *)e + e->target_offset;
+#endif /* CONFIG_MOT_WFN440 */
 }
 
 /* fn returns 0 to continue iteration */

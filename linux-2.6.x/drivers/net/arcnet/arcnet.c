@@ -80,7 +80,7 @@ struct ArcProto arc_proto_null =
 	.prepare_tx	= null_prepare_tx,
 };
 
-static spinlock_t arcnet_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(arcnet_lock);
 
 /* Exported function prototypes */
 int arcnet_debug = ARCNET_DEBUG;

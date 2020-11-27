@@ -10,7 +10,7 @@
 #include <linux/spinlock.h>
 #include <asm/atomic.h>
 
-int _atomic_dec_and_lock(atomic_t *atomic, spinlock_t *lock)
+int _atomic_dec_and_raw_spin_lock(atomic_t *atomic, raw_spinlock_t *lock)
 {
 	int counter;
 	int newcount;

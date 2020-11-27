@@ -1,6 +1,8 @@
 /*
  * fs/dcache.c
  *
+ * Copyright (C) 2006 Motorola Inc
+ *
  * Complete reimplementation
  * (C) 1997 Thomas Schoebel-Theuer,
  * with heavy changes by Linus Torvalds
@@ -13,6 +15,13 @@
  * exists, the inode will always exist. "iput()" is done either when
  * the dcache entry is deleted or garbage collected.
  */
+
+/* ChangeLog:
+ * (mm-dd-yyyy) Author    Comment
+ * 06-23-2006   Motorola  Add abs_d_path() interface to retrieve full 
+ *			  absolute pathname given a dentry and vfsmnt.
+ */
+
 
 #include <linux/config.h>
 #include <linux/syscalls.h>
@@ -37,8 +46,8 @@
 
 int sysctl_vfs_cache_pressure = 100;
 
-spinlock_t dcache_lock __cacheline_aligned_in_smp = SPIN_LOCK_UNLOCKED;
-seqlock_t rename_lock __cacheline_aligned_in_smp = SEQLOCK_UNLOCKED;
+ __cacheline_aligned_in_smp DEFINE_SPINLOCK(dcache_lock);
+DECLARE_SEQLOCK(rename_lock);
 
 EXPORT_SYMBOL(dcache_lock);
 
@@ -156,7 +165,7 @@ repeat:
 		spin_unlock(&dcache_lock);
 		return;
 	}
-			
+
 	/*
 	 * AV: ->d_delete() is _NOT_ allowed to block now.
 	 */
@@ -392,6 +401,8 @@ static void prune_dcache(int count)
 		struct dentry *dentry;
 		struct list_head *tmp;
 
+		cond_resched_lock(&dcache_lock);
+
 		tmp = dentry_unused.prev;
 		if (tmp == &dentry_unused)
 			break;
@@ -548,6 +559,13 @@ positive:
  * list for prune_dcache(). We descend to the next level
  * whenever the d_subdirs list is non-empty and continue
  * searching.
+ *
+ * It returns zero iff there are no unused children,
+ * otherwise  it returns the number of children moved to
+ * the end of the unused list. This may not be the total
+ * number of unused children, because select_parent can
+ * drop the lock and return early due to latency
+ * constraints.
  */
 static int select_parent(struct dentry * parent)
 {
@@ -577,6 +595,15 @@ resume:
 			dentry_stat.nr_unused++;
 			found++;
 		}
+
+		/*
+		 * We can return to the caller if we have found some (this
+		 * ensures forward progress). We'll be coming back to find
+		 * the rest.
+		 */
+		if (found && need_resched())
+			goto out;
+
 		/*
 		 * Descend a level if the d_subdirs list is non-empty.
 		 */
@@ -601,6 +628,7 @@ this_parent->d_parent->d_name.name, this_parent->d_name.name, found);
 #endif
 		goto resume;
 	}
+out:
 	spin_unlock(&dcache_lock);
 	return found;
 }
@@ -718,7 +746,7 @@ struct dentry *d_alloc(struct dentry * parent, const struct qstr *name)
 
 	atomic_set(&dentry->d_count, 1);
 	dentry->d_flags = DCACHE_UNHASHED;
-	dentry->d_lock = SPIN_LOCK_UNLOCKED;
+	spin_lock_init(&dentry->d_lock);
 	dentry->d_inode = NULL;
 	dentry->d_parent = NULL;
 	dentry->d_sb = NULL;
@@ -1313,6 +1341,7 @@ static char * __d_path( struct dentry *dentry, struct vfsmount *vfsmnt,
 
 		if (dentry == root && vfsmnt == rootmnt)
 			break;
+
 		if (dentry == vfsmnt->mnt_root || IS_ROOT(dentry)) {
 			/* Global root? */
 			spin_lock(&vfsmount_lock);
@@ -1324,6 +1353,7 @@ static char * __d_path( struct dentry *dentry, struct vfsmount *vfsmnt,
 			vfsmnt = vfsmnt->mnt_parent;
 			spin_unlock(&vfsmount_lock);
 			continue;
+	
 		}
 		parent = dentry->d_parent;
 		prefetch(parent);
@@ -1347,6 +1377,7 @@ global_root:
 		goto Elong;
 	retval -= namelen-1;	/* hit the slash */
 	memcpy(retval, dentry->d_name.name, namelen);
+
 	return retval;
 Elong:
 	return ERR_PTR(-ENAMETOOLONG);
@@ -1371,6 +1402,37 @@ char * d_path(struct dentry *dentry, struct vfsmount *vfsmnt,
 	mntput(rootmnt);
 	return res;
 }
+
+#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+/* write full, absolute pathname into buffer and return start of pathname */
+char * abs_d_path(struct dentry *dentry, struct vfsmount *vfsmnt,
+				char *buf, int buflen)
+{
+	char *res;
+	struct vfsmount *rootmnt;
+	struct dentry *root;
+
+	if ((dentry == init_task.fs->root) && (vfsmnt == init_task.fs->rootmnt))
+	{
+		res = buf + buflen;
+		*--res = '\0';
+		*--res = '/';
+
+		return res;
+	}
+
+	read_lock(&init_task.fs->lock);
+	rootmnt = mntget(init_task.fs->rootmnt);
+	root = dget(init_task.fs->root);
+	read_unlock(&init_task.fs->lock);
+	spin_lock(&dcache_lock);
+	res = __d_path(dentry, vfsmnt, root, rootmnt, buf, buflen);
+	spin_unlock(&dcache_lock);
+	dput(root);
+	mntput(rootmnt);
+	return res;
+}
+#endif /* CONFIG_MOT_FEAT_SECURE_DRM */
 
 /*
  * NOTE! The user-level library version returns a
@@ -1654,6 +1716,9 @@ EXPORT_SYMBOL(d_invalidate);
 EXPORT_SYMBOL(d_lookup);
 EXPORT_SYMBOL(d_move);
 EXPORT_SYMBOL(d_path);
+#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+EXPORT_SYMBOL(abs_d_path);
+#endif /* CONFIG_MOT_FEAT_SECURE_DRM */
 EXPORT_SYMBOL(d_prune_aliases);
 EXPORT_SYMBOL(d_rehash);
 EXPORT_SYMBOL(d_splice_alias);

@@ -1,15 +1,16 @@
 /*
- * irixelf.c: Code to load IRIX ELF executables which conform to
- *            the MIPS ABI.
+ * This file is subject to the terms and conditions of the GNU General Public
+ * License.  See the file "COPYING" in the main directory of this archive
+ * for more details.
  *
- * Copyright (C) 1996 David S. Miller (dm@engr.sgi.com)
+ * irixelf.c: Code to load IRIX ELF executables conforming to the MIPS ABI.
+ *            Based off of work by Eric Youngdale.
  *
- * Based upon work which is:
- * Copyright 1993, 1994: Eric Youngdale (ericy@cais.com).
+ * Copyright (C) 1993 - 1994 Eric Youngdale <ericy@cais.com>
+ * Copyright (C) 1996 - 2004 David S. Miller <dm@engr.sgi.com>
+ * Copyright (C) 2004 Steven J. Hill <sjhill@realitydiluted.com>
  */
-
 #include <linux/module.h>
-
 #include <linux/fs.h>
 #include <linux/stat.h>
 #include <linux/sched.h>
@@ -127,7 +128,9 @@ static void set_brk(unsigned long start, unsigned long end)
 	end = PAGE_ALIGN(end);
 	if (end <= start)
 		return;
+	down_write(&current->mm->mmap_sem);
 	do_brk(start, end - start);
+	up_write(&current->mm->mmap_sem);
 }
 
 
@@ -209,13 +212,13 @@ unsigned long * create_irix_tables(char * p, int argc, int envc,
 		__put_user((unsigned long)p,argv++);
 		p += strlen_user(p);
 	}
-	__put_user(NULL, argv);
+	__put_user((unsigned long) NULL, argv);
 	current->mm->arg_end = current->mm->env_start = (unsigned long) p;
 	while (envc-->0) {
 		__put_user((unsigned long)p,envp++);
 		p += strlen_user(p);
 	}
-	__put_user(NULL, envp);
+	__put_user((unsigned long) NULL, envp);
 	current->mm->env_end = (unsigned long) p;
 	return sp;
 }
@@ -375,7 +378,9 @@ static unsigned int load_irix_interp(struct elfhdr * interp_elf_ex,
 
 	/* Map the last of the bss segment */
 	if (last_bss > len) {
+		down_write(&current->mm->mmap_sem);
 		do_brk(len, (last_bss - len));
+		up_write(&current->mm->mmap_sem);
 	}
 	kfree(elf_phdata);
 
@@ -562,7 +567,9 @@ void irix_map_prda_page (void)
 	unsigned long v;
 	struct prda *pp;
 
+	down_write(&current->mm->mmap_sem);
 	v =  do_brk (PRDA_ADDRESS, PAGE_SIZE);
+	up_write(&current->mm->mmap_sem);
 
 	if (v < 0)
 		return;
@@ -616,6 +623,7 @@ static int load_irix_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	}
 
 	retval = kernel_read(bprm->file, elf_ex.e_phoff, (char *)elf_phdata, size);
+
 	if (retval < 0)
 		goto out_free_ph;
 
@@ -852,8 +860,11 @@ static int load_irix_library(struct file *file)
 
 	len = (elf_phdata->p_filesz + elf_phdata->p_vaddr+ 0xfff) & 0xfffff000;
 	bss = elf_phdata->p_memsz + elf_phdata->p_vaddr;
-	if (bss > len)
+	if (bss > len) {
+	  down_write(&current->mm->mmap_sem);
 	  do_brk(len, bss-len);
+	  up_write(&current->mm->mmap_sem);
+	}
 	kfree(elf_phdata);
 	return 0;
 }
@@ -925,7 +936,8 @@ unsigned long irix_mapelf(int fd, struct elf_phdr *user_phdrp, int cnt)
 	}
 
 #ifdef DEBUG_ELF
-	printk("irix_mapelf: Success, returning %08lx\n", user_phdrp->p_vaddr);
+	printk("irix_mapelf: Success, returning %08lx\n",
+		(unsigned long) user_phdrp->p_vaddr);
 #endif
 	fput(filp);
 	return user_phdrp->p_vaddr;
@@ -1288,6 +1300,20 @@ end_coredump:
 
 static int __init init_irix_binfmt(void)
 {
+	int init_inventory(void);
+	extern asmlinkage unsigned long sys_call_table;
+	extern asmlinkage unsigned long sys_call_table_irix5;
+
+	init_inventory();
+
+	/*
+	 * Copy the IRIX5 syscall table (8000 bytes) into the main syscall
+	 * table. The IRIX5 calls are located by an offset of 8000 bytes
+	 * from the beginning of the main table.
+	 */
+	memcpy((void *) ((unsigned long) &sys_call_table + 8000),
+		&sys_call_table_irix5, 8000);
+
 	return register_binfmt(&irix_format);
 }
 

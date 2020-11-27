@@ -58,6 +58,9 @@
 #define __INITDATA	.section	".init.data","aw"
 
 #ifndef __ASSEMBLY__
+#define __instrument
+#define __noinstrument __attribute__ ((no_instrument_function))
+
 /*
  * Used for initialization calls..
  */
@@ -85,6 +88,8 @@ extern char saved_command_line[];
 #define __define_initcall(level,fn) \
 	static initcall_t __initcall_##fn __attribute_used__ \
 	__attribute__((__section__(".initcall" level ".init"))) = fn
+
+#define early_initcall(fn)		__define_initcall(".early1",fn)
 
 #define core_initcall(fn)		__define_initcall("1",fn)
 #define postcore_initcall(fn)		__define_initcall("2",fn)

@@ -3,11 +3,11 @@
  *
  * Copyright (C) 2001-2003 Red Hat, Inc.
  *
- * Created by David Woodhouse <dwmw2@redhat.com>
+ * Created by David Woodhouse <dwmw2@infradead.org>
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: nodelist.h,v 1.121 2004/11/14 17:07:07 dedekind Exp $
+ * $Id: nodelist.h,v 1.130 2005/04/09 10:46:59 dedekind Exp $
  *
  */
 
@@ -107,16 +107,6 @@ struct jffs2_raw_node_ref
 #define ref_obsolete(ref)	(((ref)->flash_offset & 3) == REF_OBSOLETE)
 #define mark_ref_normal(ref)    do { (ref)->flash_offset = ref_offset(ref) | REF_NORMAL; } while(0)
 
-/* 
-   Used for keeping track of deletion nodes &c, which can only be marked
-   as obsolete when the node which they mark as deleted has actually been 
-   removed from the flash.
-*/
-struct jffs2_raw_node_ref_list {
-	struct jffs2_raw_node_ref *rew;
-	struct jffs2_raw_node_ref_list *next;
-};
-
 /* For each inode in the filesystem, we need to keep a record of
    nlink, because it would be a PITA to scan the whole directory tree
    at read_inode() time to calculate it, and to keep sufficient information
@@ -145,16 +135,10 @@ struct jffs2_inode_cache {
 #define INO_STATE_CHECKEDABSENT	3	/* Checked, cleared again */
 #define INO_STATE_GC		4	/* GCing a 'pristine' node */
 #define INO_STATE_READING	5	/* In read_inode() */
+#define INO_STATE_CLEARING	6	/* In clear_inode() */
 
 #define INOCACHE_HASHSIZE 128
 
-struct jffs2_scan_info {
-	struct jffs2_full_dirent *dents;
-	struct jffs2_tmp_dnode_info *tmpnodes;
-	/* Latest i_size info */
-	uint32_t version;
-	uint32_t isize;
-};
 /*
   Larger representation of a raw node, kept in-core only when the 
   struct inode for this particular ino is instantiated.
@@ -163,12 +147,11 @@ struct jffs2_scan_info {
 struct jffs2_full_dnode
 {
 	struct jffs2_raw_node_ref *raw;
-	uint32_t ofs; /* Don't really need this, but optimisation */
+	uint32_t ofs; /* The offset to which the data of this node belongs */
 	uint32_t size;
 	uint32_t frags; /* Number of fragments which currently refer
 			to this node. When this reaches zero, 
-			the node is obsolete.
-		     */
+			the node is obsolete.  */
 };
 
 /* 
@@ -178,7 +161,7 @@ struct jffs2_full_dnode
 */
 struct jffs2_tmp_dnode_info
 {
-	struct jffs2_tmp_dnode_info *next;
+	struct rb_node rb;
 	struct jffs2_full_dnode *fn;
 	uint32_t version;
 };       
@@ -193,6 +176,7 @@ struct jffs2_full_dirent
 	unsigned char type;
 	unsigned char name[0];
 };
+
 /*
   Fragments - used to build a map of which raw node to obtain 
   data from for each part of the ino
@@ -202,7 +186,7 @@ struct jffs2_node_frag
 	struct rb_node rb;
 	struct jffs2_full_dnode *node; /* NULL for holes */
 	uint32_t size;
-	uint32_t ofs; /* Don't really need this, but optimisation */
+	uint32_t ofs; /* The offset to which this fragment belongs */
 };
 
 struct jffs2_eraseblock
@@ -221,14 +205,6 @@ struct jffs2_eraseblock
 	struct jffs2_raw_node_ref *last_node;
 
 	struct jffs2_raw_node_ref *gc_node;	/* Next node to be garbage collected */
-
-	/* For deletia. When a dirent node in this eraseblock is
-	   deleted by a node elsewhere, that other node can only 
-	   be marked as obsolete when this block is actually erased.
-	   So we keep a list of the nodes to mark as obsolete when
-	   the erase is completed.
-	*/
-	// MAYBE	struct jffs2_raw_node_ref_list *deletia;
 };
 
 #define ACCT_SANITY_CHECK(c, jeb) do { \
@@ -387,6 +363,18 @@ static inline struct jffs2_node_frag *frag_first(struct rb_root *root)
 		node = node->rb_left;
 	return rb_entry(node, struct jffs2_node_frag, rb);
 }
+
+static inline struct jffs2_node_frag *frag_last(struct rb_root *root)
+{
+	struct rb_node *node = root->rb_node;
+
+	if (!node)
+		return NULL;
+	while(node->rb_right)
+		node = node->rb_right;
+	return rb_entry(node, struct jffs2_node_frag, rb);
+}
+
 #define rb_parent(rb) ((rb)->rb_parent)
 #define frag_next(frag) rb_entry(rb_next(&(frag)->rb), struct jffs2_node_frag, rb)
 #define frag_prev(frag) rb_entry(rb_prev(&(frag)->rb), struct jffs2_node_frag, rb)
@@ -396,10 +384,10 @@ static inline struct jffs2_node_frag *frag_first(struct rb_root *root)
 #define frag_erase(frag, list) rb_erase(&frag->rb, list);
 
 /* nodelist.c */
-D1(void jffs2_print_frag_list(struct jffs2_inode_info *f));
+D2(void jffs2_print_frag_list(struct jffs2_inode_info *f));
 void jffs2_add_fd_to_list(struct jffs2_sb_info *c, struct jffs2_full_dirent *new, struct jffs2_full_dirent **list);
 int jffs2_get_inode_nodes(struct jffs2_sb_info *c, struct jffs2_inode_info *f,
-			  struct jffs2_tmp_dnode_info **tnp, struct jffs2_full_dirent **fdp,
+			  struct rb_root *tnp, struct jffs2_full_dirent **fdp,
 			  uint32_t *highest_version, uint32_t *latest_mctime,
 			  uint32_t *mctime_ver);
 void jffs2_set_inocache_state(struct jffs2_sb_info *c, struct jffs2_inode_cache *ic, int state);
@@ -485,10 +473,9 @@ void jffs2_rotate_lists(struct jffs2_sb_info *c);
 int jffs2_do_mount_fs(struct jffs2_sb_info *c);
 
 /* erase.c */
-void jffs2_erase_block(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb);
 void jffs2_erase_pending_blocks(struct jffs2_sb_info *c, int count);
 
-#ifdef CONFIG_JFFS2_FS_NAND
+#ifdef CONFIG_JFFS2_FS_WRITEBUFFER
 /* wbuf.c */
 int jffs2_flush_wbuf_gc(struct jffs2_sb_info *c, uint32_t ino);
 int jffs2_flush_wbuf_pad(struct jffs2_sb_info *c);

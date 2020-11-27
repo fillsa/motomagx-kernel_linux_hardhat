@@ -37,6 +37,7 @@
 
 #include <asm/irq.h>
 #include <asm/arch/usb.h>
+#include <asm/arch/mux.h>
 
 
 #ifndef	DEBUG
@@ -91,7 +92,8 @@ struct isp1301 {
 
 /*-------------------------------------------------------------------------*/
 
-#ifdef	CONFIG_MACH_OMAP_H2
+#if	defined(CONFIG_MACH_OMAP_H2) || \
+	defined(CONFIG_MACH_OMAP_H3)
 
 /* board-specific PM hooks */
 
@@ -425,6 +427,43 @@ dump_regs(struct isp1301 *isp, const char *label)
 
 #ifdef	CONFIG_USB_OTG
 
+/**
+ * usb_bus_start_enum - start immediate enumeration (for OTG)
+ * @bus: the bus (must use hcd framework)
+ * @port: 1-based number of port; usually bus->otg_port
+ * Context: in_interrupt()
+ *
+ * Starts enumeration, with an immediate reset followed later by
+ * khubd identifying and possibly configuring the device.
+ * This is needed by OTG controller drivers, where it helps meet
+ * HNP protocol timing requirements for starting a port reset.
+ */
+
+#include "../../usb/core/hcd.h"
+
+int usb_bus_start_enum(struct usb_bus *bus, unsigned port_num)
+{
+	struct usb_hcd          *hcd;
+	int                     status = -EOPNOTSUPP;
+
+	/* NOTE: since HNP can't start by grabbing the bus's address0_sem,
+	 * boards with root hubs hooked up to internal devices (instead of
+	 * just the OTG port) may need more attention to resetting...
+	 */
+
+	hcd = container_of (bus, struct usb_hcd, self);
+	if (port_num && hcd->driver->start_port_reset)
+		status = hcd->driver->start_port_reset(hcd, port_num);
+
+	/* run khubd shortly after (first) root port reset finishes;
+	 * it may issue others, until at least 50 msecs have passed.
+	 */
+	if (status == 0)
+		mod_timer(&hcd->rh_timer, jiffies + msecs_to_jiffies(10));
+
+	return status;
+}
+
 /*
  * The OMAP OTG controller handles most of the OTG state transitions.
  *
@@ -516,6 +555,7 @@ static inline void check_state(struct isp1301 *isp, const char *tag) { }
 static void update_otg1(struct isp1301 *isp, u8 int_src)
 {
 	u32	otg_ctrl;
+	u8      int_id;
 
 	otg_ctrl = OTG_CTRL_REG
 			& OTG_CTRL_MASK
@@ -529,7 +569,10 @@ static void update_otg1(struct isp1301 *isp, u8 int_src)
 	}
 	if (int_src & INTR_VBUS_VLD)
 		otg_ctrl |= OTG_VBUSVLD;
-	if (int_src & INTR_ID_GND) {		/* default-A */
+
+	int_id = isp1301_get_u8(isp, ISP1301_INTERRUPT_SOURCE);
+
+	if (int_id & INTR_ID_GND) {		/* default-A */
 		if (isp->otg.state == OTG_STATE_B_IDLE
 				|| isp->otg.state == OTG_STATE_UNDEFINED) {
 			a_idle(isp, "init");
@@ -934,13 +977,14 @@ static void otg_unbind(struct isp1301 *isp)
 
 static void b_peripheral(struct isp1301 *isp)
 {
-	enable_vbus_draw(isp, 8);
 	OTG_CTRL_REG = OTG_CTRL_REG & OTG_XCEIV_OUTPUTS;
 	usb_gadget_vbus_connect(isp->otg.gadget);
 
 #ifdef	CONFIG_USB_OTG
+	enable_vbus_draw(isp, 8);
 	otg_update_isp(isp);
 #else
+	enable_vbus_draw(isp, 100);
 	/* UDC driver just set OTG_BSESSVLD */
 	isp1301_set_bits(isp, ISP1301_OTG_CONTROL_1, OTG1_DP_PULLUP);
 	isp1301_clear_bits(isp, ISP1301_OTG_CONTROL_1, OTG1_DP_PULLDOWN);
@@ -950,7 +994,7 @@ static void b_peripheral(struct isp1301 *isp)
 #endif
 }
 
-static int isp_update_otg(struct isp1301 *isp, u8 stat)
+static void isp_update_otg(struct isp1301 *isp, u8 stat)
 {
 	u8			isp_stat, isp_bstat;
 	enum usb_otg_state	state = isp->otg.state;
@@ -1081,7 +1125,7 @@ static int isp_update_otg(struct isp1301 *isp, u8 stat)
 	/* update the OTG controller state to match the isp1301; may
 	 * trigger OPRT_CHG irqs for changes going to the isp1301.
 	 */
-	update_otg1(isp, isp_stat);
+	update_otg1(isp, stat); // pass the actual interrupt latch status
 	update_otg2(isp, isp_bstat);
 	check_state(isp, __FUNCTION__);
 #endif
@@ -1222,6 +1266,9 @@ static int isp1301_detach_client(struct i2c_client *i2c)
 	if (machine_is_omap_h2())
 		omap_free_gpio(2);
 
+	if (machine_is_omap_h3())
+		omap_free_gpio(14);
+
 	isp->timer.data = 0;
 	set_bit(WORK_STOP, &isp->todo);
 	del_timer_sync(&isp->timer);
@@ -1300,7 +1347,7 @@ isp1301_set_host(struct otg_transceiver *otg, struct usb_bus *host)
 
 	power_up(isp);
 
-	if (machine_is_omap_h2())
+	if (machine_is_omap_h2() || machine_is_omap_h3())
 		isp1301_set_bits(isp, ISP1301_MODE_CONTROL_1, MC1_DAT_SE0);
 
 	dev_info(&isp->client.dev, "A-Host sessions ok\n");
@@ -1363,13 +1410,13 @@ isp1301_set_peripheral(struct otg_transceiver *otg, struct usb_gadget *gadget)
 	power_up(isp);
 	isp->otg.state = OTG_STATE_B_IDLE;
 
-	if (machine_is_omap_h2())
+	if (machine_is_omap_h2() || machine_is_omap_h3())
 		isp1301_set_bits(isp, ISP1301_MODE_CONTROL_1, MC1_DAT_SE0);
 
 	isp1301_set_bits(isp, ISP1301_INTERRUPT_RISING,
-	 	INTR_SESS_VLD);
+	 	INTR_SESS_VLD | INTR_VBUS_VLD);
 	isp1301_set_bits(isp, ISP1301_INTERRUPT_FALLING,
-	 	INTR_VBUS_VLD);
+	 	INTR_VBUS_VLD | INTR_SESS_VLD);
 	dev_info(&isp->client.dev, "B-Peripheral sessions ok\n");
 	dump_regs(isp, __FUNCTION__);
 
@@ -1446,6 +1493,10 @@ isp1301_start_hnp(struct otg_transceiver *dev)
 	 * So do this part as early as possible...
 	 */
 	switch (isp->otg.state) {
+	case OTG_STATE_B_PERIPHERAL:
+		isp->otg.state = OTG_STATE_B_WAIT_ACON;
+		isp1301_defer_work(isp, WORK_UPDATE_ISP);
+		break;
 	case OTG_STATE_B_HOST:
 		isp->otg.state = OTG_STATE_B_PERIPHERAL;
 		/* caller will suspend next */
@@ -1489,11 +1540,9 @@ static int isp1301_probe(struct i2c_adapter *bus, int address, int kind)
 	if (the_transceiver)
 		return 0;
 
-	isp = kmalloc(sizeof *isp, GFP_KERNEL);
+	isp = kcalloc(1, sizeof *isp, GFP_KERNEL);
 	if (!isp)
 		return 0;
-
-	memset(isp, 0, sizeof *isp);
 
 	INIT_WORK(&isp->work, isp1301_work, isp);
 	init_timer(&isp->timer);
@@ -1564,19 +1613,30 @@ fail1:
 	}
 #endif
 
-	if (machine_is_omap_h2()) {
+	if (machine_is_omap_h2() || machine_is_omap_h3()) {
 		/* full speed signaling by default */
 		isp1301_set_bits(isp, ISP1301_MODE_CONTROL_1,
 			MC1_SPEED_REG);
 		isp1301_set_bits(isp, ISP1301_MODE_CONTROL_2,
 			MC2_SPD_SUSP_CTRL);
+	}
 
+	if (machine_is_omap_h2()) {
 		/* IRQ wired at M14 */
 		omap_cfg_reg(M14_1510_GPIO2);
 		isp->irq = OMAP_GPIO_IRQ(2);
 		omap_request_gpio(2);
 		omap_set_gpio_direction(2, 1);
 		omap_set_gpio_edge_ctrl(2, OMAP_GPIO_FALLING_EDGE);
+	}
+
+	if (machine_is_omap_h3()) {
+		/* IRQ wired at N21 */
+		omap_cfg_reg(N21_1710_GPIO14);
+		isp->irq = OMAP_GPIO_IRQ(14);
+		omap_request_gpio(14);
+		omap_set_gpio_direction(14, 1);
+		omap_set_gpio_edge_ctrl(14, OMAP_GPIO_FALLING_EDGE);
 	}
 
 	status = request_irq(isp->irq, isp1301_irq,

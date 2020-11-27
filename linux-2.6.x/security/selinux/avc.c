@@ -70,7 +70,7 @@ struct avc_callback_node {
 	struct avc_callback_node *next;
 };
 
-static spinlock_t avc_lock = SPIN_LOCK_UNLOCKED;
+//static spinlock_t avc_lock = SPIN_LOCK_UNLOCKED;
 static struct avc_node *avc_node_freelist;
 static struct avc_cache avc_cache;
 static unsigned avc_cache_stats[AVC_NSTATS];

@@ -53,7 +53,7 @@ unsigned long ixp4xx_pci_reg_base = 0;
  * these transactions are atomic or we will end up
  * with corrupt data on the bus or in a driver.
  */
-static spinlock_t ixp4xx_pci_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_RAW_SPINLOCK(ixp4xx_pci_lock);
 
 /*
  * Read from PCI config space
@@ -348,10 +348,11 @@ void __init ixp4xx_pci_preinit(void)
 	asm("mrc p15, 0, %0, cr0, cr0, 0;" : "=r"(processor_id) :);
 
 	/*
-	 * Determine which PCI read method to use
+	 * Determine which PCI read method to use.
+	 * Rev 0 IXP425 requires workaround.
 	 */
-	if (!(processor_id & 0xf)) {
-		printk("PCI: IXP4xx A0 silicon detected - "
+	if (!(processor_id & 0xf) && !cpu_is_ixp46x()) {
+		printk("PCI: IXP42x A0 silicon detected - "
 			"PCI Non-Prefetch Workaround Enabled\n");
 		ixp4xx_pci_read = ixp4xx_pci_read_errata;
 	} else

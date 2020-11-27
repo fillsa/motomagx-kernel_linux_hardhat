@@ -2,6 +2,12 @@
  *  linux/kernel/sys.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *
+ *  Copyright 2006 Motorola, Inc.
+ *
+ * Date         Author          Comment
+ * 10/2006      Motorola        Removed 4 printk() calls from sys_reboot 
+ *				for busybox init support
  */
 
 #include <linux/config.h>
@@ -23,13 +29,16 @@
 #include <linux/security.h>
 #include <linux/dcookies.h>
 #include <linux/suspend.h>
-
 #include <linux/compat.h>
 #include <linux/syscalls.h>
 
 #include <asm/uaccess.h>
 #include <asm/io.h>
 #include <asm/unistd.h>
+
+#ifdef CONFIG_KFI
+#include <linux/kfi.h>
+#endif
 
 #ifndef SET_UNALIGN_CTL
 # define SET_UNALIGN_CTL(a,b)	(-EINVAL)
@@ -88,7 +97,7 @@ int cad_pid = 1;
  */
 
 static struct notifier_block *reboot_notifier_list;
-rwlock_t notifier_lock = RW_LOCK_UNLOCKED;
+DEFINE_RWLOCK(notifier_lock);
 
 /**
  *	notifier_chain_register	- Add notifier to a notifier chain
@@ -162,7 +171,7 @@ EXPORT_SYMBOL(notifier_chain_unregister);
  *	of the last notifier function called.
  */
  
-int notifier_call_chain(struct notifier_block **n, unsigned long val, void *v)
+int notrace notifier_call_chain(struct notifier_block **n, unsigned long val, void *v)
 {
 	int ret=NOTIFY_DONE;
 	struct notifier_block *nb = *n;
@@ -384,9 +393,14 @@ asmlinkage long sys_reboot(int magic1, int magic2, unsigned int cmd, void __user
 	switch (cmd) {
 	case LINUX_REBOOT_CMD_RESTART:
 		notifier_call_chain(&reboot_notifier_list, SYS_RESTART, NULL);
+#ifdef CONFIG_KFI
+		kfi_dump_log(NULL);
+#endif
 		system_state = SYSTEM_RESTART;
 		device_shutdown();
+#ifndef CONFIG_MOT_WFN244
 		printk(KERN_EMERG "Restarting system.\n");
+#endif
 		machine_restart(NULL);
 		break;
 
@@ -400,9 +414,14 @@ asmlinkage long sys_reboot(int magic1, int magic2, unsigned int cmd, void __user
 
 	case LINUX_REBOOT_CMD_HALT:
 		notifier_call_chain(&reboot_notifier_list, SYS_HALT, NULL);
+#ifdef CONFIG_KFI
+		kfi_dump_log(NULL);
+#endif
 		system_state = SYSTEM_HALT;
 		device_shutdown();
+#ifndef CONFIG_MOT_WFN244
 		printk(KERN_EMERG "System halted.\n");
+#endif
 		machine_halt();
 		unlock_kernel();
 		do_exit(0);
@@ -410,9 +429,14 @@ asmlinkage long sys_reboot(int magic1, int magic2, unsigned int cmd, void __user
 
 	case LINUX_REBOOT_CMD_POWER_OFF:
 		notifier_call_chain(&reboot_notifier_list, SYS_POWER_OFF, NULL);
+#ifdef CONFIG_KFI
+		kfi_dump_log(NULL);
+#endif
 		system_state = SYSTEM_POWER_OFF;
 		device_shutdown();
+#ifndef CONFIG_MOT_WFN244
 		printk(KERN_EMERG "Power down.\n");
+#endif
 		machine_power_off();
 		unlock_kernel();
 		do_exit(0);
@@ -428,7 +452,12 @@ asmlinkage long sys_reboot(int magic1, int magic2, unsigned int cmd, void __user
 		notifier_call_chain(&reboot_notifier_list, SYS_RESTART, buffer);
 		system_state = SYSTEM_RESTART;
 		device_shutdown();
+#ifndef CONFIG_MOT_WFN244
 		printk(KERN_EMERG "Restarting system with command '%s'.\n", buffer);
+#endif
+#ifdef CONFIG_KFI
+		kfi_dump_log(NULL);
+#endif
 		machine_restart(buffer);
 		break;
 

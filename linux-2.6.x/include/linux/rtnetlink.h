@@ -1,6 +1,13 @@
 #ifndef __LINUX_RTNETLINK_H
 #define __LINUX_RTNETLINK_H
 
+/* Copyright (C) 2007 Motorola, Inc. 
+ *
+ * Date         Author         Comment
+ * ==========   ===========    ===================================
+ * 06/01/2007   Motorola       Define CONFIG_MOT_FEAT_CHKSUM.             
+ */
+
 #include <linux/netlink.h>
 
 /****
@@ -401,6 +408,7 @@ enum
 #define IFA_F_SECONDARY		0x01
 #define IFA_F_TEMPORARY		IFA_F_SECONDARY
 
+#define IFA_F_HOMEADDRESS	0x10
 #define IFA_F_DEPRECATED	0x20
 #define IFA_F_TENTATIVE		0x40
 #define IFA_F_PERMANENT		0x80
@@ -809,6 +817,18 @@ extern void rtnl_lock(void);
 extern void rtnl_unlock(void);
 extern void rtnetlink_init(void);
 
+#define CONFIG_MOT_FEAT_CHKSUM
+
+#ifdef CONFIG_MOT_FEAT_CHKSUM
+#define ASSERT_RTNL() do { \
+	if (unlikely(down_trylock(&rtnl_sem) == 0)) { \
+		up(&rtnl_sem); \
+		printk(KERN_ERR "RTNL: assertion failed at %s (%d)\n", \
+		       "FILE",  __LINE__); \
+		dump_stack(); \
+	} \
+} while(0)
+#else
 #define ASSERT_RTNL() do { \
 	if (unlikely(down_trylock(&rtnl_sem) == 0)) { \
 		up(&rtnl_sem); \
@@ -817,13 +837,23 @@ extern void rtnetlink_init(void);
 		dump_stack(); \
 	} \
 } while(0)
+#endif
 
+#ifdef CONFIG_MOT_FEAT_CHKSUM
+#define BUG_TRAP(x) do { \
+	if (unlikely(!(x))) { \
+		printk(KERN_ERR "KERNEL: assertion (%s) failed at %s (%d)\n", \
+			#x,  "FILE" , __LINE__); \
+	} \
+} while(0)
+#else
 #define BUG_TRAP(x) do { \
 	if (unlikely(!(x))) { \
 		printk(KERN_ERR "KERNEL: assertion (%s) failed at %s (%d)\n", \
 			#x,  __FILE__ , __LINE__); \
 	} \
 } while(0)
+#endif
 
 #endif /* __KERNEL__ */
 

@@ -7,6 +7,7 @@
 #include <linux/module.h>
 #include <linux/device.h>
 #include <linux/irq.h>
+#include <linux/hrtime.h>
 #include <linux/sysdev.h>
 #include <linux/timex.h>
 #include <asm/delay.h>
@@ -15,9 +16,8 @@
 #include <asm/smp.h>
 #include <asm/io.h>
 #include <asm/arch_hooks.h>
+#include <asm/i8253.h>
 
-extern spinlock_t i8259A_lock;
-extern spinlock_t i8253_lock;
 #include "do_timer.h"
 #include "io_ports.h"
 
@@ -89,7 +89,7 @@ static void delay_pit(unsigned long loops)
  * comp.protocols.time.ntp!
  */
 
-static unsigned long get_offset_pit(void)
+unsigned long get_offset_pit(void)
 {
 	int count;
 	unsigned long flags;
@@ -148,6 +148,7 @@ static unsigned long get_offset_pit(void)
 
 	return count;
 }
+EXPORT_SYMBOL(get_offset_pit);
 
 
 /* tsc timer_opts struct */
@@ -166,7 +167,6 @@ struct init_timer_opts __initdata timer_pit_init = {
 
 void setup_pit_timer(void)
 {
-	extern spinlock_t i8253_lock;
 	unsigned long flags;
 
 	spin_lock_irqsave(&i8253_lock, flags);

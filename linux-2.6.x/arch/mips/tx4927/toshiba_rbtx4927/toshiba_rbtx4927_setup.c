@@ -727,7 +727,7 @@ void toshiba_rbtx4927_restart(char *command)
 	reg_wr08(RBTX4927_SW_RESET_DO, RBTX4927_SW_RESET_DO_SET);
 
 	/* do something passive while waiting for reset */
-	cli();
+	local_irq_disable();
 	while (1)
 		asm_wait();
 
@@ -738,7 +738,7 @@ void toshiba_rbtx4927_restart(char *command)
 void toshiba_rbtx4927_halt(void)
 {
 	printk(KERN_NOTICE "System Halted\n");
-	cli();
+	local_irq_disable();
 	while (1) {
 		asm_wait();
 	}
@@ -1008,7 +1008,11 @@ toshiba_rbtx4927_time_init(void)
 				       mips_hpt_frequency,
 				       mips_hpt_frequency / 1000000);
 #else
-	mips_hpt_frequency = 100000000;
+	/*
+	 * Default TX4927 processor speed is 200 MHz. However, it 
+	 * can be configured by the user
+	 */
+	mips_hpt_frequency = (CONFIG_TOSHIBA_TX4927_CPU_SPEED * 1000000) / 2;
 #endif
 
 	TOSHIBA_RBTX4927_SETUP_DPRINTK(TOSHIBA_RBTX4927_SETUP_TIME_INIT, "+\n");

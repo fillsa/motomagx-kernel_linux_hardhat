@@ -153,6 +153,7 @@ static int esp_input(struct xfrm_state *x, struct xfrm_decap_state *decap, struc
 
 	if (!pskb_may_pull(skb, sizeof(struct ip_esp_hdr)))
 		goto out;
+	esph = (struct ip_esp_hdr*)skb->data;
 
 	if (elen <= 0 || (elen & (blksize-1)))
 		goto out;
@@ -161,7 +162,8 @@ static int esp_input(struct xfrm_state *x, struct xfrm_decap_state *decap, struc
 	if (esp->auth.icv_full_len) {
 		u8 sum[esp->auth.icv_full_len];
 		u8 sum1[alen];
-		
+		if (x->props.replay_window && xfrm_replay_check(x, esph->seq_no))
+			goto out;
 		esp->auth.icv(esp, skb, 0, skb->len-alen, sum);
 
 		if (skb_copy_bits(skb, skb->len-alen, sum1, alen))
@@ -171,6 +173,9 @@ static int esp_input(struct xfrm_state *x, struct xfrm_decap_state *decap, struc
 			x->stats.integrity_failed++;
 			goto out;
 		}
+
+		if (x->props.replay_window)
+			xfrm_replay_advance(x, esph->seq_no);
 	}
 
 	if ((nfrags = skb_cow_data(skb, 0, &trailer)) < 0)
@@ -178,7 +183,6 @@ static int esp_input(struct xfrm_state *x, struct xfrm_decap_state *decap, struc
 
 	skb->ip_summed = CHECKSUM_NONE;
 
-	esph = (struct ip_esp_hdr*)skb->data;
 	iph = skb->nh.iph;
 
 	/* Get ivec. This can be wrong, check against another impls. */
@@ -373,7 +377,7 @@ static int esp_init_state(struct xfrm_state *x, void *args)
 		if (x->aalg->alg_key_len > 512)
 			goto error;
 	}
-	if (x->ealg == NULL)
+	if (x->ealg == NULL || (x->ealg->alg_key_len == 0 && x->props.ealgo != SADB_EALG_NULL))
 		goto error;
 
 	esp = kmalloc(sizeof(*esp), GFP_KERNEL);
@@ -392,7 +396,7 @@ static int esp_init_state(struct xfrm_state *x, void *args)
 			goto error;
 		esp->auth.icv = esp_hmac_digest;
 
-		aalg_desc = xfrm_aalg_get_byname(x->aalg->alg_name);
+		aalg_desc = xfrm_aalg_get_byname(x->aalg->alg_name, 0);
 		BUG_ON(!aalg_desc);
 
 		if (aalg_desc->uinfo.auth.icv_fullbits/8 !=
@@ -412,11 +416,13 @@ static int esp_init_state(struct xfrm_state *x, void *args)
 			goto error;
 	}
 	esp->conf.key = x->ealg->alg_key;
-	esp->conf.key_len = (x->ealg->alg_key_len+7)/8;
-	if (x->props.ealgo == SADB_EALG_NULL)
+	if (x->props.ealgo == SADB_EALG_NULL) {
+		esp->conf.key_len = 0;
 		esp->conf.tfm = crypto_alloc_tfm(x->ealg->alg_name, CRYPTO_TFM_MODE_ECB);
-	else
+	} else {
+		esp->conf.key_len = (x->ealg->alg_key_len+7)/8;
 		esp->conf.tfm = crypto_alloc_tfm(x->ealg->alg_name, CRYPTO_TFM_MODE_CBC);
+	}
 	if (esp->conf.tfm == NULL)
 		goto error;
 	esp->conf.ivlen = crypto_tfm_alg_ivsize(esp->conf.tfm);
@@ -427,7 +433,8 @@ static int esp_init_state(struct xfrm_state *x, void *args)
 			goto error;
 		get_random_bytes(esp->conf.ivec, esp->conf.ivlen);
 	}
-	crypto_cipher_setkey(esp->conf.tfm, esp->conf.key, esp->conf.key_len);
+	if (crypto_cipher_setkey(esp->conf.tfm, esp->conf.key, esp->conf.key_len))
+		goto error;
 	x->props.header_len = sizeof(struct ip_esp_hdr) + esp->conf.ivlen;
 	if (x->props.mode)
 		x->props.header_len += sizeof(struct iphdr);
@@ -479,7 +486,7 @@ static int __init esp4_init(void)
 {
 	struct xfrm_decap_state decap;
 
-	if (sizeof(struct esp_decap_data)  <
+	if (sizeof(struct esp_decap_data)  >
 	    sizeof(decap.decap_data)) {
 		extern void decap_data_too_small(void);
 

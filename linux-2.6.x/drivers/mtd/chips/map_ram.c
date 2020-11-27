@@ -83,7 +83,7 @@ static struct mtd_info *map_ram_probe(struct map_info *map)
 
 static int mapram_read (struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char *buf)
 {
-	struct map_info *map = (struct map_info *)mtd->priv;
+	struct map_info *map = mtd->priv;
 
 	map_copy_from(map, buf, from, len);
 	*retlen = len;
@@ -92,7 +92,7 @@ static int mapram_read (struct mtd_info *mtd, loff_t from, size_t len, size_t *r
 
 static int mapram_write (struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen, const u_char *buf)
 {
-	struct map_info *map = (struct map_info *)mtd->priv;
+	struct map_info *map = mtd->priv;
 
 	map_copy_to(map, to, buf, len);
 	*retlen = len;
@@ -103,7 +103,7 @@ static int mapram_erase (struct mtd_info *mtd, struct erase_info *instr)
 {
 	/* Yeah, it's inefficient. Who cares? It's faster than a _real_
 	   flash erase. */
-	struct map_info *map = (struct map_info *)mtd->priv;
+	struct map_info *map = mtd->priv;
 	map_word allff;
 	unsigned long i;
 

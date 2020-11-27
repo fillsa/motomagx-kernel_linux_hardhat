@@ -4,6 +4,7 @@
  * Copyright (C) 2004 Red Hat, Inc.  All rights reserved.
  * Copyright (C) 2004 Novell, Inc.  All rights reserved.
  * Copyright (C) 2004 IBM, Inc. All rights reserved.
+ * Copyright (C) 2006 Motorola, Inc.
  *
  * Licensed under the GNU GPL v2.
  *
@@ -12,6 +13,10 @@
  *	Kay Sievers		<kay.sievers@vrfy.org>
  *	Arjan van de Ven	<arjanv@redhat.com>
  *	Greg Kroah-Hartman	<greg@kroah.com>
+ *
+ * Revision history:
+ * Date         Author          Comment
+ * 12/2006      Motorola        Created hotplug filter list
  */
 
 #include <linux/spinlock.h>
@@ -21,10 +26,74 @@
 #include <linux/string.h>
 #include <linux/kobject_uevent.h>
 #include <linux/kobject.h>
+#include <linux/module.h>
 #include <net/sock.h>
 
 #define BUFFER_SIZE	1024	/* buffer for the hotplug env */
 #define NUM_ENVP	32	/* number of env pointers */
+
+#ifdef CONFIG_MOT_FEAT_HOTPLUG_FILTER
+static char *hotplug_filters;
+
+ssize_t mothotplug_get_filters(char * buff, ssize_t size)
+{
+    int left, ret;
+	char * filter;
+
+    left = size;
+    ret = snprintf(buff, left, "Allowed Hotplug Events: ");
+    left -= (ret < left) ? ret : left;
+
+	for ( filter = hotplug_filters; filter != NULL && *filter != '\0' && left > 0; ) {
+		ret = snprintf(buff + (size - left), left,"%s",filter);
+		left -= (ret < left) ? ret : left;
+		filter += strlen(filter) + 1;
+		if (*filter) {
+			ret = snprintf(buff + (size - left), left,", ");
+			left -= (ret < left) ? ret : left;
+		}
+	}
+
+    ret = snprintf(buff + (size - left), left, "\n");
+    left -= (ret < left) ? ret : left;
+
+	return size - left;
+}
+
+int mothotplug_add_filters(const char *filters)
+{
+	unsigned int i;
+
+	if (hotplug_filters)
+		return -EPERM;
+
+	i = strlen(filters);
+
+	if (i == 0)
+		return -EINVAL;
+
+	/* add two to the strlen if we don't have a trailing \n */
+	hotplug_filters = kmalloc(sizeof(char) * (i+(filters[i-1]=='\n'?1:2)), GFP_KERNEL);
+
+	if (!hotplug_filters)
+		return -ENOMEM;
+
+	memcpy(hotplug_filters, filters, (strlen(filters)*sizeof(char))+1);
+	for (i=0; filters[i]!='\0'; ++i) {
+		if (filters[i] == ' ' || filters[i] == '\n')
+			hotplug_filters[i] = '\0';
+	}
+
+	/* we are using a double-null to indicate the end of filters */
+	if (i > 0 && hotplug_filters[i-1] != '\0')
+		hotplug_filters[++i] = '\0';
+
+	return 0;
+}
+
+EXPORT_SYMBOL(mothotplug_add_filters);
+EXPORT_SYMBOL(mothotplug_get_filters);
+#endif
 
 #if defined(CONFIG_KOBJECT_UEVENT) || defined(CONFIG_HOTPLUG)
 static char *action_to_string(enum kobject_action action)
@@ -178,8 +247,9 @@ static inline int send_uevent(const char *signal, const char *obj,
 
 #ifdef CONFIG_HOTPLUG
 char hotplug_path[HOTPLUG_PATH_LEN] = "/sbin/hotplug";
+EXPORT_SYMBOL_GPL(hotplug_path);
 u64 hotplug_seqnum;
-static spinlock_t sequence_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(sequence_lock);
 
 /**
  * kobject_hotplug - notify userspace by executing /sbin/hotplug
@@ -199,6 +269,9 @@ void kobject_hotplug(struct kobject *kobj, enum kobject_action action)
 	char *kobj_path = NULL;
 	char *name = NULL;
 	char *action_string;
+#ifdef CONFIG_MOT_FEAT_HOTPLUG_FILTER
+        char *filter = NULL;
+#endif
 	u64 seq;
 	struct kobject *top_kobj = kobj;
 	struct kset *kset;
@@ -247,6 +320,21 @@ void kobject_hotplug(struct kobject *kobj, enum kobject_action action)
 		name = hotplug_ops->name(kset, kobj);
 	if (name == NULL)
 		name = kset->kobj.name;
+
+#ifdef CONFIG_MOT_FEAT_HOTPLUG_FILTER
+	if (hotplug_filters) {
+		for ( filter = hotplug_filters; *filter != '\0'; ) {
+			if (!strcmp(filter, name))
+				break;
+			filter += strlen(filter) + 1;
+		}
+		if (*filter == '\0')
+			goto exit;
+	} else {
+		/* default state is to filter all events */
+		goto exit;
+	}
+#endif
 
 	argv [0] = hotplug_path;
 	argv [1] = name;

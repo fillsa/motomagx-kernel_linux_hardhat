@@ -6,6 +6,7 @@
 #include <linux/suspend.h>
 #include <linux/root_dev.h>
 #include <linux/security.h>
+#include <linux/delay.h>
 
 #include <linux/nfs_fs.h>
 #include <linux/nfs_fs_sb.h>
@@ -228,8 +229,16 @@ static int __init fs_names_setup(char *str)
 	return 1;
 }
 
+static unsigned int __initdata root_delay;
+static int __init root_delay_setup(char *str)
+{
+	root_delay = simple_strtoul(str, NULL, 0);
+	return 1;
+}
+
 __setup("rootflags=", root_data_setup);
 __setup("rootfstype=", fs_names_setup);
+__setup("rootdelay=", root_delay_setup);
 
 static void __init get_fs_names(char *page)
 {
@@ -320,6 +329,26 @@ static int __init mount_nfs_root(void)
 	return 0;
 }
 #endif
+#ifdef CONFIG_ROOT_CRAMFS_LINEAR
+static int __init mount_cramfs_linear_root(void)
+{
+	create_dev("/dev/root", ROOT_DEV, root_device_name);
+	if (do_mount_root("/dev/root","cramfs",root_mountflags,root_mount_data) == 0)
+		return 1;
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_ROOT_PRAMFS
+static int __init mount_pramfs_root(void)
+{
+        create_dev("/dev/root", ROOT_DEV, NULL);
+        if (do_mount_root("/dev/root", "pramfs",
+                          root_mountflags, root_mount_data) == 0)
+                return 1;
+        return 0;
+}
+#endif
 
 #if defined(CONFIG_BLK_DEV_RAM) || defined(CONFIG_BLK_DEV_FD)
 void __init change_floppy(char *fmt, ...)
@@ -353,6 +382,11 @@ void __init change_floppy(char *fmt, ...)
 
 void __init mount_root(void)
 {
+#ifdef CONFIG_ROOT_CRAMFS_LINEAR
+	if (mount_cramfs_linear_root())
+		return;
+	printk (KERN_ERR "VFS: Unable to mount linear cramfs root.\n");
+#endif
 #ifdef CONFIG_ROOT_NFS
 	if (MAJOR(ROOT_DEV) == UNNAMED_MAJOR) {
 		if (mount_nfs_root())
@@ -361,6 +395,15 @@ void __init mount_root(void)
 		printk(KERN_ERR "VFS: Unable to mount root fs via NFS, trying floppy.\n");
 		ROOT_DEV = Root_FD0;
 	}
+#endif
+#ifdef CONFIG_ROOT_PRAMFS
+        if (ROOT_DEV == MKDEV(0, 0)) {
+                if (mount_pramfs_root())
+                        return;
+
+                printk (KERN_ERR "VFS: Unable to mount PRAMFS root\n");
+                ROOT_DEV = Root_FD0;
+        }
 #endif
 #ifdef CONFIG_BLK_DEV_FD
 	if (MAJOR(ROOT_DEV) == FLOPPY_MAJOR) {
@@ -386,6 +429,12 @@ void __init prepare_namespace(void)
 	int is_floppy;
 
 	mount_devfs();
+
+	if (root_delay) {
+		printk(KERN_INFO "Waiting %dsec before mounting root device...\n",
+		       root_delay);
+		ssleep(root_delay);
+	}
 
 	md_run_setup();
 

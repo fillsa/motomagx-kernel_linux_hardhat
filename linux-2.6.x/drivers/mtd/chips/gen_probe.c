@@ -162,7 +162,7 @@ static int genprobe_new_chip(struct map_info *map, struct chip_probe *cp,
 	int max_chips = map_bankwidth(map); /* And minimum 1 */
 	int nr_chips, type;
 
-	for (nr_chips = min_chips; nr_chips <= max_chips; nr_chips <<= 1) {
+	for (nr_chips = max_chips; nr_chips >= min_chips; nr_chips >>= 1) {
 
 		if (!cfi_interleave_supported(nr_chips))
 		    continue;
@@ -235,6 +235,7 @@ static struct mtd_info *check_cmd_set(struct map_info *map, int primary)
 #ifdef CONFIG_MTD_CFI_INTELEXT
 	case 0x0001:
 	case 0x0003:
+	case 0x0200:
 		return cfi_cmdset_0001(map, primary);
 #endif
 #ifdef CONFIG_MTD_CFI_AMDSTD

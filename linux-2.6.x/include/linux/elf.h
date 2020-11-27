@@ -65,7 +65,7 @@ typedef __s64	Elf64_Sxword;
 
 #define EM_MIPS		8	/* MIPS R3000 (officially, big-endian only) */
 
-#define EM_MIPS_RS4_BE 10	/* MIPS R4000 big-endian */
+#define EM_MIPS_RS3_LE 10	/* MIPS R3000 little-endian */
 
 #define EM_PARISC      15	/* HPPA */
 
@@ -411,6 +411,8 @@ typedef struct elf64_shdr {
 #define NT_AUXV		6
 #define NT_PRXFPREG     0x46e62b7f      /* copied from gdb5.1/include/elf/common.h */
 
+/* NUMA memory policy note */
+#define NT_NUMAPOLICY  21
 
 /* Note header in a PT_NOTE section */
 typedef struct elf32_note {
@@ -426,12 +428,52 @@ typedef struct elf64_note {
   Elf64_Word n_type;	/* Content type */
 } Elf64_Nhdr;
 
+/*
+ * This is the contents of the NOTE section in the ELF image
+ * holding mem policies for text and data regions, and for the
+ * process.
+ */
+struct elf32_numapolicy {
+	Elf32_Word text_mode;      /* mode for text policy */
+	Elf32_Word text_flags;     /* flags for text mbind */
+	Elf32_Word num_text_nodes; /* number of NID's in text node list */
+
+	Elf32_Word data_mode;      /* mode for data policy */
+	Elf32_Word data_flags;     /* flags for data mbind */
+	Elf32_Word num_data_nodes; /* number of NID's in data node list */
+
+	Elf32_Word proc_mode;      /* mode for process policy */
+	Elf32_Word proc_flags;     /* flags for process mbind */
+	Elf32_Word num_proc_nodes; /* number of NID's in process node list */
+
+	Elf32_Half nodes[0];       /* node lists, text followed by data
+				      followed by process */
+};
+
+struct elf64_numapolicy {
+	Elf64_Word text_mode;      /* mode for text policy */
+	Elf64_Word text_flags;     /* flags for text mbind */
+	Elf64_Word num_text_nodes; /* number of NID's in text node list */
+
+	Elf64_Word data_mode;      /* mode for data policy */
+	Elf64_Word data_flags;     /* flags for data mbind */
+	Elf64_Word num_data_nodes; /* number of NID's in data node list */
+
+	Elf64_Word proc_mode;      /* mode for process policy */
+	Elf64_Word proc_flags;     /* flags for process mbind */
+	Elf64_Word num_proc_nodes; /* number of NID's in process node list */
+
+	Elf64_Half nodes[0];       /* node lists, text followed by data
+				      followed by process */
+};
+
 #if ELF_CLASS == ELFCLASS32
 
 extern Elf32_Dyn _DYNAMIC [];
 #define elfhdr		elf32_hdr
 #define elf_phdr	elf32_phdr
 #define elf_note	elf32_note
+#define elf_numapolicy   elf32_numapolicy
 
 #else
 
@@ -439,6 +481,7 @@ extern Elf64_Dyn _DYNAMIC [];
 #define elfhdr		elf64_hdr
 #define elf_phdr	elf64_phdr
 #define elf_note	elf64_note
+#define elf_numapolicy   elf64_numapolicy
 
 #endif
 

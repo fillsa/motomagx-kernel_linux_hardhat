@@ -18,6 +18,7 @@
 
 unsigned int __machine_arch_type;
 
+#include <linux/init.h>
 #include <linux/string.h>
 
 #include <asm/arch/uncompress.h>
@@ -32,7 +33,7 @@ unsigned int __machine_arch_type;
 
 extern void idedcc_putc(int ch);
 
-static void
+static void __noinstrument
 icedcc_putstr(const char *ptr)
 {
 	for (; *ptr != '\0'; ptr++) {
@@ -47,7 +48,7 @@ icedcc_putstr(const char *ptr)
 /*
  * Optimised C version of memzero for the ARM.
  */
-void __memzero (__ptr_t s, size_t n)
+void __noinstrument __memzero (__ptr_t s, size_t n)
 {
 	union { void *vp; unsigned long *ulp; unsigned char *ucp; } u;
 	int i;
@@ -89,8 +90,8 @@ void __memzero (__ptr_t s, size_t n)
 		*u.ucp++ = 0;
 }
 
-static inline __ptr_t memcpy(__ptr_t __dest, __const __ptr_t __src,
-			    size_t __n)
+static inline __noinstrument __ptr_t memcpy(__ptr_t __dest,
+     __const __ptr_t __src, size_t __n)
 {
 	int i = 0;
 	unsigned char *d = (unsigned char *)__dest, *s = (unsigned char *)__src;
@@ -202,7 +203,7 @@ static ulg free_mem_ptr_end;
 #include "../../../../lib/inflate.c"
 
 #ifndef STANDALONE_DEBUG
-static void *malloc(int size)
+static __noinstrument void *malloc(int size)
 {
 	void *p;
 
@@ -219,27 +220,27 @@ static void *malloc(int size)
 	return p;
 }
 
-static void free(void *where)
+static __noinstrument void free(void *where)
 { /* gzip_mark & gzip_release do the free */
 }
 
-static void gzip_mark(void **ptr)
+static __noinstrument void gzip_mark(void **ptr)
 {
 	arch_decomp_wdog();
 	*ptr = (void *) free_mem_ptr;
 }
 
-static void gzip_release(void **ptr)
+static __noinstrument void gzip_release(void **ptr)
 {
 	arch_decomp_wdog();
 	free_mem_ptr = (long) *ptr;
 }
 #else
-static void gzip_mark(void **ptr)
+static __noinstrument void gzip_mark(void **ptr)
 {
 }
 
-static void gzip_release(void **ptr)
+static __noinstrument void gzip_release(void **ptr)
 {
 }
 #endif
@@ -248,7 +249,7 @@ static void gzip_release(void **ptr)
  * Fill the input buffer. This is called only when the buffer is empty
  * and at least one byte is really needed.
  */
-int fill_inbuf(void)
+__noinstrument int fill_inbuf(void)
 {
 	if (insize != 0)
 		error("ran out of input data");
@@ -264,7 +265,7 @@ int fill_inbuf(void)
  * Write the output window window[0..outcnt-1] and update crc and bytes_out.
  * (Used for the decompressed data only.)
  */
-void flush_window(void)
+__noinstrument void flush_window(void)
 {
 	ulg c = crc;
 	unsigned n;
@@ -283,7 +284,7 @@ void flush_window(void)
 	putstr(".");
 }
 
-static void error(char *x)
+static void __noinstrument error(char *x)
 {
 	putstr("\n\n");
 	putstr(x);
@@ -294,7 +295,7 @@ static void error(char *x)
 
 #ifndef STANDALONE_DEBUG
 
-ulg
+__noinstrument ulg
 decompress_kernel(ulg output_start, ulg free_mem_ptr_p, ulg free_mem_ptr_end_p,
 		  int arch_id)
 {
@@ -315,7 +316,7 @@ decompress_kernel(ulg output_start, ulg free_mem_ptr_p, ulg free_mem_ptr_end_p,
 
 char output_buffer[1500*1024];
 
-int main()
+__noinstrument int main()
 {
 	output_data = output_buffer;
 

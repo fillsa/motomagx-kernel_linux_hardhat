@@ -14,29 +14,84 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/device.h>
+#include <linux/delay.h>
+#include <linux/mtd/mtd.h>
+#include <linux/mtd/partitions.h>
+#include <linux/nodemask.h>
 
+#include <asm/setup.h>
 #include <asm/hardware.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
+#include <asm/mach/flash.h>
 #include <asm/mach/map.h>
 
 #include <asm/arch/clocks.h>
 #include <asm/arch/gpio.h>
 #include <asm/arch/mux.h>
 #include <asm/arch/fpga.h>
-#include <asm/arch/serial.h>
+#include <asm/arch/tc.h>
 
 #include "common.h"
 
-void omap_perseus2_init_irq(void)
-{
-	omap_init_irq();
-}
+static struct mtd_partition p2_partitions[] = {
+	/* bootloader (U-Boot, etc) in first sector */
+	{
+	      .name		= "bootloader",
+	      .offset		= 0,
+	      .size		= SZ_128K,
+	      .mask_flags	= MTD_WRITEABLE, /* force read-only */
+	},
+	/* bootloader params in the next sector */
+	{
+	      .name		= "params",
+	      .offset		= MTDPART_OFS_APPEND,
+	      .size		= SZ_128K,
+	      .mask_flags	= 0,
+	},
+	/* kernel */
+	{
+	      .name		= "kernel",
+	      .offset		= MTDPART_OFS_APPEND,
+	      .size		= SZ_2M,
+	      .mask_flags	= 0
+	},
+	/* rest of flash is a file system */
+	{
+	      .name		= "rootfs",
+	      .offset		= MTDPART_OFS_APPEND,
+	      .size		= MTDPART_SIZ_FULL,
+	      .mask_flags	= 0
+	},
+};
+
+static struct flash_platform_data p2_flash_data = {
+	.map_name	= "cfi_probe",
+	.width		= 2,
+	.parts		= p2_partitions,
+	.nr_parts	= ARRAY_SIZE(p2_partitions),
+};
+
+static struct resource p2_flash_resource = {
+	.start		= OMAP_CS0_PHYS,
+	.end		= OMAP_CS0_PHYS + SZ_32M - 1,
+	.flags		= IORESOURCE_MEM,
+};
+
+static struct platform_device p2_flash_device = {
+	.name		= "omapflash",
+	.id		= 0,
+	.dev		= {
+		.platform_data	= &p2_flash_data,
+	},
+	.num_resources	= 1,
+	.resource	= &p2_flash_resource,
+};
 
 static struct resource smc91x_resources[] = {
 	[0] = {
 		.start	= H2P2_DBG_FPGA_ETHR_START,	/* Physical */
-		.end	= H2P2_DBG_FPGA_ETHR_START + SZ_4K,
+		.end	= H2P2_DBG_FPGA_ETHR_START + 0xf,
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
@@ -55,13 +110,36 @@ static struct platform_device smc91x_device = {
 	.resource	= smc91x_resources,
 };
 
+static struct platform_device keypad_device = {
+	.name	   = "omap-keypad",
+	.id	     = -1,
+};
+
 static struct platform_device *devices[] __initdata = {
+	&p2_flash_device,
 	&smc91x_device,
+	&keypad_device,
 };
 
 static void __init omap_perseus2_init(void)
 {
 	(void) platform_add_devices(devices, ARRAY_SIZE(devices));
+}
+
+static void __init perseus2_init_smc91x(void)
+{
+	fpga_write(1, H2P2_DBG_FPGA_LAN_RESET);
+	mdelay(50);
+	fpga_write(fpga_read(H2P2_DBG_FPGA_LAN_RESET) & ~1,
+		   H2P2_DBG_FPGA_LAN_RESET);
+	mdelay(50);
+}
+
+void omap_perseus2_init_irq(void)
+{
+	omap_init_irq();
+	omap_gpio_init();
+	perseus2_init_smc91x();
 }
 
 /* Only FPGA needs to be mapped here. All others are done with ioremap */
@@ -110,10 +188,25 @@ static void __init omap_perseus2_map_io(void)
 	omap_serial_init(p2_serial_ports);
 }
 
+#ifdef CONFIG_DISCONTIGMEM
+static void __init
+fixup_perseus2(struct machine_desc *desc, struct tag *tags,
+	       char **cmdline, struct meminfo *mi)
+{
+	int nid;
+	mi->nr_banks = OMAP_NUMNODES;
+	for (nid=0; nid < mi->nr_banks; nid++)
+		SET_NODE(mi, nid);
+}
+#endif
+
 MACHINE_START(OMAP_PERSEUS2, "OMAP730 Perseus2")
 	MAINTAINER("Kevin Hilman <kjh@hilman.org>")
 	BOOT_MEM(0x10000000, 0xfff00000, 0xfef00000)
 	BOOT_PARAMS(0x10000100)
+#ifdef CONFIG_DISCONTIGMEM
+        FIXUP(fixup_perseus2)
+#endif
 	MAPIO(omap_perseus2_map_io)
 	INITIRQ(omap_perseus2_init_irq)
 	INIT_MACHINE(omap_perseus2_init)

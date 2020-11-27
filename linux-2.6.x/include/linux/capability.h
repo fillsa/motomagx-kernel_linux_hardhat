@@ -5,6 +5,11 @@
  * Alexander Kjeldaas <astor@guardian.no>
  * with help from Aleph1, Roland Buresund and Andrew Main.
  *
+ * Copyright 2006 Motorola, Inc.
+ *
+ * Date         Author          Comment
+ * 10/2006      Motorola        Added secure clock changing capability
+ *
  * See here for the libcap library ("POSIX draft" compliance):
  *
  * ftp://linux.kernel.org/pub/linux/libs/security/linux-privs/kernel-2.2/
@@ -284,6 +289,12 @@ typedef __u32 kernel_cap_t;
 
 #define CAP_LEASE            28
 
+#ifdef CONFIG_MOT_FEAT_SECURE_CLOCK
+/* Allow setting the secure RTC */
+
+#define CAP_SECURE_CLOCK     29
+#endif /* CONFIG_MOT_FEAT_SECURE_CLOCK */
+
 #ifdef __KERNEL__
 /* 
  * Bounding set
@@ -307,8 +318,18 @@ extern kernel_cap_t cap_bset;
 #endif
 
 #define CAP_EMPTY_SET       to_cap_t(0)
+
+#ifdef CONFIG_MOT_FEAT_SECURE_CLOCK
+#define CAP_FULL_SET        to_cap_t(~(CAP_TO_MASK(CAP_SECURE_CLOCK)))
+#else /* CONFIG_MOT_FEAT_SECURE_CLOCK */
 #define CAP_FULL_SET        to_cap_t(~0)
+#endif /* CONFIG_MOT_FEAT_SECURE_CLOCK */
+
+#ifdef CONFIG_MOT_FEAT_SECURE_CLOCK
+#define CAP_INIT_EFF_SET    to_cap_t(~0 & ~(CAP_TO_MASK(CAP_SETPCAP) | CAP_TO_MASK(CAP_SECURE_CLOCK)))
+#else /* CONFIG_MOT_FEAT_SECURE_CLOCK */
 #define CAP_INIT_EFF_SET    to_cap_t(~0 & ~CAP_TO_MASK(CAP_SETPCAP))
+#endif /* CONFIG_MOT_FEAT_SECURE_CLOCK */
 #define CAP_INIT_INH_SET    to_cap_t(0)
 
 #define CAP_TO_MASK(x) (1 << (x))
@@ -340,7 +361,11 @@ static inline kernel_cap_t cap_drop(kernel_cap_t a, kernel_cap_t drop)
 static inline kernel_cap_t cap_invert(kernel_cap_t c)
 {
      kernel_cap_t dest;
+#ifdef CONFIG_MOT_FEAT_SECURE_CLOCK
+     cap_t(dest) = ((~cap_t(c)) & (~CAP_TO_MASK(CAP_SECURE_CLOCK)));
+#else /* CONFIG_MOT_FEAT_SECURE_CLOCK */
      cap_t(dest) = ~cap_t(c);
+#endif /* CONFIG_MOT_FEAT_SECURE_CLOCK */
      return dest;
 }
 
@@ -348,7 +373,13 @@ static inline kernel_cap_t cap_invert(kernel_cap_t c)
 #define cap_issubset(a,set)  (!(cap_t(a) & ~cap_t(set)))
 
 #define cap_clear(c)         do { cap_t(c) =  0; } while(0)
+
+#ifdef CONFIG_MOT_FEAT_SECURE_CLOCK
+#define cap_set_full(c)      do { cap_t(c) = ~(CAP_TO_MASK(CAP_SECURE_CLOCK)); } while(0)
+#else /* CONFIG_MOT_FEAT_SECURE_CLOCK */
 #define cap_set_full(c)      do { cap_t(c) = ~0; } while(0)
+#endif /* CONFIG_MOT_FEAT_SECURE_CLOCK */
+
 #define cap_mask(c,mask)     do { cap_t(c) &= cap_t(mask); } while(0)
 
 #define cap_is_fs_cap(c)     (CAP_TO_MASK(c) & CAP_FS_MASK)

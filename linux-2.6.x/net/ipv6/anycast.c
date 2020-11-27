@@ -44,7 +44,7 @@
 #include <net/checksum.h>
 
 /* Big ac list lock for all the sockets */
-static rwlock_t ipv6_sk_ac_lock = RW_LOCK_UNLOCKED;
+static DEFINE_RWLOCK(ipv6_sk_ac_lock);
 
 /* XXX ip6_addr_match() and ip6_onlink() really belong in net/core.c */
 
@@ -123,9 +123,14 @@ int ipv6_sock_ac_join(struct sock *sk, int ifindex, struct in6_addr *addr)
 	ipv6_addr_copy(&pac->acl_addr, addr);
 
 	if (ifindex == 0) {
+		struct rt6_table *table;
 		struct rt6_info *rt;
 
-		rt = rt6_lookup(addr, NULL, 0, 0);
+		read_lock_bh(&rt6_lock);
+		table = rt6_get_table(RT6_TABLE_LOCAL);
+		rt = rt6_tb_lookup(table, addr, NULL, 0, 0);
+		read_unlock_bh(&rt6_lock);
+
 		if (rt) {
 			dev = rt->rt6i_dev;
 			dev_hold(dev);
@@ -338,7 +343,7 @@ int ipv6_dev_ac_inc(struct net_device *dev, struct in6_addr *addr)
 		goto out;
 	}
 
-	rt = addrconf_dst_alloc(idev, addr, 1);
+	rt = addrconf_dst_alloc(addr, 1);
 	if (IS_ERR(rt)) {
 		kfree(aca);
 		err = PTR_ERR(rt);
@@ -361,7 +366,7 @@ int ipv6_dev_ac_inc(struct net_device *dev, struct in6_addr *addr)
 	write_unlock_bh(&idev->lock);
 
 	dst_hold(&rt->u.dst);
-	if (ip6_ins_rt(rt, NULL, NULL))
+	if (rt6_ins(rt, NULL, NULL))
 		dst_release(&rt->u.dst);
 
 	addrconf_join_solict(dev, &aca->aca_addr);

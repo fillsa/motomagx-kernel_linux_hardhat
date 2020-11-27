@@ -1,5 +1,22 @@
+/*
+ *  linux/include/linux/msdos_fs.h
+ *
+ *  Copyright (C) 2007-2008 Motorola Inc.
+ *
+ */
+/* ChangeLog:
+ * (mm-dd-yyyy)  Author    Comment
+ * 11-21-2007    Motorola  Upmerge from 6.1 (Added hidden and system attr interface)
+ * 02-20-2008    Motorola  remove sticky mode
+ */
+
+
+
+
 #ifndef _LINUX_MSDOS_FS_H
 #define _LINUX_MSDOS_FS_H
+
+
 
 /*
  * The MS-DOS filesystem constants/structures

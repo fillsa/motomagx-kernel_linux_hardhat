@@ -11,6 +11,8 @@
  * Cleanup, make the head arrays unconditional, preparation for NUMA
  * 	(c) 2002 Manfred Spraul
  *
+ * Copyright 2005 Motorola Inc.
+ *
  * An implementation of the Slab Allocator as described in outline in;
  *	UNIX Internals: The New Frontiers by Uresh Vahalia
  *	Pub: Prentice Hall	ISBN 0-13-101908-2
@@ -75,6 +77,9 @@
  *
  *	At present, each engine can be growing a cache.  This should be blocked.
  *
+ * Date         Author          Comment
+ * 11/14/2005   Motorola        Added freeable slab statistics,acessible via
+ *				/proc/slabfree
  */
 
 #include	<linux/config.h>
@@ -92,6 +97,7 @@
 #include	<linux/sysctl.h>
 #include	<linux/module.h>
 #include	<linux/rcupdate.h>
+#include	<linux/nodemask.h>
 
 #include	<asm/uaccess.h>
 #include	<asm/cacheflush.h>
@@ -128,7 +134,26 @@
 #endif
 
 #ifndef ARCH_KMALLOC_MINALIGN
+/*
+ * Enforce a minimum alignment for the kmalloc caches.
+ * Usually, the kmalloc caches are cache_line_size() aligned, except when
+ * DEBUG and FORCED_DEBUG are enabled, then they are BYTES_PER_WORD aligned.
+ * Some archs want to perform DMA into kmalloc caches and need a guaranteed
+ * alignment larger than BYTES_PER_WORD. ARCH_KMALLOC_MINALIGN allows that.
+ * Note that this flag disables some debug features.
+ */
 #define ARCH_KMALLOC_MINALIGN 0
+#endif
+
+#ifndef ARCH_SLAB_MINALIGN
+/*
+ * Enforce a minimum alignment for all caches.
+ * Intended for archs that get misalignment faults even for BYTES_PER_WORD
+ * aligned buffers. Includes ARCH_KMALLOC_MINALIGN.
+ * If possible: Do not enable this flag for CONFIG_DEBUG_SLAB, it disables
+ * some debug features.
+ */
+#define ARCH_SLAB_MINALIGN 0
 #endif
 
 #ifndef ARCH_KMALLOC_FLAGS
@@ -560,9 +585,9 @@ static inline void ** ac_entry(struct array_cache *ac)
 	return (void**)(ac+1);
 }
 
-static inline struct array_cache *ac_data(kmem_cache_t *cachep)
+static inline struct array_cache *ac_data(kmem_cache_t *cachep, int cpu)
 {
-	return cachep->array[smp_processor_id()];
+	return cachep->array[cpu];
 }
 
 static kmem_cache_t * kmem_find_general_cachep (size_t size, int gfpflags)
@@ -802,21 +827,22 @@ void __init kmem_cache_init(void)
 	/* 4) Replace the bootstrap head arrays */
 	{
 		void * ptr;
+		int cpu = smp_processor_id();
 		
 		ptr = kmalloc(sizeof(struct arraycache_init), GFP_KERNEL);
-		local_irq_disable();
-		BUG_ON(ac_data(&cache_cache) != &initarray_cache.cache);
-		memcpy(ptr, ac_data(&cache_cache), sizeof(struct arraycache_init));
-		cache_cache.array[smp_processor_id()] = ptr;
-		local_irq_enable();
+		local_irq_disable_nort();
+		BUG_ON(ac_data(&cache_cache, cpu) != &initarray_cache.cache);
+		memcpy(ptr, ac_data(&cache_cache, cpu), sizeof(struct arraycache_init));
+		cache_cache.array[cpu] = ptr;
+		local_irq_enable_nort();
 	
 		ptr = kmalloc(sizeof(struct arraycache_init), GFP_KERNEL);
-		local_irq_disable();
-		BUG_ON(ac_data(malloc_sizes[0].cs_cachep) != &initarray_generic.cache);
-		memcpy(ptr, ac_data(malloc_sizes[0].cs_cachep),
+		local_irq_disable_nort();
+		BUG_ON(ac_data(malloc_sizes[0].cs_cachep, cpu) != &initarray_generic.cache);
+		memcpy(ptr, ac_data(malloc_sizes[0].cs_cachep, cpu),
 				sizeof(struct arraycache_init));
-		malloc_sizes[0].cs_cachep->array[smp_processor_id()] = ptr;
-		local_irq_enable();
+		malloc_sizes[0].cs_cachep->array[cpu] = ptr;
+		local_irq_enable_nort();
 	}
 
 	/* 5) resize the head arrays to their final sizes */
@@ -880,6 +906,8 @@ static void *kmem_getpages(kmem_cache_t *cachep, int flags, int nodeid)
 			return NULL;
 		page = virt_to_page(addr);
 	} else {
+		if (!node_online(nodeid))
+			return NULL;
 		page = alloc_pages_node(nodeid, flags, cachep->gfporder);
 		if (!page)
 			return NULL;
@@ -1172,8 +1200,9 @@ kmem_cache_create (const char *name, size_t size, size_t align,
 	unsigned long flags, void (*ctor)(void*, kmem_cache_t *, unsigned long),
 	void (*dtor)(void*, kmem_cache_t *, unsigned long))
 {
-	size_t left_over, slab_size;
+	size_t left_over, slab_size, ralign;
 	kmem_cache_t *cachep = NULL;
+	int cpu = _smp_processor_id();
 
 	/*
 	 * Sanity checks... these are all serious usage bugs.
@@ -1222,31 +1251,6 @@ kmem_cache_create (const char *name, size_t size, size_t align,
 	if (flags & ~CREATE_MASK)
 		BUG();
 
-	if (align) {
-		/* combinations of forced alignment and advanced debugging is
-		 * not yet implemented.
-		 */
-		flags &= ~(SLAB_RED_ZONE|SLAB_STORE_USER);
-	} else {
-		if (flags & SLAB_HWCACHE_ALIGN) {
-			/* Default alignment: as specified by the arch code.
-			 * Except if an object is really small, then squeeze multiple
-			 * into one cacheline.
-			 */
-			align = cache_line_size();
-			while (size <= align/2)
-				align /= 2;
-		} else {
-			align = BYTES_PER_WORD;
-		}
-	}
-
-	/* Get cache's description obj. */
-	cachep = (kmem_cache_t *) kmem_cache_alloc(&cache_cache, SLAB_KERNEL);
-	if (!cachep)
-		goto opps;
-	memset(cachep, 0, sizeof(kmem_cache_t));
-
 	/* Check that size is in terms of words.  This is needed to avoid
 	 * unaligned accesses for some archs when redzoning is used, and makes
 	 * sure any on-slab bufctl's are also correctly aligned.
@@ -1255,7 +1259,43 @@ kmem_cache_create (const char *name, size_t size, size_t align,
 		size += (BYTES_PER_WORD-1);
 		size &= ~(BYTES_PER_WORD-1);
 	}
-	
+
+	/* calculate out the final buffer alignment: */
+	/* 1) arch recommendation: can be overridden for debug */
+	if (flags & SLAB_HWCACHE_ALIGN) {
+		/* Default alignment: as specified by the arch code.
+		 * Except if an object is really small, then squeeze multiple
+		 * objects into one cacheline.
+		 */
+		ralign = cache_line_size();
+		while (size <= ralign/2)
+			ralign /= 2;
+	} else {
+		ralign = BYTES_PER_WORD;
+	}
+	/* 2) arch mandated alignment: disables debug if necessary */
+	if (ralign < ARCH_SLAB_MINALIGN) {
+		ralign = ARCH_SLAB_MINALIGN;
+		if (ralign > BYTES_PER_WORD)
+			flags &= ~(SLAB_RED_ZONE|SLAB_STORE_USER);
+	}
+	/* 3) caller mandated alignment: disables debug if necessary */
+	if (ralign < align) {
+		ralign = align;
+		if (ralign > BYTES_PER_WORD)
+			flags &= ~(SLAB_RED_ZONE|SLAB_STORE_USER);
+	}
+	/* 4) Store it. Note that the debug code below can reduce
+	 *    the alignment to BYTES_PER_WORD.
+	 */
+	align = ralign;
+
+	/* Get cache's description obj. */
+	cachep = (kmem_cache_t *) kmem_cache_alloc(&cache_cache, SLAB_KERNEL);
+	if (!cachep)
+		goto opps;
+	memset(cachep, 0, sizeof(kmem_cache_t));
+
 #if DEBUG
 	cachep->reallen = size;
 
@@ -1400,16 +1440,16 @@ next:
 			 * the cache that's used by kmalloc(24), otherwise
 			 * the creation of further caches will BUG().
 			 */
-			cachep->array[smp_processor_id()] = &initarray_generic.cache;
+			cachep->array[cpu] = &initarray_generic.cache;
 			g_cpucache_up = PARTIAL;
 		} else {
-			cachep->array[smp_processor_id()] = kmalloc(sizeof(struct arraycache_init),GFP_KERNEL);
+			cachep->array[cpu] = kmalloc(sizeof(struct arraycache_init),GFP_KERNEL);
 		}
-		BUG_ON(!ac_data(cachep));
-		ac_data(cachep)->avail = 0;
-		ac_data(cachep)->limit = BOOT_CPUCACHE_ENTRIES;
-		ac_data(cachep)->batchcount = 1;
-		ac_data(cachep)->touched = 0;
+		BUG_ON(!ac_data(cachep, cpu));
+		ac_data(cachep, cpu)->avail = 0;
+		ac_data(cachep, cpu)->limit = BOOT_CPUCACHE_ENTRIES;
+		ac_data(cachep, cpu)->batchcount = 1;
+		ac_data(cachep, cpu)->touched = 0;
 		cachep->batchcount = 1;
 		cachep->limit = BOOT_CPUCACHE_ENTRIES;
 		cachep->free_limit = (1+num_online_cpus())*cachep->batchcount
@@ -1463,7 +1503,9 @@ EXPORT_SYMBOL(kmem_cache_create);
 #if DEBUG
 static void check_irq_off(void)
 {
+#ifndef CONFIG_PREEMPT_RT
 	BUG_ON(!irqs_disabled());
+#endif
 }
 
 static void check_irq_on(void)
@@ -1505,22 +1547,39 @@ static void smp_call_function_all_cpus(void (*func) (void *arg), void *arg)
 static void drain_array_locked(kmem_cache_t* cachep,
 				struct array_cache *ac, int force);
 
-static void do_drain(void *arg)
+static void do_drain_cpu(kmem_cache_t *cachep, int cpu)
 {
-	kmem_cache_t *cachep = (kmem_cache_t*)arg;
 	struct array_cache *ac;
 
 	check_irq_off();
-	ac = ac_data(cachep);
+
 	spin_lock(&cachep->spinlock);
+	ac = ac_data(cachep, cpu);
 	free_block(cachep, &ac_entry(ac)[0], ac->avail);
-	spin_unlock(&cachep->spinlock);
 	ac->avail = 0;
+	spin_unlock(&cachep->spinlock);
 }
+
+#ifndef CONFIG_PREEMPT_RT
+/*
+ * Executes in an IRQ context:
+ */
+static void do_drain(void *arg)
+{
+	do_drain_cpu((kmem_cache_t*)arg, smp_processor_id());
+}
+#endif
 
 static void drain_cpu_caches(kmem_cache_t *cachep)
 {
+#ifndef CONFIG_PREEMPT_RT
 	smp_call_function_all_cpus(do_drain, cachep);
+#else
+	int cpu;
+
+	for_each_online_cpu(cpu)
+		do_drain_cpu(cachep, cpu);
+#endif
 	check_irq_on();
 	spin_lock_irq(&cachep->spinlock);
 	if (cachep->lists.shared)
@@ -1789,7 +1848,7 @@ static int cache_grow (kmem_cache_t * cachep, int flags, int nodeid)
 	spin_unlock(&cachep->spinlock);
 
 	if (local_flags & __GFP_WAIT)
-		local_irq_enable();
+		local_irq_enable_nort();
 
 	/*
 	 * The test for missing atomic flag is performed here, rather than
@@ -1813,7 +1872,7 @@ static int cache_grow (kmem_cache_t * cachep, int flags, int nodeid)
 	cache_init_objs(cachep, slabp, ctor_flags);
 
 	if (local_flags & __GFP_WAIT)
-		local_irq_disable();
+		local_irq_disable_nort();
 	check_irq_off();
 	spin_lock(&cachep->spinlock);
 
@@ -1827,7 +1886,7 @@ opps1:
 	kmem_freepages(cachep, objp);
 failed:
 	if (local_flags & __GFP_WAIT)
-		local_irq_disable();
+		local_irq_disable_nort();
 	return 0;
 }
 
@@ -1953,14 +2012,14 @@ bad:
 #define check_slabp(x,y) do { } while(0)
 #endif
 
-static void* cache_alloc_refill(kmem_cache_t* cachep, int flags)
+static void* cache_alloc_refill(kmem_cache_t* cachep, int flags, int cpu)
 {
 	int batchcount;
 	struct kmem_list3 *l3;
 	struct array_cache *ac;
 
 	check_irq_off();
-	ac = ac_data(cachep);
+	ac = ac_data(cachep, cpu);
 retry:
 	batchcount = ac->batchcount;
 	if (!ac->touched && batchcount > BATCHREFILL_LIMIT) {
@@ -1973,7 +2032,7 @@ retry:
 	l3 = list3_data(cachep);
 
 	BUG_ON(ac->avail > 0);
-	spin_lock(&cachep->spinlock);
+	spin_lock_nort(&cachep->spinlock);
 	if (l3->shared) {
 		struct array_cache *shared_array = l3->shared;
 		if (shared_array->avail) {
@@ -2031,14 +2090,17 @@ retry:
 must_grow:
 	l3->free_objects -= ac->avail;
 alloc_done:
-	spin_unlock(&cachep->spinlock);
+	spin_unlock_nort(&cachep->spinlock);
 
 	if (unlikely(!ac->avail)) {
 		int x;
+		spin_unlock_rt(&cachep->spinlock);
 		x = cache_grow(cachep, flags, -1);
-		
+
+		spin_lock_rt(&cachep->spinlock);
 		// cache_grow can reenable interrupts, then ac could change.
-		ac = ac_data(cachep);
+		cpu = smp_processor_id_rt(cpu);
+		ac = ac_data(cachep, cpu);
 		if (!x && ac->avail == 0)	// no objects in sight? abort
 			return NULL;
 
@@ -2107,23 +2169,26 @@ cache_alloc_debugcheck_after(kmem_cache_t *cachep,
 
 static inline void * __cache_alloc (kmem_cache_t *cachep, int flags)
 {
+	int cpu = _smp_processor_id();
 	unsigned long save_flags;
 	void* objp;
 	struct array_cache *ac;
 
 	cache_alloc_debugcheck_before(cachep, flags);
 
-	local_irq_save(save_flags);
-	ac = ac_data(cachep);
+	local_irq_save_nort(save_flags);
+	spin_lock_rt(&cachep->spinlock);
+	ac = ac_data(cachep, cpu);
 	if (likely(ac->avail)) {
 		STATS_INC_ALLOCHIT(cachep);
 		ac->touched = 1;
 		objp = ac_entry(ac)[--ac->avail];
 	} else {
 		STATS_INC_ALLOCMISS(cachep);
-		objp = cache_alloc_refill(cachep, flags);
+		objp = cache_alloc_refill(cachep, flags, cpu);
 	}
-	local_irq_restore(save_flags);
+	spin_unlock_rt(&cachep->spinlock);
+	local_irq_restore_nort(save_flags);
 	objp = cache_alloc_debugcheck_after(cachep, flags, objp, __builtin_return_address(0));
 	return objp;
 }
@@ -2193,7 +2258,7 @@ static void cache_flusharray (kmem_cache_t* cachep, struct array_cache *ac)
 	BUG_ON(!batchcount || batchcount > ac->avail);
 #endif
 	check_irq_off();
-	spin_lock(&cachep->spinlock);
+	spin_lock_nort(&cachep->spinlock);
 	if (cachep->lists.shared) {
 		struct array_cache *shared_array = cachep->lists.shared;
 		int max = shared_array->limit-shared_array->avail;
@@ -2228,7 +2293,7 @@ free_done:
 		STATS_SET_FREEABLE(cachep, i);
 	}
 #endif
-	spin_unlock(&cachep->spinlock);
+	spin_unlock_nort(&cachep->spinlock);
 	ac->avail -= batchcount;
 	memmove(&ac_entry(ac)[0], &ac_entry(ac)[batchcount],
 			sizeof(void*)*ac->avail);
@@ -2243,20 +2308,22 @@ free_done:
  */
 static inline void __cache_free (kmem_cache_t *cachep, void* objp)
 {
-	struct array_cache *ac = ac_data(cachep);
+	int cpu = _smp_processor_id();
+	struct array_cache *ac = ac_data(cachep, cpu);
 
 	check_irq_off();
 	objp = cache_free_debugcheck(cachep, objp, __builtin_return_address(0));
 
+	spin_lock_rt(&cachep->spinlock);
 	if (likely(ac->avail < ac->limit)) {
 		STATS_INC_FREEHIT(cachep);
 		ac_entry(ac)[ac->avail++] = objp;
-		return;
 	} else {
 		STATS_INC_FREEMISS(cachep);
 		cache_flusharray(cachep, ac);
 		ac_entry(ac)[ac->avail++] = objp;
 	}
+	spin_unlock_rt(&cachep->spinlock);
 }
 
 /**
@@ -2358,12 +2425,12 @@ void *kmem_cache_alloc_node(kmem_cache_t *cachep, int nodeid)
 		}
 		spin_unlock_irq(&cachep->spinlock);
 
-		local_irq_disable();
+		local_irq_disable_nort();
 		if (!cache_grow(cachep, GFP_KERNEL, nodeid)) {
-			local_irq_enable();
+			local_irq_enable_nort();
 			return NULL;
 		}
-		local_irq_enable();
+		local_irq_enable_nort();
 	}
 got_slabp:
 	/* found one: allocate object */
@@ -2503,33 +2570,26 @@ void kmem_cache_free (kmem_cache_t *cachep, void *objp)
 {
 	unsigned long flags;
 
-	local_irq_save(flags);
+	local_irq_save_nort(flags);
 	__cache_free(cachep, objp);
-	local_irq_restore(flags);
+	local_irq_restore_nort(flags);
 }
 
 EXPORT_SYMBOL(kmem_cache_free);
 
 /**
- * kcalloc - allocate memory for an array. The memory is set to zero.
- * @n: number of elements.
- * @size: element size.
+ * kzalloc - allocate memory. The memory is set to zero.
+ * @size: how many bytes of memory are required.
  * @flags: the type of memory to allocate.
  */
-void *kcalloc(size_t n, size_t size, int flags)
+void *kzalloc(size_t size, unsigned int flags)
 {
-	void *ret = NULL;
-
-	if (n != 0 && size > INT_MAX / n)
-		return ret;
-
-	ret = kmalloc(n * size, flags);
+	void *ret = kmalloc(size, flags);
 	if (ret)
-		memset(ret, 0, n * size);
+		memset(ret, 0, size);
 	return ret;
 }
-
-EXPORT_SYMBOL(kcalloc);
+EXPORT_SYMBOL(kzalloc);
 
 /**
  * kfree - free previously allocated memory
@@ -2545,11 +2605,11 @@ void kfree (const void *objp)
 
 	if (!objp)
 		return;
-	local_irq_save(flags);
+	local_irq_save_nort(flags);
 	kfree_debugcheck(objp);
 	c = GET_PAGE_CACHE(virt_to_page(objp));
 	__cache_free(c, (void*)objp);
-	local_irq_restore(flags);
+	local_irq_restore_nort(flags);
 }
 
 EXPORT_SYMBOL(kfree);
@@ -2591,13 +2651,17 @@ struct ccupdate_struct {
 	struct array_cache *new[NR_CPUS];
 };
 
+/*
+ * Executes in IRQ context:
+ */
 static void do_ccupdate_local(void *info)
 {
 	struct ccupdate_struct *new = (struct ccupdate_struct *)info;
 	struct array_cache *old;
 
+//	WARN_ON(!in_interrupt());
 	check_irq_off();
-	old = ac_data(new->cachep);
+	old = ac_data(new->cachep, smp_processor_id());
 	
 	new->cachep->array[smp_processor_id()] = new->new[smp_processor_id()];
 	new->new[smp_processor_id()] = old;
@@ -2705,11 +2769,72 @@ static void enable_cpucache (kmem_cache_t *cachep)
 	if (limit > 32)
 		limit = 32;
 #endif
+#ifdef CONFIG_PREEMPT
+	if (limit > 16)
+		limit = 16;
+#endif
 	err = do_tune_cpucache(cachep, limit, (limit+1)/2, shared);
 	if (err)
 		printk(KERN_ERR "enable_cpucache failed for %s, error %d.\n",
 					cachep->name, -err);
 }
+
+#ifdef CONFIG_MOT_FEAT_SLABFREE_PROC
+int slab_cache_freeable_info(void)
+{
+        struct slab *slabp;
+        kmem_cache_t *searchp;
+        unsigned long pages = 0;
+        unsigned long sum_pages = 0;
+
+        if (down_trylock(&cache_chain_sem))
+                return -EAGAIN;
+
+        searchp = &cache_cache;
+        do 
+        {
+                struct list_head* p;
+                unsigned int full_free;
+
+                /* It's safe to test this without holding the cache-lock. */
+                if (searchp->flags & SLAB_NO_REAP)
+                        goto info_next;
+
+                spin_lock_irq(&searchp->spinlock);
+
+                full_free = 0;
+                pages = 0;
+
+                p = searchp->lists.slabs_free.next;
+                while (p != &searchp->lists.slabs_free)
+                {
+                        slabp = list_entry(p, struct slab, list);
+#if DEBUG
+                        if (slabp->inuse)
+                                BUG();
+#endif
+                        full_free++;
+                        p = p->next;
+                }
+
+                pages = full_free * (1<<searchp->gfporder);
+                if (searchp->ctor)
+                        pages = (pages*4+1)/5;
+                if (searchp->gfporder)
+                        pages = (pages*4+1)/5;
+
+                sum_pages += pages;
+
+                spin_unlock_irq(&searchp->spinlock);
+info_next:
+                searchp = list_entry(searchp->next.next,kmem_cache_t,next);
+        } while (searchp != &cache_cache);
+
+        up(&cache_chain_sem);
+
+        return sum_pages;
+}
+#endif /* CONFIG_MOT_FEAT_SLABFREE_PROC */
 
 static void drain_array_locked(kmem_cache_t *cachep,
 				struct array_cache *ac, int force)
@@ -2744,11 +2869,12 @@ static void drain_array_locked(kmem_cache_t *cachep,
  */
 static void cache_reap(void *unused)
 {
+	int cpu = _smp_processor_id();
 	struct list_head *walk;
 
 	if (down_trylock(&cache_chain_sem)) {
 		/* Give up. Setup the next iteration. */
-		schedule_delayed_work(&__get_cpu_var(reap_work), REAPTIMEOUT_CPUC + smp_processor_id());
+		schedule_delayed_work(&__get_cpu_var(reap_work), REAPTIMEOUT_CPUC + cpu);
 		return;
 	}
 
@@ -2767,7 +2893,7 @@ static void cache_reap(void *unused)
 
 		spin_lock_irq(&searchp->spinlock);
 
-		drain_array_locked(searchp, ac_data(searchp), 0);
+		drain_array_locked(searchp, ac_data(searchp, cpu), 0);
 
 		if(time_after(searchp->lists.next_reap, jiffies))
 			goto next_unlock;
@@ -2806,12 +2932,12 @@ static void cache_reap(void *unused)
 next_unlock:
 		spin_unlock_irq(&searchp->spinlock);
 next:
-		;
+		cond_resched();
 	}
 	check_irq_on();
 	up(&cache_chain_sem);
 	/* Setup the next iteration */
-	schedule_delayed_work(&__get_cpu_var(reap_work), REAPTIMEOUT_CPUC + smp_processor_id());
+	schedule_delayed_work(&__get_cpu_var(reap_work), REAPTIMEOUT_CPUC+cpu);
 }
 
 #ifdef CONFIG_PROC_FS
@@ -3032,10 +3158,10 @@ unsigned int ksize(const void *objp)
 	unsigned int size = 0;
 
 	if (likely(objp != NULL)) {
-		local_irq_save(flags);
+		local_irq_save_nort(flags);
 		c = GET_PAGE_CACHE(virt_to_page(objp));
 		size = kmem_cache_size(c);
-		local_irq_restore(flags);
+		local_irq_restore_nort(flags);
 	}
 
 	return size;

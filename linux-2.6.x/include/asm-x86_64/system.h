@@ -27,7 +27,9 @@
 	,"rcx","rbx","rdx","r8","r9","r10","r11","r12","r13","r14","r15"
 
 #define switch_to(prev,next,last) \
-	asm volatile(SAVE_CONTEXT						    \
+       asm volatile(".globl __switch_to_begin\n\t"				    \
+		     "__switch_to_begin:\n\t"					  \
+		     SAVE_CONTEXT						  \
 		     "movq %%rsp,%P[threadrsp](%[prev])\n\t" /* save RSP */	  \
 		     "movq %P[threadrsp](%[next]),%%rsp\n\t" /* restore RSP */	  \
 		     "call __switch_to\n\t"					  \
@@ -35,10 +37,12 @@
 		     "thread_return:\n\t"					    \
 		     "movq %%gs:%P[pda_pcurrent],%%rsi\n\t"			  \
 		     "movq %P[thread_info](%%rsi),%%r8\n\t"			  \
-		     "btr  %[tif_fork],%P[ti_flags](%%r8)\n\t"			  \
+		     LOCK "btr  %[tif_fork],%P[ti_flags](%%r8)\n\t"		  \
 		     "movq %%rax,%%rdi\n\t" 					  \
 		     "jc   ret_from_fork\n\t"					  \
 		     RESTORE_CONTEXT						    \
+		     ".globl __switch_to_end\n\t"				  \
+		     "__switch_to_end:\n\t"					  \
 		     : "=a" (last)					  	  \
 		     : [next] "S" (next), [prev] "D" (prev),			  \
 		       [threadrsp] "i" (offsetof(struct task_struct, thread.rsp)), \
@@ -316,15 +320,22 @@ static inline unsigned long __cmpxchg(volatile void *ptr, unsigned long old,
 /* used in the idle loop; sti takes one instruction cycle to complete */
 #define safe_halt()		__asm__ __volatile__("sti; hlt": : :"memory")
 
+#define irqs_disabled_flags(flags)	\
+({					\
+	!(flags & (1<<9));		\
+})
+
 #define irqs_disabled()			\
 ({					\
 	unsigned long flags;		\
 	local_save_flags(flags);	\
-	!(flags & (1<<9));		\
+	irqs_disabled_flags(flags);	\
 })
 
 /* For spinlocks etc */
 #define local_irq_save(x) 	do { warn_if_not_ulong(x); __asm__ __volatile__("# local_irq_save \n\t pushfq ; popq %0 ; cli":"=g" (x): /* no input */ :"memory"); } while (0)
+
+void cpu_idle_wait(void);
 
 /*
  * disable hlt during certain critical i/o operations

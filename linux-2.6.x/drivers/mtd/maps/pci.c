@@ -7,7 +7,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  *
- *  $Id: pci.c,v 1.8 2004/07/12 22:38:29 dwmw2 Exp $
+ *  $Id: pci.c,v 1.10 2005/03/18 14:04:35 gleixner Exp $
  * 
  * Generic PCI memory map driver.  We support the following boards:
  *  - Intel IQ80310 ATU.
@@ -205,9 +205,9 @@ intel_dc21285_init(struct pci_dev *dev, struct map_pci_info *map)
 		 * or simply enabling it?
 		 */
 		if (!(pci_resource_flags(dev, PCI_ROM_RESOURCE) &
-		     PCI_ROM_ADDRESS_ENABLE)) {
+				    IORESOURCE_ROM_ENABLE)) {
 		     	u32 val;
-			pci_resource_flags(dev, PCI_ROM_RESOURCE) |= PCI_ROM_ADDRESS_ENABLE;
+			pci_resource_flags(dev, PCI_ROM_RESOURCE) |= IORESOURCE_ROM_ENABLE;
 			pci_read_config_dword(dev, PCI_ROM_ADDRESS, &val);
 			val |= PCI_ROM_ADDRESS_ENABLE;
 			pci_write_config_dword(dev, PCI_ROM_ADDRESS, val);
@@ -241,7 +241,7 @@ intel_dc21285_exit(struct pci_dev *dev, struct map_pci_info *map)
 	/*
 	 * We need to undo the PCI BAR2/PCI ROM BAR address alteration.
 	 */
-	pci_resource_flags(dev, PCI_ROM_RESOURCE) &= ~PCI_ROM_ADDRESS_ENABLE;
+	pci_resource_flags(dev, PCI_ROM_RESOURCE) &= ~IORESOURCE_ROM_ENABLE;
 	pci_read_config_dword(dev, PCI_ROM_ADDRESS, &val);
 	val &= ~PCI_ROM_ADDRESS_ENABLE;
 	pci_write_config_dword(dev, PCI_ROM_ADDRESS, val);
@@ -370,7 +370,7 @@ static struct pci_driver mtd_pci_driver = {
 
 static int __init mtd_pci_maps_init(void)
 {
-	return pci_module_init(&mtd_pci_driver);
+	return pci_register_driver(&mtd_pci_driver);
 }
 
 static void __exit mtd_pci_maps_exit(void)

@@ -1,3 +1,28 @@
+/*
+ * Copyright (C) 2007 Motorola, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+ * 02111-1307, USA 
+ * 
+ * Changelog:
+ *
+ * Date         Author    Comment
+ * ----------   --------  --------------------------
+ * 04/10/2007   Motorola  Add support for getting test coverage information 
+ *
+ */
+
 #ifndef LOAD_OFFSET
 #define LOAD_OFFSET 0
 #endif
@@ -88,3 +113,21 @@
 		VMLINUX_SYMBOL(__lock_text_start) = .;			\
 		*(.spinlock.text)					\
 		VMLINUX_SYMBOL(__lock_text_end) = .;
+
+#define SORT(x)                x
+
+#define CONSTRUCTORS                                                   \
+               __CTOR_LIST__ = .;                                      \
+               LONG((__CTOR_END__ - __CTOR_LIST__) /                   \
+                       (__CTOR_LIST2__ - __CTOR_LIST__) - 2)           \
+               __CTOR_LIST2__ = .;                                     \
+               *(SORT(.init_array))                                         \
+               LONG(0)                                                 \
+               __CTOR_END__ = .;                                       \
+               __DTOR_LIST__ = .;                                      \
+               LONG((__DTOR_END__ - __DTOR_LIST__) /                   \
+                       (__CTOR_LIST2__ - __CTOR_LIST__) - 2)           \
+               *(SORT(.dtors))                                         \
+               LONG(0)                                                 \
+               __DTOR_END__ = .;
+

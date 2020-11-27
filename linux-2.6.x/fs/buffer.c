@@ -2,6 +2,7 @@
  *  linux/fs/buffer.c
  *
  *  Copyright (C) 1991, 1992, 2002  Linus Torvalds
+ *  Copyright (C) 2007, Motorola, Inc.
  */
 
 /*
@@ -17,6 +18,13 @@
  *
  * async buffer flushing, 1999 Andrea Arcangeli <andrea@suse.de>
  */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 13-Jul-2007  Motorola        Fix the bug about st_ctime, and st_mtime field
+ *                              of a mapped region, and msync()
+ */
+
 
 #include <linux/config.h>
 #include <linux/kernel.h>
@@ -39,6 +47,7 @@
 #include <linux/notifier.h>
 #include <linux/cpu.h>
 #include <linux/bitops.h>
+#include <linux/ltt-events.h>
 
 static int fsync_buffers_list(spinlock_t *lock, struct list_head *list);
 static void invalidate_bh_lrus(void);
@@ -87,7 +96,9 @@ void fastcall unlock_buffer(struct buffer_head *bh)
  */
 void __wait_on_buffer(struct buffer_head * bh)
 {
+	ltt_ev_file_system(LTT_EV_FILE_SYSTEM_BUF_WAIT_START, 0, 0, NULL);
 	wait_on_bit(&bh->b_state, BH_Lock, sync_buffer, TASK_UNINTERRUPTIBLE);
+	ltt_ev_file_system(LTT_EV_FILE_SYSTEM_BUF_WAIT_END, 0, 0, NULL);
 }
 
 static void
@@ -347,18 +358,22 @@ asmlinkage long sys_fsync(unsigned int fd)
 		goto out_putf;
 	}
 
-	/* We need to protect against concurrent writers.. */
-	down(&mapping->host->i_sem);
 	current->flags |= PF_SYNCWRITE;
 	ret = filemap_fdatawrite(mapping);
+
+	/*
+	 * We need to protect against concurrent writers,
+	 * which could cause livelocks in fsync_buffers_list
+	 */
+	down(&mapping->host->i_sem);
 	err = file->f_op->fsync(file, file->f_dentry, 0);
 	if (!ret)
 		ret = err;
+	up(&mapping->host->i_sem);
 	err = filemap_fdatawait(mapping);
 	if (!ret)
 		ret = err;
 	current->flags &= ~PF_SYNCWRITE;
-	up(&mapping->host->i_sem);
 
 out_putf:
 	fput(file);
@@ -383,17 +398,17 @@ asmlinkage long sys_fdatasync(unsigned int fd)
 
 	mapping = file->f_mapping;
 
-	down(&mapping->host->i_sem);
 	current->flags |= PF_SYNCWRITE;
 	ret = filemap_fdatawrite(mapping);
+	down(&mapping->host->i_sem);
 	err = file->f_op->fsync(file, file->f_dentry, 1);
 	if (!ret)
 		ret = err;
+	up(&mapping->host->i_sem);
 	err = filemap_fdatawait(mapping);
 	if (!ret)
 		ret = err;
 	current->flags &= ~PF_SYNCWRITE;
-	up(&mapping->host->i_sem);
 
 out_putf:
 	fput(file);
@@ -521,7 +536,7 @@ static void free_more_memory(void)
  */
 static void end_buffer_async_read(struct buffer_head *bh, int uptodate)
 {
-	static spinlock_t page_uptodate_lock = SPIN_LOCK_UNLOCKED;
+	static DEFINE_SPINLOCK(page_uptodate_lock);
 	unsigned long flags;
 	struct buffer_head *tmp;
 	struct page *page;
@@ -579,7 +594,7 @@ still_busy:
 void end_buffer_async_write(struct buffer_head *bh, int uptodate)
 {
 	char b[BDEVNAME_SIZE];
-	static spinlock_t page_uptodate_lock = SPIN_LOCK_UNLOCKED;
+	static DEFINE_SPINLOCK(page_uptodate_lock);
 	unsigned long flags;
 	struct buffer_head *tmp;
 	struct page *page;
@@ -845,6 +860,10 @@ int __set_page_dirty_buffers(struct page *page)
 {
 	struct address_space * const mapping = page->mapping;
 
+#ifdef CONFIG_MOT_WFN484
+	int ret = 0;
+#endif
+	
 	spin_lock(&mapping->private_lock);
 	if (page_has_buffers(page)) {
 		struct buffer_head *head = page_buffers(page);
@@ -868,9 +887,19 @@ int __set_page_dirty_buffers(struct page *page)
 		}
 		spin_unlock_irq(&mapping->tree_lock);
 		__mark_inode_dirty(mapping->host, I_DIRTY_PAGES);
+#ifdef CONFIG_MOT_WFN484
+		ret = 1;
+#endif
 	}
+
+#ifdef CONFIG_MOT_WFN484
+	if (page_mapped(page))
+			set_bit(AS_MCTIME, &mapping->flags);
 	
+	return ret;
+#else
 	return 0;
+#endif
 }
 EXPORT_SYMBOL(__set_page_dirty_buffers);
 
@@ -1790,7 +1819,6 @@ static int __block_write_full_page(struct inode *inode, struct page *page,
 	} while (bh != head);
 
 	do {
-		get_bh(bh);
 		if (!buffer_mapped(bh))
 			continue;
 		/*
@@ -1819,7 +1847,6 @@ static int __block_write_full_page(struct inode *inode, struct page *page,
 	 */
 	BUG_ON(PageWriteback(page));
 	set_page_writeback(page);
-	unlock_page(page);
 
 	do {
 		struct buffer_head *next = bh->b_this_page;
@@ -1827,9 +1854,9 @@ static int __block_write_full_page(struct inode *inode, struct page *page,
 			submit_bh(WRITE, bh);
 			nr_underway++;
 		}
-		put_bh(bh);
 		bh = next;
 	} while (bh != head);
+	unlock_page(page);
 
 	err = 0;
 done:
@@ -1868,7 +1895,6 @@ recover:
 	bh = head;
 	/* Recovery: lock and submit the mapped buffers */
 	do {
-		get_bh(bh);
 		if (buffer_mapped(bh) && buffer_dirty(bh)) {
 			lock_buffer(bh);
 			mark_buffer_async_write(bh);
@@ -1891,7 +1917,6 @@ recover:
 			submit_bh(WRITE, bh);
 			nr_underway++;
 		}
-		put_bh(bh);
 		bh = next;
 	} while (bh != head);
 	goto done;
@@ -1934,7 +1959,7 @@ static int __block_prepare_write(struct inode *inode, struct page *page,
 		if (!buffer_mapped(bh)) {
 			err = get_block(inode, block, bh, 1);
 			if (err)
-				goto out;
+				break;
 			if (buffer_new(bh)) {
 				clear_buffer_new(bh);
 				unmap_underlying_metadata(bh->b_bdev,
@@ -1976,10 +2001,12 @@ static int __block_prepare_write(struct inode *inode, struct page *page,
 	while(wait_bh > wait) {
 		wait_on_buffer(*--wait_bh);
 		if (!buffer_uptodate(*wait_bh))
-			return -EIO;
+			err = -EIO;
 	}
-	return 0;
-out:
+	if (!err)
+		return err;
+
+	/* Error case: */
 	/*
 	 * Zero out any newly allocated blocks to avoid exposing stale
 	 * data.  If BH_New is set, we know that the block was newly

@@ -1,3 +1,10 @@
+/* 
+ * Copyright 2006 Motorola, Inc.
+ *
+ * Date     Author    Comment
+ * 12/2006  Motorola  Added times() work-around to initialize jiffies to zero
+ */
+
 #ifndef _LINUX_JIFFIES_H
 #define _LINUX_JIFFIES_H
 
@@ -116,8 +123,16 @@ static inline u64 get_jiffies_64(void)
  * Have the 32 bit jiffies value wrap 5 minutes after boot
  * so jiffies wrap bugs show up earlier.
  */
+#ifdef CONFIG_MOT_WFN479
+/* 
+ * This functionality was reverted back to initialize at 0 so 
+ * that libc will not report an error when the jiffie count is 
+ * between -1 and -4095
+ */
+#define INITIAL_JIFFIES ((unsigned long)(unsigned int) (0))
+#else
 #define INITIAL_JIFFIES ((unsigned long)(unsigned int) (-300*HZ))
-
+#endif /* CONFIG_MOT_WFN479 */
 /*
  * Change timeval to jiffies, trying to avoid the
  * most obvious overflows..

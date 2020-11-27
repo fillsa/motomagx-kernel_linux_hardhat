@@ -367,6 +367,19 @@ static int netdev_hotplug(struct class_device *cd, char **envp,
 	if ((size <= 0) || (i >= num_envp))
 		return -ENOMEM;
 
+	/*
+	 * Pass the interface ifindex in the environment to hotplug.
+	 * The name of an interface may be changed but not its ifindex.
+	 */
+
+	envp[i++] = buf;
+	n = snprintf(buf, size, "IFINDEX=%d", dev->ifindex) + 1;
+	buf += n;
+	size -= n;
+
+	if ((size <= 0) || (i >= num_envp))
+		return -ENOMEM;
+
 	envp[i] = NULL;
 	return 0;
 }

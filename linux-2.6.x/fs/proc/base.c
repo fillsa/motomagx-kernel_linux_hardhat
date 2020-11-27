@@ -1,9 +1,17 @@
 /*
  *  linux/fs/proc/base.c
  *
+ *  Copyright (C) 2006 Motorola Inc
  *  Copyright (C) 1991, 1992 Linus Torvalds
  *
- *  proc base directory handling functions
+ */
+
+/* ChangeLog:
+ * (mm-dd-yyyy) Author    Comment
+ * 06-15-2006   Motorola  Make /dev/mem a compile time configuration option
+ */
+
+/*  proc base directory handling functions
  *
  *  1999, Al Viro. Rewritten. Now it covers the whole per-process part.
  *  Instead of using magical inumbers to determine the kind of object
@@ -47,7 +55,9 @@ enum pid_directory_inos {
 	PROC_TGID_INO = 2,
 	PROC_TGID_TASK,
 	PROC_TGID_STATUS,
+#ifndef CONFIG_MOT_FEAT_SECURE_USERMEM
 	PROC_TGID_MEM,
+#endif /* CONFIG_MOT_FEAT_SECURE_USERMEM */
 	PROC_TGID_CWD,
 	PROC_TGID_ROOT,
 	PROC_TGID_EXE,
@@ -58,6 +68,8 @@ enum pid_directory_inos {
 	PROC_TGID_STAT,
 	PROC_TGID_STATM,
 	PROC_TGID_MAPS,
+	PROC_TGID_MEM_MAP,
+	PROC_TGID_NODE_MAP,
 	PROC_TGID_MOUNTS,
 	PROC_TGID_WCHAN,
 #ifdef CONFIG_SCHEDSTATS
@@ -73,7 +85,9 @@ enum pid_directory_inos {
 	PROC_TGID_FD_DIR,
 	PROC_TID_INO,
 	PROC_TID_STATUS,
+#ifndef CONFIG_MOT_FEAT_SECURE_USERMEM
 	PROC_TID_MEM,
+#endif /* CONFIG_MOT_FEAT_SECURE_USERMEM */
 	PROC_TID_CWD,
 	PROC_TID_ROOT,
 	PROC_TID_EXE,
@@ -84,6 +98,8 @@ enum pid_directory_inos {
 	PROC_TID_STAT,
 	PROC_TID_STATM,
 	PROC_TID_MAPS,
+	PROC_TID_MEM_MAP,
+	PROC_TID_NODE_MAP,
 	PROC_TID_MOUNTS,
 	PROC_TID_WCHAN,
 #ifdef CONFIG_SCHEDSTATS
@@ -97,6 +113,9 @@ enum pid_directory_inos {
 	PROC_TID_ATTR_FSCREATE,
 #endif
 	PROC_TID_FD_DIR = 0x8000,	/* 0x8000-0xffff */
+#ifdef CONFIG_DPM
+	PROC_TGID_DPM,
+#endif
 };
 
 struct pid_entry {
@@ -118,7 +137,11 @@ static struct pid_entry tgid_base_stuff[] = {
 	E(PROC_TGID_STAT,      "stat",    S_IFREG|S_IRUGO),
 	E(PROC_TGID_STATM,     "statm",   S_IFREG|S_IRUGO),
 	E(PROC_TGID_MAPS,      "maps",    S_IFREG|S_IRUGO),
+	E(PROC_TGID_MEM_MAP,   "memmap",  S_IFREG|S_IRUGO),
+	E(PROC_TGID_NODE_MAP,  "nodemap", S_IFREG|S_IRUGO),
+#ifndef CONFIG_MOT_FEAT_SECURE_USERMEM
 	E(PROC_TGID_MEM,       "mem",     S_IFREG|S_IRUSR|S_IWUSR),
+#endif /* CONFIG_MOT_FEAT_SECURE_USERMEM */
 	E(PROC_TGID_CWD,       "cwd",     S_IFLNK|S_IRWXUGO),
 	E(PROC_TGID_ROOT,      "root",    S_IFLNK|S_IRWXUGO),
 	E(PROC_TGID_EXE,       "exe",     S_IFLNK|S_IRWXUGO),
@@ -132,6 +155,9 @@ static struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_SCHEDSTATS
 	E(PROC_TGID_SCHEDSTAT, "schedstat", S_IFREG|S_IRUGO),
 #endif
+#ifdef CONFIG_DPM
+	E(PROC_TGID_DPM,   	"dpmstate",  S_IFREG|S_IRUGO|S_IWUSR),
+#endif
 	{0,0,NULL,0}
 };
 static struct pid_entry tid_base_stuff[] = {
@@ -143,7 +169,11 @@ static struct pid_entry tid_base_stuff[] = {
 	E(PROC_TID_STAT,       "stat",    S_IFREG|S_IRUGO),
 	E(PROC_TID_STATM,      "statm",   S_IFREG|S_IRUGO),
 	E(PROC_TID_MAPS,       "maps",    S_IFREG|S_IRUGO),
+	E(PROC_TID_MEM_MAP,    "memmap",  S_IFREG|S_IRUGO),
+	E(PROC_TID_NODE_MAP,   "nodemap", S_IFREG|S_IRUGO),
+#ifndef CONFIG_MOT_FEAT_SECURE_USERMEM
 	E(PROC_TID_MEM,        "mem",     S_IFREG|S_IRUSR|S_IWUSR),
+#endif /* CONFIG_MOT_FEAT_SECURE_USERMEM */
 	E(PROC_TID_CWD,        "cwd",     S_IFLNK|S_IRWXUGO),
 	E(PROC_TID_ROOT,       "root",    S_IFLNK|S_IRWXUGO),
 	E(PROC_TID_EXE,        "exe",     S_IFLNK|S_IRWXUGO),
@@ -478,6 +508,44 @@ static int proc_permission(struct inode *inode, int mask, struct nameidata *nd)
 	return proc_check_root(inode);
 }
 
+extern struct seq_operations proc_pid_memmap_op;
+static int memmap_open(struct inode *inode, struct file *file)
+{
+	struct task_struct *task = proc_task(inode);
+	int ret = seq_open(file, &proc_pid_memmap_op);
+	if (!ret) {
+		struct seq_file *m = file->private_data;
+		m->private = task;
+	}
+	return ret;
+}
+
+struct file_operations proc_memmap_operations = {
+	.open		= memmap_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= seq_release,
+};
+
+extern struct seq_operations proc_pid_nodemap_op;
+static int nodemap_open(struct inode *inode, struct file *file)
+{
+	struct task_struct *task = proc_task(inode);
+	int ret = seq_open(file, &proc_pid_nodemap_op);
+	if (!ret) {
+		struct seq_file *m = file->private_data;
+		m->private = task;
+	}
+	return ret;
+}
+
+struct file_operations proc_nodemap_operations = {
+	.open		= nodemap_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= seq_release,
+};
+
 extern struct seq_operations proc_pid_maps_op;
 static int maps_open(struct inode *inode, struct file *file)
 {
@@ -564,6 +632,7 @@ static struct file_operations proc_info_file_operations = {
 	.read		= proc_info_read,
 };
 
+#ifndef CONFIG_MOT_FEAT_SECURE_USERMEM
 static int mem_open(struct inode* inode, struct file* file)
 {
 	file->private_data = (void*)((long)current->self_exec_id);
@@ -691,6 +760,7 @@ static loff_t mem_lseek(struct file * file, loff_t offset, int orig)
 	return file->f_pos;
 }
 
+
 static struct file_operations proc_mem_operations = {
 	.llseek		= mem_lseek,
 	.read		= mem_read,
@@ -701,6 +771,7 @@ static struct file_operations proc_mem_operations = {
 static struct inode_operations proc_mem_inode_operations = {
 	.permission	= proc_permission,
 };
+#endif /* CONFIG_MOT_FEAT_SECURE_USERMEM */
 
 static int proc_pid_follow_link(struct dentry *dentry, struct nameidata *nd)
 {
@@ -1231,6 +1302,56 @@ static struct file_operations proc_tgid_attr_operations;
 static struct inode_operations proc_tgid_attr_inode_operations;
 #endif
 
+#ifdef CONFIG_DPM
+#include <linux/dpm.h>
+
+extern int dpm_set_task_state_by_name(struct task_struct *, char *, ssize_t);
+
+static ssize_t proc_dpm_read(struct file * file, char __user * buf,
+                             size_t count, loff_t *ppos)
+{
+	struct task_struct *task = proc_task(file->f_dentry->d_inode);
+	int len;
+	char lbuf[80];
+	
+	if (*ppos != 0)
+		return 0;
+	
+	len = sprintf(lbuf,"%s\n", task->dpm_state == DPM_NO_STATE ?
+		      "none" : dpm_state_names[task->dpm_state]);
+	
+	if (copy_to_user(buf, lbuf, len))
+		return -EFAULT;
+	
+	*ppos += len;
+	return len;
+}
+
+static ssize_t proc_dpm_write(struct file * file, const char * buf,
+                              size_t count, loff_t *ppos)
+{
+	struct task_struct *task = proc_task(file->f_dentry->d_inode);
+	char lbuf[80];
+	int error;
+	ssize_t len;
+	
+	len = (count < 80) ? count : 79;
+	
+	if (copy_from_user(lbuf, buf, len))
+		return -EFAULT;
+	
+	lbuf[79] = 0;
+	error = dpm_set_task_state_by_name(task, lbuf, len);
+	*ppos += count;
+	return error ? error : count;
+}
+static struct file_operations proc_dpm_operations = {
+	.read           = proc_dpm_read,
+	.write          = proc_dpm_write,
+};
+#endif
+
+
 /* SMP-safe */
 static struct dentry *proc_pident_lookup(struct inode *dir, 
 					 struct dentry *dentry,
@@ -1332,11 +1453,21 @@ static struct dentry *proc_pident_lookup(struct inode *dir,
 		case PROC_TGID_MAPS:
 			inode->i_fop = &proc_maps_operations;
 			break;
+		case PROC_TID_MEM_MAP:
+		case PROC_TGID_MEM_MAP:
+			inode->i_fop = &proc_memmap_operations;
+			break;
+		case PROC_TID_NODE_MAP:
+		case PROC_TGID_NODE_MAP:
+			inode->i_fop = &proc_nodemap_operations;
+			break; 
+#ifndef CONFIG_MOT_FEAT_SECURE_USERMEM
 		case PROC_TID_MEM:
 		case PROC_TGID_MEM:
 			inode->i_op = &proc_mem_inode_operations;
 			inode->i_fop = &proc_mem_operations;
 			break;
+#endif /* CONFIG_MOT_FEAT_SECURE_USERMEM */
 		case PROC_TID_MOUNTS:
 		case PROC_TGID_MOUNTS:
 			inode->i_fop = &proc_mounts_operations;
@@ -1375,6 +1506,12 @@ static struct dentry *proc_pident_lookup(struct inode *dir,
 		case PROC_TGID_SCHEDSTAT:
 			inode->i_fop = &proc_info_file_operations;
 			ei->op.proc_read = proc_pid_schedstat;
+			break;
+#endif
+#ifdef CONFIG_DPM
+		case PROC_TGID_DPM:
+  			inode->i_op = &proc_fd_inode_operations;
+			inode->i_fop = &proc_dpm_operations;
 			break;
 #endif
 		default:

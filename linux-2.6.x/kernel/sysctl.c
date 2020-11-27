@@ -1,6 +1,8 @@
 /*
  * sysctl.c: General linux system control interface
  *
+ * Copyright 2006 Motorola Inc.
+ *
  * Begun 24 March 1995, Stephen Tweedie
  * Added /proc support, Dec 1995
  * Added bdflush entry and intvec min/max checking, 2/23/96, Tom Dyas.
@@ -16,6 +18,9 @@
  *  Wendling.
  * The list_for_each() macro wasn't appropriate for the sysctl loop.
  *  Removed it and replaced it with older style, 03/23/00, Bill Wendling
+ *
+ * Date         Author          Comment
+ * 11/2006      Motorola        Added test panic support
  */
 
 #include <linux/config.h>
@@ -41,6 +46,7 @@
 #include <linux/limits.h>
 #include <linux/dcache.h>
 #include <linux/syscalls.h>
+#include <linux/profile.h>
 
 #include <asm/uaccess.h>
 #include <asm/processor.h>
@@ -73,6 +79,11 @@ int unknown_nmi_panic;
 extern int proc_unknown_nmi_panic(ctl_table *, int, struct file *,
 				  void __user *, size_t *, loff_t *);
 #endif
+
+#ifdef CONFIG_MOT_FEAT_TEST_PANIC
+extern int proc_cause_panic(ctl_table *, int, struct file *,
+	             void __user *, size_t *, loff_t *);
+#endif /* CONFIG_MOT_FEAT_TEST_PANIC */
 
 /* this is needed for the proc_dointvec_minmax for [fs_]overflow UID and GID */
 static int maxolduid = 65535;
@@ -142,6 +153,12 @@ static ctl_table fs_table[];
 static ctl_table debug_table[];
 static ctl_table dev_table[];
 extern ctl_table random_table[];
+#ifdef CONFIG_VST
+extern ctl_table vst_table[];
+#endif
+#ifdef CONFIG_IDLE
+extern ctl_table idle_table[];
+#endif
 #ifdef CONFIG_UNIX98_PTYS
 extern ctl_table pty_table[];
 #endif
@@ -166,7 +183,7 @@ struct file_operations proc_sys_file_operations = {
 
 extern struct proc_dir_entry *proc_sys_root;
 
-static void register_proc_table(ctl_table *, struct proc_dir_entry *);
+static void register_proc_table(ctl_table *, struct proc_dir_entry *, void *);
 static void unregister_proc_table(ctl_table *, struct proc_dir_entry *);
 #endif
 
@@ -274,6 +291,132 @@ static ctl_table kern_table[] = {
 		.mode		= 0644,
 		.proc_handler	= &proc_dointvec,
 	},
+	{
+		.ctl_name	= KERN_PANIC,
+		.procname	= "prof_pid",
+		.data		= &prof_pid,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+	},
+#ifdef CONFIG_PREEMPT
+	{
+		.ctl_name	= KERN_PANIC,
+		.procname	= "kernel_preemption",
+		.data		= &kernel_preemption,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+	},
+#endif
+#ifdef CONFIG_PREEMPT_VOLUNTARY
+	{
+		.ctl_name	= KERN_PANIC,
+		.procname	= "voluntary_preemption",
+		.data		= &voluntary_preemption,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+	},
+#endif
+#if defined(CONFIG_PREEMPT_SOFTIRQS) && !defined(CONFIG_PREEMPT_RT)
+	{
+		.ctl_name	= KERN_PANIC,
+		.procname	= "softirq_preemption",
+		.data		= &softirq_preemption,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+	},
+#endif
+#if defined(CONFIG_PREEMPT_HARDIRQS) && !defined(CONFIG_PREEMPT_RT)
+	{
+		.ctl_name	= KERN_PANIC,
+		.procname	= "hardirq_preemption",
+		.data		= &hardirq_preemption,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+	},
+#endif
+#ifdef CONFIG_WAKEUP_TIMING
+	{
+		.ctl_name	= KERN_PANIC,
+		.procname	= "wakeup_timing",
+		.data		= &wakeup_timing,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+	},
+#endif
+#ifdef CONFIG_LATENCY_TRACE
+	{
+		.ctl_name	= KERN_PANIC,
+		.procname	= "trace_enabled",
+		.data		= &trace_enabled,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+	},
+	{
+		.ctl_name	= KERN_PANIC,
+		.procname	= "mcount_enabled",
+		.data		= &mcount_enabled,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+	},
+	{
+		.ctl_name	= KERN_PANIC,
+		.procname	= "trace_user_triggered",
+		.data		= &trace_user_triggered,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+	},
+	{
+		.ctl_name	= KERN_PANIC,
+		.procname	= "trace_freerunning",
+		.data		= &trace_freerunning,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+	},
+	{
+		.ctl_name	= KERN_PANIC,
+		.procname	= "trace_print_at_crash",
+		.data		= &trace_print_at_crash,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+	},
+	{
+		.ctl_name	= KERN_PANIC,
+		.procname	= "trace_verbose",
+		.data		= &trace_verbose,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+	},
+	{
+		.ctl_name	= KERN_PANIC,
+		.procname	= "trace_all_cpus",
+		.data		= &trace_all_cpus,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+	},
+#endif
+#ifdef CONFIG_GENERIC_HARDIRQS
+	{
+		.ctl_name	= KERN_PANIC,
+		.procname	= "debug_direct_keyboard",
+		.data		= &debug_direct_keyboard,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+	},
+#endif
 	{
 		.ctl_name	= KERN_CORE_USES_PID,
 		.procname	= "core_uses_pid",
@@ -624,6 +767,36 @@ static ctl_table kern_table[] = {
 		.proc_handler   = &proc_unknown_nmi_panic,
 	},
 #endif
+#ifdef CONFIG_VST
+	{
+		.ctl_name	= KERN_VST,
+		.procname	= "vst",
+		.data		= NULL, 
+		.maxlen		= 0, 
+		.mode		= 0555,
+		.child		= vst_table,
+	},
+#endif
+#ifdef CONFIG_IDLE
+	{
+		.ctl_name	= KERN_IDLE,
+		.procname	= "idle", 
+		.data		= NULL, 
+		.maxlen		= 0,  
+		.mode		= 0555,
+		.child		= idle_table,
+	},
+#endif
+#ifdef CONFIG_MOT_FEAT_TEST_PANIC
+	{
+		.ctl_name       = KERN_PANIC,
+		.procname       = "cause_panic",
+		.data           = NULL,
+		.maxlen         = 0,
+		.mode           = 0600,
+		.proc_handler   = &proc_cause_panic,
+	},
+#endif /* CONFIG_MOT_FEAT_TEST_PANIC */
 	{ .ctl_name = 0 }
 };
 
@@ -941,10 +1114,51 @@ static ctl_table dev_table[] = {
 
 extern void init_irq_proc (void);
 
+static DEFINE_SPINLOCK(sysctl_lock);
+
+/* called under sysctl_lock */
+static int use_table(struct ctl_table_header *p)
+{
+	if (unlikely(p->unregistering))
+		return 0;
+	p->used++;
+	return 1;
+}
+
+/* called under sysctl_lock */
+static void unuse_table(struct ctl_table_header *p)
+{
+	if (!--p->used)
+		if (unlikely(p->unregistering))
+			complete(p->unregistering);
+}
+
+/* called under sysctl_lock, will reacquire if has to wait */
+static void start_unregistering(struct ctl_table_header *p)
+{
+	/*
+	 * if p->used is 0, nobody will ever touch that entry again;
+	 * we'll eliminate all paths to it before dropping sysctl_lock
+	 */
+	if (unlikely(p->used)) {
+		struct completion wait;
+		init_completion(&wait);
+		p->unregistering = &wait;
+		spin_unlock(&sysctl_lock);
+		wait_for_completion(&wait);
+		spin_lock(&sysctl_lock);
+	}
+	/*
+	 * do not remove from the list until nobody holds it; walking the
+	 * list in do_sysctl() relies on that.
+	 */
+	list_del_init(&p->ctl_entry);
+}
+
 void __init sysctl_init(void)
 {
 #ifdef CONFIG_PROC_FS
-	register_proc_table(root_table, proc_sys_root);
+	register_proc_table(root_table, proc_sys_root, &root_table_header);
 	init_irq_proc();
 #endif
 }
@@ -953,6 +1167,7 @@ int do_sysctl(int __user *name, int nlen, void __user *oldval, size_t __user *ol
 	       void __user *newval, size_t newlen)
 {
 	struct list_head *tmp;
+	int error = -ENOTDIR;
 
 	if (nlen <= 0 || nlen >= CTL_MAXNAME)
 		return -ENOTDIR;
@@ -961,21 +1176,30 @@ int do_sysctl(int __user *name, int nlen, void __user *oldval, size_t __user *ol
 		if (!oldlenp || get_user(old_len, oldlenp))
 			return -EFAULT;
 	}
+	spin_lock(&sysctl_lock);
 	tmp = &root_table_header.ctl_entry;
 	do {
 		struct ctl_table_header *head =
 			list_entry(tmp, struct ctl_table_header, ctl_entry);
 		void *context = NULL;
-		int error = parse_table(name, nlen, oldval, oldlenp, 
+
+		if (!use_table(head))
+			continue;
+
+		spin_unlock(&sysctl_lock);
+
+		error = parse_table(name, nlen, oldval, oldlenp, 
 					newval, newlen, head->ctl_table,
 					&context);
-		if (context)
-			kfree(context);
+		kfree(context);
+
+		spin_lock(&sysctl_lock);
+		unuse_table(head);
 		if (error != -ENOTDIR)
-			return error;
-		tmp = tmp->next;
-	} while (tmp != &root_table_header.ctl_entry);
-	return -ENOTDIR;
+			break;
+	} while ((tmp = tmp->next) != &root_table_header.ctl_entry);
+	spin_unlock(&sysctl_lock);
+	return error;
 }
 
 asmlinkage long sys_sysctl(struct __sysctl_args __user *args)
@@ -1186,12 +1410,16 @@ struct ctl_table_header *register_sysctl_table(ctl_table * table,
 		return NULL;
 	tmp->ctl_table = table;
 	INIT_LIST_HEAD(&tmp->ctl_entry);
+	tmp->used = 0;
+	tmp->unregistering = NULL;
+	spin_lock(&sysctl_lock);
 	if (insert_at_head)
 		list_add(&tmp->ctl_entry, &root_table_header.ctl_entry);
 	else
 		list_add_tail(&tmp->ctl_entry, &root_table_header.ctl_entry);
+	spin_unlock(&sysctl_lock);
 #ifdef CONFIG_PROC_FS
-	register_proc_table(table, proc_sys_root);
+	register_proc_table(table, proc_sys_root, tmp);
 #endif
 	return tmp;
 }
@@ -1205,10 +1433,13 @@ struct ctl_table_header *register_sysctl_table(ctl_table * table,
  */
 void unregister_sysctl_table(struct ctl_table_header * header)
 {
-	list_del(&header->ctl_entry);
+	might_sleep();
+	spin_lock(&sysctl_lock);
+	start_unregistering(header);
 #ifdef CONFIG_PROC_FS
 	unregister_proc_table(header->ctl_table, proc_sys_root);
 #endif
+	spin_unlock(&sysctl_lock);
 	kfree(header);
 }
 
@@ -1219,7 +1450,7 @@ void unregister_sysctl_table(struct ctl_table_header * header)
 #ifdef CONFIG_PROC_FS
 
 /* Scan the sysctl entries in table and add them all into /proc */
-static void register_proc_table(ctl_table * table, struct proc_dir_entry *root)
+static void register_proc_table(ctl_table * table, struct proc_dir_entry *root, void *set)
 {
 	struct proc_dir_entry *de;
 	int len;
@@ -1255,13 +1486,14 @@ static void register_proc_table(ctl_table * table, struct proc_dir_entry *root)
 			de = create_proc_entry(table->procname, mode, root);
 			if (!de)
 				continue;
+			de->set = set;
 			de->data = (void *) table;
 			if (table->proc_handler)
 				de->proc_fops = &proc_sys_file_operations;
 		}
 		table->de = de;
 		if (de->mode & S_IFDIR)
-			register_proc_table(table->child, de);
+			register_proc_table(table->child, de, set);
 	}
 }
 
@@ -1286,6 +1518,13 @@ static void unregister_proc_table(ctl_table * table, struct proc_dir_entry *root
 				continue;
 		}
 
+		/*
+		 * In any case, mark the entry as goner; we'll keep it
+		 * around if it's busy, but we'll know to do nothing with
+		 * its fields.  We are under sysctl_lock here.
+		 */
+		de->data = NULL;
+
 		/* Don't unregister proc entries that are still being used.. */
 		if (atomic_read(&de->count))
 			continue;
@@ -1299,27 +1538,38 @@ static ssize_t do_rw_proc(int write, struct file * file, char __user * buf,
 			  size_t count, loff_t *ppos)
 {
 	int op;
-	struct proc_dir_entry *de;
+	struct proc_dir_entry *de = PDE(file->f_dentry->d_inode);
 	struct ctl_table *table;
 	size_t res;
-	ssize_t error;
+	ssize_t error = -ENOTDIR;
 	
-	de = PDE(file->f_dentry->d_inode);
-	if (!de || !de->data)
-		return -ENOTDIR;
-	table = (struct ctl_table *) de->data;
-	if (!table || !table->proc_handler)
-		return -ENOTDIR;
-	op = (write ? 002 : 004);
-	if (ctl_perm(table, op))
-		return -EPERM;
-	
-	res = count;
-
-	error = (*table->proc_handler) (table, write, file, buf, &res, ppos);
-	if (error)
-		return error;
-	return res;
+	spin_lock(&sysctl_lock);
+	if (de && de->data && use_table(de->set)) {
+		/*
+		 * at that point we know that sysctl was not unregistered
+		 * and won't be until we finish
+		 */
+		spin_unlock(&sysctl_lock);
+		table = (struct ctl_table *) de->data;
+		if (!table || !table->proc_handler)
+			goto out;
+		error = -EPERM;
+		op = (write ? 002 : 004);
+		if (ctl_perm(table, op))
+			goto out;
+		
+		/* careful: calling conventions are nasty here */
+		res = count;
+		error = (*table->proc_handler)(table, write, file,
+						buf, &res, ppos);
+		if (!error)
+			error = res;
+	out:
+		spin_lock(&sysctl_lock);
+		unuse_table(de->set);
+	}
+	spin_unlock(&sysctl_lock);
+	return error;
 }
 
 static int proc_opensys(struct inode *inode, struct file *file)

@@ -1,0 +1,15 @@
+#
+# Dynamic Power Management
+#
+
+source "drivers/dpm/Kconfig"
+
+config DPM_CENTRINO
+       tristate "DPM for Intel Centrino Enhanced Speedstep"
+       depends on DPM
+       default n
+
+config DPM_DUMMY
+       tristate "Dummy DPM for MVL ADK"
+       depends on DPM
+       default n

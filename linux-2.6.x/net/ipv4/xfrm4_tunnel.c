@@ -25,7 +25,6 @@ static int ipip_xfrm_rcv(struct xfrm_state *x, struct xfrm_decap_state *decap, s
 	return 0;
 }
 
-static struct xfrm_tunnel *ipip_handler;
 static DECLARE_MUTEX(xfrm4_tunnel_sem);
 
 int xfrm4_tunnel_register(struct xfrm_tunnel *handler)
@@ -34,10 +33,10 @@ int xfrm4_tunnel_register(struct xfrm_tunnel *handler)
 
 	down(&xfrm4_tunnel_sem);
 	ret = 0;
-	if (ipip_handler != NULL)
+	if (xfrm_tunnel_handler != NULL)
 		ret = -EINVAL;
 	if (!ret)
-		ipip_handler = handler;
+		xfrm_tunnel_handler = handler;
 	up(&xfrm4_tunnel_sem);
 
 	return ret;
@@ -51,10 +50,10 @@ int xfrm4_tunnel_deregister(struct xfrm_tunnel *handler)
 
 	down(&xfrm4_tunnel_sem);
 	ret = 0;
-	if (ipip_handler != handler)
+	if (xfrm_tunnel_handler != handler)
 		ret = -EINVAL;
 	if (!ret)
-		ipip_handler = NULL;
+		xfrm_tunnel_handler = NULL;
 	up(&xfrm4_tunnel_sem);
 
 	synchronize_net();
@@ -66,7 +65,7 @@ EXPORT_SYMBOL(xfrm4_tunnel_deregister);
 
 static int ipip_rcv(struct sk_buff *skb)
 {
-	struct xfrm_tunnel *handler = ipip_handler;
+	struct xfrm_tunnel *handler = xfrm_tunnel_handler;
 
 	/* Tunnel devices take precedence.  */
 	if (handler && handler->handler(skb) == 0)
@@ -77,7 +76,7 @@ static int ipip_rcv(struct sk_buff *skb)
 
 static void ipip_err(struct sk_buff *skb, u32 info)
 {
-	struct xfrm_tunnel *handler = ipip_handler;
+	struct xfrm_tunnel *handler = xfrm_tunnel_handler;
 	u32 arg = info;
 
 	if (handler)

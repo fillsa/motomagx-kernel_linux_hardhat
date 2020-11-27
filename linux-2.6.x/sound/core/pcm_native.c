@@ -2640,40 +2640,30 @@ static int snd_pcm_capture_ioctl1(snd_pcm_substream_t *substream,
 	return snd_pcm_common_ioctl1(substream, cmd, arg);
 }
 
-static int snd_pcm_playback_ioctl(struct inode *inode, struct file *file,
+static long snd_pcm_playback_ioctl(struct file *file,
 				  unsigned int cmd, unsigned long arg)
 {
 	snd_pcm_file_t *pcm_file;
-	int err;
 
 	pcm_file = file->private_data;
 
 	if (((cmd >> 8) & 0xff) != 'A')
 		return -ENOTTY;
 
-	/* FIXME: need to unlock BKL to allow preemption */
-	unlock_kernel();
-	err = snd_pcm_playback_ioctl1(pcm_file->substream, cmd, (void __user *)arg);
-	lock_kernel();
-	return err;
+	return snd_pcm_playback_ioctl1(pcm_file->substream, cmd, (void __user *)arg);
 }
 
-static int snd_pcm_capture_ioctl(struct inode *inode, struct file *file,
+static long snd_pcm_capture_ioctl(struct file *file,
 				 unsigned int cmd, unsigned long arg)
 {
 	snd_pcm_file_t *pcm_file;
-	int err;
 
 	pcm_file = file->private_data;
 
 	if (((cmd >> 8) & 0xff) != 'A')
 		return -ENOTTY;
 
-	/* FIXME: need to unlock BKL to allow preemption */
-	unlock_kernel();
-	err = snd_pcm_capture_ioctl1(pcm_file->substream, cmd, (void __user *)arg);
-	lock_kernel();
-	return err;
+	return snd_pcm_capture_ioctl1(pcm_file->substream, cmd, (void __user *)arg);
 }
 
 int snd_pcm_kernel_playback_ioctl(snd_pcm_substream_t *substream,
@@ -3318,7 +3308,7 @@ static struct file_operations snd_pcm_f_ops_playback = {
 	.open =		snd_pcm_open,
 	.release =	snd_pcm_release,
 	.poll =		snd_pcm_playback_poll,
-	.ioctl =	snd_pcm_playback_ioctl,
+	.unlocked_ioctl = snd_pcm_playback_ioctl,
 	.mmap =		snd_pcm_mmap,
 	.fasync =	snd_pcm_fasync,
 };
@@ -3330,7 +3320,7 @@ static struct file_operations snd_pcm_f_ops_capture = {
 	.open =		snd_pcm_open,
 	.release =	snd_pcm_release,
 	.poll =		snd_pcm_capture_poll,
-	.ioctl =	snd_pcm_capture_ioctl,
+	.unlocked_ioctl = snd_pcm_capture_ioctl,
 	.mmap =		snd_pcm_mmap,
 	.fasync =	snd_pcm_fasync,
 };

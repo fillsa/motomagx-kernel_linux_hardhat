@@ -1,13 +1,22 @@
 /*
- *  linux/arch/arm/kernel/process.c
+ * linux/arch/arm/kernel/process.c
  *
- *  Copyright (C) 1996-2000 Russell King - Converted to ARM.
- *  Original Copyright (C) 1995  Linus Torvalds
+ * Copyright (C) 1996-2000 Russell King - Converted to ARM.
+ * Original Copyright (C) 1995  Linus Torvalds
+ * Copyright (C) 2005, 2008 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Revision History:
+ *
+ * Date         Author    Comment
+ * ----------   --------  ------------------------------
+ * 08/22/2005   Motorola  Power management profiler code 
+ * 03/24/2008   Motorola  Fixed mutiprocess use the same stack
  */
+
 #include <stdarg.h>
 
 #include <linux/config.h>
@@ -26,6 +35,10 @@
 #include <linux/interrupt.h>
 #include <linux/kallsyms.h>
 #include <linux/init.h>
+#include <linux/ilatency.h>
+#include <linux/ltt-events.h>
+#include <linux/elfcore.h>
+#include <linux/vst.h>
 
 #include <asm/system.h>
 #include <asm/io.h>
@@ -36,7 +49,12 @@
 extern const char *processor_modes[];
 extern void setup_mm_for_reboot(char mode);
 
+#ifdef CONFIG_PROFILER
+volatile int hlt_counter;
+EXPORT_SYMBOL(hlt_counter);
+#else
 static volatile int hlt_counter;
+#endif
 
 #include <asm/arch/system.h>
 
@@ -70,13 +88,14 @@ __setup("nohlt", nohlt_setup);
 __setup("hlt", hlt_setup);
 
 /*
- * The following aren't currently used.
+ * set pm_idle to profiler_idle when profiler gets loaded
  */
 void (*pm_idle)(void);
 EXPORT_SYMBOL(pm_idle);
 
 void (*pm_power_off)(void);
 EXPORT_SYMBOL(pm_power_off);
+
 
 /*
  * This is our default idle handler.  We need to disable
@@ -85,8 +104,12 @@ EXPORT_SYMBOL(pm_power_off);
 void default_idle(void)
 {
 	local_irq_disable();
-	if (!need_resched() && !hlt_counter)
+	if (!need_resched() && !hlt_counter) {
+		latency_check();
+		if (vst_setup())
+			return;
 		arch_idle();
+	}
 	local_irq_enable();
 }
 
@@ -102,15 +125,18 @@ void cpu_idle(void)
 	/* endless idle loop with no priority at all */
 	while (1) {
 		void (*idle)(void) = pm_idle;
+                /* set idle pointer to profiler idle handler */
 		if (!idle)
 			idle = default_idle;
-		preempt_disable();
+               	preempt_disable();
 		leds_event(led_idle_start);
-		while (!need_resched())
+		while (!need_resched()) {
+			stop_critical_timing();
 			idle();
+		}
 		leds_event(led_idle_end);
 		preempt_enable();
-		schedule();
+		__schedule();
 	}
 }
 
@@ -245,8 +271,12 @@ void show_fpregs(struct user_fp *regs)
 /*
  * Task structure and kernel stack allocation.
  */
-static unsigned long *thread_info_head;
-static unsigned int nr_thread_info;
+struct thread_info_list {
+   unsigned long *head;
+   unsigned int nr;
+};
+                                                                                                                          
+static DEFINE_PER_CPU(struct thread_info_list, thread_info_list) = { NULL, 0 };
 
 #define EXTRA_TASK_STRUCT	4
 #define ll_alloc_task_struct() ((struct thread_info *) __get_free_pages(GFP_KERNEL,1))
@@ -257,12 +287,16 @@ struct thread_info *alloc_thread_info(struct task_struct *task)
 	struct thread_info *thread = NULL;
 
 	if (EXTRA_TASK_STRUCT) {
-		unsigned long *p = thread_info_head;
+		struct thread_info_list *th = &get_cpu_var(thread_info_list);
+	        unsigned long *p = th->head;
 
 		if (p) {
-			thread_info_head = (unsigned long *)p[0];
-			nr_thread_info -= 1;
+		    th->head = (unsigned long *)p[0];
+	            th->nr -= 1;
+
 		}
+		put_cpu_var(thread_info_list);
+
 		thread = (struct thread_info *)p;
 	}
 
@@ -275,8 +309,7 @@ struct thread_info *alloc_thread_info(struct task_struct *task)
 	 * give sensible stack usage information
 	 */
 	if (thread) {
-		char *p = (char *)thread;
-		memzero(p+KERNEL_STACK_SIZE, KERNEL_STACK_SIZE);
+		memzero(thread, THREAD_SIZE);
 	}
 #endif
 	return thread;
@@ -284,13 +317,20 @@ struct thread_info *alloc_thread_info(struct task_struct *task)
 
 void free_thread_info(struct thread_info *thread)
 {
-	if (EXTRA_TASK_STRUCT && nr_thread_info < EXTRA_TASK_STRUCT) {
-		unsigned long *p = (unsigned long *)thread;
-		p[0] = (unsigned long)thread_info_head;
-		thread_info_head = p;
-		nr_thread_info += 1;
-	} else
-		ll_free_task_struct(thread);
+	if (EXTRA_TASK_STRUCT) {
+                 struct thread_info_list *th = &get_cpu_var(thread_info_list);
+                 if (th->nr < EXTRA_TASK_STRUCT) {
+                         unsigned long *p = (unsigned long *)thread;
+                         p[0] = (unsigned long)th->head;
+                         th->head = p;
+                         th->nr += 1;
+                         put_cpu_var(thread_info_list);
+                         return;
+                 }
+                 put_cpu_var(thread_info_list);
+         }
+
+	ll_free_task_struct(thread);
 }
 
 /*
@@ -352,22 +392,31 @@ copy_thread(int nr, unsigned long clone_flags, unsigned long stack_start,
 	thread->cpu_context.sp = (unsigned long)childregs;
 	thread->cpu_context.pc = (unsigned long)ret_from_fork;
 
+	if (clone_flags & CLONE_SETTLS)
+		thread->tp_value = regs->ARM_r3;
+
 	return 0;
 }
 
 /*
  * fill in the fpe structure for a core dump...
  */
-int dump_fpu (struct pt_regs *regs, struct user_fp *fp)
+int dump_task_fpu(struct task_struct *tsk, struct user_fp *fp)
 {
-	struct thread_info *thread = current_thread_info();
-	int used_math = thread->used_cp[1] | thread->used_cp[2];
-
+	struct thread_info *thread = tsk->thread_info;
+       int used_math = thread->used_cp[1] | thread->used_cp[2];
+	
 	if (used_math)
 		memcpy(fp, &thread->fpstate.soft, sizeof (*fp));
 
 	return used_math != 0;
 }
+
+int dump_fpu(struct pt_regs *regs, struct user_fp *fp)
+{
+	return dump_task_fpu(current, fp);
+}
+
 EXPORT_SYMBOL(dump_fpu);
 
 /*
@@ -399,6 +448,18 @@ void dump_thread(struct pt_regs * regs, struct user * dump)
 }
 EXPORT_SYMBOL(dump_thread);
 
+int dump_task_regs(struct task_struct *tsk, elf_gregset_t *regs)
+{
+	struct pt_regs ptregs;
+	
+	ptregs = *(struct pt_regs *)
+		    ((unsigned long)tsk->thread_info + THREAD_SIZE - 8 - sizeof(struct pt_regs));
+	
+	elf_core_copy_regs(regs, &ptregs);
+
+	return 1;
+}
+
 /*
  * Shuffle the argument into the correct register before calling the
  * thread function.  r1 is the thread argument, r2 is the pointer to
@@ -421,6 +482,7 @@ asm(	".section .text\n"
 pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 {
 	struct pt_regs regs;
+	long pid;
 
 	memset(&regs, 0, sizeof(regs));
 
@@ -430,7 +492,12 @@ pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 	regs.ARM_pc = (unsigned long)kernel_thread_helper;
 	regs.ARM_cpsr = SVC_MODE;
 
-	return do_fork(flags|CLONE_VM|CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
+	pid = do_fork(flags|CLONE_VM|CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
+#if (CONFIG_LTT)
+	if(pid >= 0)
+		ltt_ev_process(LTT_EV_PROCESS_KTHREAD, pid, (int) fn);
+#endif
+	return pid;
 }
 EXPORT_SYMBOL(kernel_thread);
 

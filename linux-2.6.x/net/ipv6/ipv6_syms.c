@@ -7,14 +7,14 @@
 #include <net/ip6_route.h>
 #include <net/xfrm.h>
 
-EXPORT_SYMBOL(ipv6_addr_type);
+EXPORT_SYMBOL(__ipv6_addr_type);
 EXPORT_SYMBOL(icmpv6_send);
 EXPORT_SYMBOL(icmpv6_statistics);
 EXPORT_SYMBOL(icmpv6_err_convert);
 EXPORT_SYMBOL(ndisc_mc_map);
 EXPORT_SYMBOL(register_inet6addr_notifier);
 EXPORT_SYMBOL(unregister_inet6addr_notifier);
-EXPORT_SYMBOL(ip6_route_output);
+EXPORT_SYMBOL(rt6_fl_tree_output);
 #ifdef CONFIG_NETFILTER
 EXPORT_SYMBOL(ip6_route_me_harder);
 #endif
@@ -32,12 +32,30 @@ EXPORT_SYMBOL(inet6_getname);
 EXPORT_SYMBOL(inet6_ioctl);
 EXPORT_SYMBOL(ipv6_get_saddr);
 EXPORT_SYMBOL(ipv6_chk_addr);
+EXPORT_SYMBOL(ipv6_chk_home_addr);
 EXPORT_SYMBOL(in6addr_any);
 EXPORT_SYMBOL(in6addr_loopback);
 EXPORT_SYMBOL(in6_dev_finish_destroy);
+#ifdef CONFIG_IPV6_MIP6
+EXPORT_SYMBOL(ipv6_find_tlv);
+#endif
 #ifdef CONFIG_XFRM
 EXPORT_SYMBOL(xfrm6_rcv);
+#ifdef CONFIG_XFRM_ENHANCEMENT
+EXPORT_SYMBOL(__xfrm6_rcv_one);
 #endif
-EXPORT_SYMBOL(rt6_lookup);
+#endif
+EXPORT_SYMBOL(rt6_fl_tree_lookup);
 EXPORT_SYMBOL(fl6_sock_lookup);
+EXPORT_SYMBOL(ip6_append_data);
+EXPORT_SYMBOL(ip6_flush_pending_frames);
+EXPORT_SYMBOL(ip6_push_pending_frames);
+EXPORT_SYMBOL(ip6_dst_lookup);
 EXPORT_SYMBOL(ipv6_push_nfrag_opts);
+EXPORT_SYMBOL(rt6_lock);
+#ifdef CONFIG_IPV6_MULTIPLE_TABLES
+EXPORT_SYMBOL(rt6_rule_lookup);
+EXPORT_SYMBOL(rt6_tables);
+#else
+EXPORT_SYMBOL(ip6_routing_table);
+#endif

@@ -49,7 +49,11 @@
  * This ought to be moved into include/asm/dma.h
  */
 #ifndef valid_dma
+#if !defined(CONFIG_SOUND_MXC)
 #define valid_dma(n) ((n) >= 0 && (n) < MAX_DMA_CHANNELS && (n) != 4)
+#else
+#define valid_dma(n) ((n) >= 0 && (n) < MAX_DMA_CHANNELS )
+#endif
 #endif
 
 /*
@@ -533,10 +537,12 @@ static const struct {
 };
 
 static int dmabuf;
-static int dmabug;
-
 MODULE_PARM(dmabuf, "i");
+
+#ifdef CONFIG_PCI
+static int dmabug;
 MODULE_PARM(dmabug, "i");
+#endif
 
 static int __init oss_init(void)
 {

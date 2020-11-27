@@ -1,0 +1,28 @@
+#
+# SPI device configuration
+#
+
+menu "MXC SPI support"
+
+config MXC_SPI
+	tristate "SPI support"
+	---help---
+	  Say Y to get the SPI services API available on MXC platform. 
+
+config MXC_SPI_SELECT1
+	bool "CSPI1"
+	depends on MXC_SPI
+	default y
+
+config MXC_SPI_SELECT2
+	bool "CSPI2"
+	depends on MXC_SPI
+	default y
+
+config MXC_SPI_SELECT3
+	bool "CSPI3"
+	depends on MXC_SPI && ARCH_MX3
+	default n
+
+endmenu
+

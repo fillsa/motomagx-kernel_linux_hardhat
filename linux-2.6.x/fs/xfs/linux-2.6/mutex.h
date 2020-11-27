@@ -42,7 +42,7 @@
  * callers.
  */
 #define MUTEX_DEFAULT		0x0
-typedef struct semaphore	mutex_t;
+typedef struct compat_semaphore	mutex_t;
 
 #define mutex_init(lock, type, name)		sema_init(lock, 1)
 #define mutex_destroy(lock)			sema_init(lock, -99)

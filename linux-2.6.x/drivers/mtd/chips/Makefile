@@ -1,7 +1,7 @@
 #
 # linux/drivers/chips/Makefile
 #
-# $Id: Makefile.common,v 1.4 2004/07/12 16:07:30 dwmw2 Exp $
+# $Id: Makefile.common,v 1.3 2003/09/25 14:40:34 thayne Exp $
 
 #                       *** BIG UGLY NOTE ***
 #

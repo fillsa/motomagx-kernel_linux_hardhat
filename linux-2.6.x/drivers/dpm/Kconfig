@@ -1,0 +1,43 @@
+#
+# Dynamic Power Management
+#
+
+menu "Dynamic Power Management"
+
+config DPM
+	bool "Dynamic Power Management"
+	help
+	  Enable Dynamic Power Management, if implemented for your platform.
+	  DPM conserves power by adjusting power parameters according to
+	  system state (such as idle, running a high-power-usage task, etc.)
+	  and enables associated power management features such as device
+	  constraints on power parameters.  DPM relies on power policy and
+	  machine-dependent power operating points and such to be configured
+	  from userspace after boot.
+
+	  If in doubt, say N.
+
+config DPM_STATS
+	bool "  Enable DPM Statistics Gathering"
+	depends on DPM
+	help
+	  This enables gathering and reporting statistics for DPM.
+	  This can be useful during development of DPM platform code or
+	  in other situations where information on the operation of DPM is
+	  needed.
+
+	  If in doubt, say N.
+
+
+config DPM_PROCFS
+	bool "  Enable old DPM /proc interface (deprecated)"
+	depends on DPM && PROC_FS
+	help
+	  This enables the /proc/driver/dpm interface for controlling
+	  DPM.  Please note that it is recommended to use the sysfs
+	  interface instead (which is built automatically).
+
+	  If in doubt, say N.
+
+endmenu
+

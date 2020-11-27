@@ -3,6 +3,14 @@
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
  *  Copyright (C) 1997 David S. Miller (davem@caip.rutgers.edu)
+ *
+ *  Copyright 2006 Motorola, Inc.
+ *
+ */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 31-Oct-2006  Motorola        Added inotify
  */
 
 #include <linux/string.h>
@@ -16,6 +24,9 @@
 #include <linux/eventpoll.h>
 #include <linux/mount.h>
 #include <linux/cdev.h>
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+#include <linux/fsnotify.h>
+#endif
 
 /* sysctl tunables... */
 struct files_stat_struct files_stat = {
@@ -25,9 +36,9 @@ struct files_stat_struct files_stat = {
 EXPORT_SYMBOL(files_stat); /* Needed by unix.o */
 
 /* public. Not pretty! */
-spinlock_t __cacheline_aligned_in_smp files_lock = SPIN_LOCK_UNLOCKED;
+ __cacheline_aligned_in_smp DEFINE_SPINLOCK(files_lock);
 
-static spinlock_t filp_count_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(filp_count_lock);
 
 /* slab constructors and destructors are called from arbitrary
  * context and must be fully threaded - use a local spinlock
@@ -82,7 +93,7 @@ static int old_max;
 			atomic_set(&f->f_count, 1);
 			f->f_uid = current->fsuid;
 			f->f_gid = current->fsgid;
-			f->f_owner.lock = RW_LOCK_UNLOCKED;
+			rwlock_init(&f->f_owner.lock);
 			/* f->f_version: 0 */
 			INIT_LIST_HEAD(&f->f_list);
 			return f;
@@ -120,6 +131,10 @@ void fastcall __fput(struct file *file)
 	struct dentry *dentry = file->f_dentry;
 	struct vfsmount *mnt = file->f_vfsmnt;
 	struct inode *inode = dentry->d_inode;
+
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+	fsnotify_close(dentry, inode, file->f_mode, dentry->d_name.name);
+#endif
 
 	might_sleep();
 	/*

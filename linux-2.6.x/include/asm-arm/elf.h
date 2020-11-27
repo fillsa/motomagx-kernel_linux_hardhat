@@ -1,15 +1,39 @@
 #ifndef __ASMARM_ELF_H
 #define __ASMARM_ELF_H
 
-#include <linux/config.h>
 
 /*
  * ELF register definitions..
+ *
+ * Copyright (C) 2007 Motorola, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *  
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+ * 02111-1307, USA
+ *
+ * Revision History:
+ *
+ * Date         Author    Comment
+ * ----------   --------  --------------------
+ * 03/30/2007   Motorola  Resolve the issue that gcov cannot work on module
+ *
  */
 
+#include <linux/config.h>
 #include <asm/ptrace.h>
 #include <asm/user.h>
 #include <asm/procinfo.h>
+#include <linux/sched.h>
 
 typedef unsigned long elf_greg_t;
 typedef unsigned long elf_freg_t[3];
@@ -17,10 +41,16 @@ typedef unsigned long elf_freg_t[3];
 #define EM_ARM	40
 #define EF_ARM_APCS26 0x08
 #define EF_ARM_SOFT_FLOAT 0x200
+#define EF_ARM_EABI_MASK 0xFF000000
 
 #define R_ARM_NONE	0
 #define R_ARM_PC24	1
 #define R_ARM_ABS32	2
+#define R_ARM_CALL	28
+#define R_ARM_JUMP24	29
+#ifdef CONFIG_GCOV_PROFILE
+#define R_ARM_TARGET1   38
+#endif
 
 #define ELF_NGREG (sizeof (struct pt_regs) / sizeof(elf_greg_t))
 typedef elf_greg_t elf_gregset_t[ELF_NGREG];
@@ -37,14 +67,18 @@ typedef struct user_fp elf_fpregset_t;
  */
 #define ELF_CLASS	ELFCLASS32
 #ifdef __ARMEB__
-#define ELF_DATA	ELFDATA2MSB;
+#define ELF_DATA	ELFDATA2MSB
 #else
-#define ELF_DATA	ELFDATA2LSB;
+#define ELF_DATA	ELFDATA2LSB
 #endif
 #define ELF_ARCH	EM_ARM
 
 #define USE_ELF_CORE_DUMP
 #define ELF_EXEC_PAGESIZE	4096
+
+#define ELF_CORE_COPY_REGS(_dest,_regs)                         \
+        memcpy((char *) &_dest, (char *) _regs,                 \
+	               sizeof(struct pt_regs));
 
 /* This is the location that an ET_DYN program is loaded if exec'ed.  Typical
    use of this is to invoke "./ld.so someprog" to test out a new version of
@@ -120,11 +154,18 @@ extern char elf_platform[];
 #define SET_PERSONALITY(ex,ibcs2) \
 do { \
 	set_personality(PER_LINUX_32BIT); \
-	if ((ex).e_flags & EF_ARM_SOFT_FLOAT) \
+	if (((ex).e_flags & EF_ARM_EABI_MASK) || \
+	    ((ex).e_flags & EF_ARM_SOFT_FLOAT)) \
 		set_thread_flag(TIF_USING_IWMMXT); \
 } while (0)
 
 #endif
+
+extern int dump_task_regs (struct task_struct *tsk, elf_gregset_t *regs);
+extern int dump_task_fpu (struct task_struct *tsk, elf_fpregset_t *fpu);
+
+#define ELF_CORE_COPY_TASK_REGS(tsk, elf_regs) dump_task_regs(tsk, elf_regs)
+#define ELF_CORE_COPY_FPREGS(tsk, elf_fpregs) dump_task_fpu(tsk, elf_fpregs)
 
 #endif
 

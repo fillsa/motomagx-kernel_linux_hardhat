@@ -6,6 +6,8 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Copyright 2006, Motorola
  */
 #include <linux/config.h>
 #include <linux/linkage.h>
@@ -669,7 +671,32 @@ cache_clean_flush:
 __armv6_cache_flush:
 		mov	r1, #0
 		mcr	p15, 0, r1, c7, c14, 0	@ clean+invalidate D
+
+	/* Fix for ARM errata 411920 */
+#ifndef CONFIG_MOT_WFN477
 		mcr	p15, 0, r1, c7, c5, 0	@ invalidate I+BTB
+#else
+		mrs	r3, cpsr
+		cpsid	ifa					@ disable interrupts
+		mcr	p15, 0, r1, c7, c12, 5	@ Stop Prefetch Range
+		mcr	p15, 0, r1, c7, c5, 0	@ Invalidate Entire Instruction Cache
+		mcr	p15, 0, r1, c7, c5, 0	@ Invalidate Entire Instruction Cache
+		mcr	p15, 0, r1, c7, c5, 0	@ Invalidate Entire Instruction Cache
+		mcr	p15, 0, r1, c7, c5, 0	@ Invalidate Entire Instruction Cache
+		msr	cpsr_c, r3				@ reenable interrupts
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+#endif
+
 		mcr	p15, 0, r1, c7, c15, 0	@ clean+invalidate unified
 		mcr	p15, 0, r1, c7, c10, 4	@ drain WB
 		mov	pc, lr
@@ -707,6 +734,16 @@ __armv3_cache_flush:
 		mcr	p15, 0, r0, c7, c0, 0	@ invalidate whole cache v3
 		mov	pc, lr
 
+#ifdef CONFIG_MCOUNT
+                .text
+                .align 0
+                .type mcount %function
+                .global mcount
+mcount:
+                stmfd  sp!, {r0-r3, ip, lr}
+                                                                                                                              
+                ldmfd  sp!, {r0-r3, lr, pc}
+#endif
 /*
  * Various debugging routines for printing hex characters and
  * memory, which again must be relocatable.

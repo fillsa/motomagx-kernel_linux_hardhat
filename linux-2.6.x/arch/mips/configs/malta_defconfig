@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
-# Linux kernel version: 2.6.10-rc2
-# Sun Nov 21 14:12:02 2004
+# Linux kernel version: 2.6.10
+# Mon Dec 27 19:10:59 2004
 #
 CONFIG_MIPS=y
 # CONFIG_MIPS64 is not set
@@ -87,7 +87,6 @@ CONFIG_MIPS_MALTA=y
 CONFIG_RWSEM_GENERIC_SPINLOCK=y
 CONFIG_HAVE_DEC_LOCK=y
 CONFIG_DMA_NONCOHERENT=y
-CONFIG_GENERIC_ISA_DMA=y
 CONFIG_I8259=y
 CONFIG_MIPS_BONITO64=y
 CONFIG_MIPS_MSC=y
@@ -97,7 +96,6 @@ CONFIG_MIPS_GT64120=y
 CONFIG_SWAP_IO_SPACE=y
 CONFIG_BOOT_ELF32=y
 CONFIG_MIPS_L1_CACHE_SHIFT=5
-# CONFIG_FB is not set
 CONFIG_HAVE_STD_PC_SERIAL_PORT=y
 
 #
@@ -184,6 +182,7 @@ CONFIG_PREVENT_FIRMWARE_BUILD=y
 # CONFIG_BLK_DEV_NBD is not set
 # CONFIG_BLK_DEV_SX8 is not set
 CONFIG_BLK_DEV_RAM=y
+CONFIG_BLK_DEV_RAM_COUNT=16
 CONFIG_BLK_DEV_RAM_SIZE=4096
 # CONFIG_BLK_DEV_INITRD is not set
 CONFIG_INITRAMFS_SOURCE=""
@@ -473,7 +472,6 @@ CONFIG_RTC=y
 #
 # Ftape, the floppy tape device driver
 #
-# CONFIG_AGP is not set
 # CONFIG_DRM is not set
 # CONFIG_RAW_DRIVER is not set
 
@@ -504,6 +502,7 @@ CONFIG_RTC=y
 #
 # Graphics support
 #
+# CONFIG_FB is not set
 
 #
 # Console display driver support
@@ -524,9 +523,18 @@ CONFIG_USB_ARCH_HAS_HCD=y
 CONFIG_USB_ARCH_HAS_OHCI=y
 
 #
+# NOTE: USB_STORAGE enables SCSI, and 'SCSI disk support' may also be needed; see USB_STORAGE Help for more information
+#
+
+#
 # USB Gadget Support
 #
 # CONFIG_USB_GADGET is not set
+
+#
+# MMC/SD Card support
+#
+# CONFIG_MMC is not set
 
 #
 # File systems
@@ -622,6 +630,11 @@ CONFIG_MSDOS_PARTITION=y
 # Native Language Support
 #
 # CONFIG_NLS is not set
+
+#
+# Profiling support
+#
+# CONFIG_PROFILING is not set
 
 #
 # Kernel hacking

@@ -16,7 +16,6 @@
 #ifdef CONFIG_PCI_MSI
 static inline int use_pci_vector(void)	{return 1;}
 static inline void disable_edge_ioapic_vector(unsigned int vector) { }
-static inline void mask_and_ack_level_ioapic_vector(unsigned int vector) { }
 static inline void end_edge_ioapic_vector (unsigned int vector) { }
 #define startup_level_ioapic	startup_level_ioapic_vector
 #define shutdown_level_ioapic	mask_IO_APIC_vector
@@ -35,7 +34,6 @@ static inline void end_edge_ioapic_vector (unsigned int vector) { }
 #else
 static inline int use_pci_vector(void)	{return 0;}
 static inline void disable_edge_ioapic_irq(unsigned int irq) { }
-static inline void mask_and_ack_level_ioapic_irq(unsigned int irq) { }
 static inline void end_edge_ioapic_irq (unsigned int irq) { }
 #define startup_level_ioapic	startup_level_ioapic_irq
 #define shutdown_level_ioapic	mask_IO_APIC_irq
@@ -160,31 +158,8 @@ extern struct mpc_config_intsrc mp_irqs[MAX_IRQ_SOURCES];
 /* non-0 if default (table-less) MP configuration */
 extern int mpc_default_type;
 
-static inline unsigned int io_apic_read(unsigned int apic, unsigned int reg)
-{
-	*IO_APIC_BASE(apic) = reg;
-	return *(IO_APIC_BASE(apic)+4);
-}
-
-static inline void io_apic_write(unsigned int apic, unsigned int reg, unsigned int value)
-{
-	*IO_APIC_BASE(apic) = reg;
-	*(IO_APIC_BASE(apic)+4) = value;
-}
-
-/*
- * Re-write a value: to be used for read-modify-write
- * cycles where the read already set up the index register.
- *
- * Older SiS APIC requires we rewrite the index regiser
- */
+extern void setup_IO_APIC_early(int ioapic);
 extern int sis_apic_bug;
-static inline void io_apic_modify(unsigned int apic, unsigned int reg, unsigned int value)
-{
-	if (sis_apic_bug)
-		*IO_APIC_BASE(apic) = reg;
-	*(IO_APIC_BASE(apic)+4) = value;
-}
 
 /* 1 if "noapic" boot option passed */
 extern int skip_ioapic_setup;

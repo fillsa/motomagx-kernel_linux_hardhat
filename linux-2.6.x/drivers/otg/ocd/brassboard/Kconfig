@@ -1,0 +1,165 @@
+#
+# Copyright (c) 2005 Belcarra
+# @(#) balden@seth2.belcarratech.com|otg/ocd/brassboard/Kconfig|20051116204959|07999
+#
+# Copyright 2006 Motorola, Inc.
+#
+# Changelog:
+# Date               Author           Comment
+# -----------------------------------------------------------------------------
+# 07/31/2006         Motorola         Initial distribution 
+# 10/18/2006         Motorola         Add Open Src Software language
+# 12/11/2006         Motorola         Changes for Open src compliance.
+#
+# This Program is distributed in the hope that it will
+# be useful, but WITHOUT ANY WARRANTY;
+# without even the implied warranty of
+# MERCHANTIBILITY or FITNESS FOR A
+# PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+
+# This program is free software; you can redistribute it
+# and/or modify it under the terms of the GNU General
+# Public License as published by the Free Software
+# Foundation; either version 2 of the License, or (at
+# your option) any later version.  You should have
+# received a copy of the GNU General Public License
+# along with this program; if not, write to the Free
+# Software Foundation, Inc., 675 Mass Ave,
+# Cambridge, MA 02139, USA
+
+# CONFIG_OTG_PLATFORM_OTG       # Offer OTG Configuration
+
+# CONFIG_OTG_ISP1104            # Make ISP1104 driver
+# CONFIG_OTG_ISP1104_BRASSBOARD  # Compile ISP1104 BRASSBOARD 
+# CONFIG_OTG_MC13783_BRASSBOARD    # Compile MC13783 BRASSBOARD 
+
+# CONFIG_OTG_BRASSBOARD_ISP1104  # Use ISP1104
+# CONFIG_OTG_BRASSBOARD_MC13783    # Use MC13783
+# CONFIG_OTG_BRASSBOARD         # Compile as Traditional USB Peripheral
+
+config OTG_BRASSBOARD
+	tristate "Motorola Brassboard"
+	depends on OTG
+	---help---
+	This implements On-The-Go USB Support.
+	Ensure that P901 jumper is set to support USB.
+
+choice
+	prompt "Select OTG Transceiver"	
+	depends on OTG && OTG_BRASSBOARD
+	config OTG_BRASSBOARD_ISP1104
+		bool 'BaseBoard ISP1104 (NOT IMPLEMENTED)'
+		depends on OTG_BRASSBOARD !=n
+		---help---
+		This will use the Brassboard ISP1104 (ensure that DNP
+		resistors are populated and MC13783 DNP resistors are
+		not populated.)
+	
+	config OTG_BRASSBOARD_MC13783
+		bool 'Altas Transceiver (Connectivity Driver)'
+		depends on OTG_BRASSBOARD !=n
+		---help---
+		This will use the Freescale MC13783 chip and Freescale
+		connectivity driver (ensure that the board is properly
+                configured for MC13783 and not the ISP1104.)
+	
+endchoice
+
+choice
+	prompt "Select OTG Transceiver Configuration"	
+	depends on OTG && OTG_BRASSBOARD
+
+        config OTG_BRASSBOARD_DIFFERENTIAL_UNIDIRECTIONAL
+                bool 'Differential Unidirectional (6 wire)'
+                ---help---
+                Both the USBOTG and Transceiver need to be configured
+                for the data transceiver connection. 
+                This selects a Differential Unidirectional 6 wire
+                connection.
+
+
+        config OTG_BRASSBOARD_DIFFERENTIAL_BIDIRECTIONAL
+                bool 'Differential Bidirectional (4 wire, STILL TESTING)'
+                ---help---
+                Both the USBOTG and Transceiver need to be configured
+                for the data transceiver connection. 
+                This selects a Differential Bidirectional 4 wire
+                connection.
+                
+        config OTG_BRASSBOARD_SINGLE_ENDED_UNIDIRECTIONAL
+                bool 'Singled Ended Unidirectional (6 wire, STILL TESTING)'
+                ---help---
+                Both the USBOTG and Transceiver need to be configured
+                for the data transceiver connection. 
+                This selects a Single Ended Unidirectional 6 wire
+                connection.
+
+        config OTG_BRASSBOARD_SINGLE_ENDED_BIDIRECTIONAL
+                bool 'Singled Ended Bidirectional (3 wire)'
+                ---help---
+                Both the USBOTG and Transceiver need to be configured
+                for the data transceiver connection. 
+                This selects a Single Ended Bidirectional 3 wire
+                connection.
+
+
+endchoice
+choice
+        prompt "Select Timer"
+        depends on OTG && OTG_BRASSBOARD
+		---help---
+		Select OTG timer according to platform structure
+	
+	config OTG_HRT
+		depends on HIGH_RES_TIMERS 
+		bool 'High Resolution Timer'
+		---help---
+		Using high resolution timer, if present and enabled (preferred)
+
+#	config OTG_GPTR
+#		depends on (HIGH_RES_TIMERS=n)
+#		bool 'General Purpose Timer'
+#		---help---
+#		Using the shared or non-shared general purpose timer
+#		Warning: this option is DEPRECATED. Please enable HIGH_RES_TIMERS
+
+endchoice															
+
+if ( OTG_BRASSBOARD != 'n') 
+
+        config OTG_PLATFORM_OTG
+                bool 
+                default OTG_BRASSBOARD
+
+        config OTG_PLATFORM_USB
+                bool 
+                default OTG_BRASSBOARD
+
+        config OTG_PLATFORM_USBD
+                bool 
+                default OTG_BRASSBOARD
+
+        config OTG_FREESCALE
+                bool 
+                default OTG_BRASSBOARD
+
+
+        #config OTG_ISP1104
+        #        bool
+        #        depends on OTG_BRASSBOARD_ISP1104
+        #        default OTG_BRASSBOARD
+
+        #config OTG_BRASSBOARD_MC13783_CONNECTIVITY
+        #        bool
+        #        depends on OTG_BRASSBOARD_MC13783
+        #        default OTG_BRASSBOARD
+
+        config OTG_BRASSBOARD_MC13783_POWERIC
+                bool
+                depends on OTG_BRASSBOARD_MC13783
+                default OTG_BRASSBOARD
+
+
+endif
+

@@ -594,12 +594,12 @@ static __inline__ void sk_set_owner(struct sock *sk, struct module *owner)
 /* Called with local bh disabled */
 static __inline__ void sock_prot_inc_use(struct proto *prot)
 {
-	prot->stats[smp_processor_id()].inuse++;
+	prot->stats[_smp_processor_id()].inuse++;
 }
 
 static __inline__ void sock_prot_dec_use(struct proto *prot)
 {
-	prot->stats[smp_processor_id()].inuse--;
+	prot->stats[_smp_processor_id()].inuse--;
 }
 
 /* About 10 seconds */
@@ -706,8 +706,8 @@ extern void FASTCALL(lock_sock(struct sock *sk));
 extern void FASTCALL(release_sock(struct sock *sk));
 
 /* BH context may only use the following locking interface. */
-#define bh_lock_sock(__sk)	spin_lock(&((__sk)->sk_lock.slock))
-#define bh_unlock_sock(__sk)	spin_unlock(&((__sk)->sk_lock.slock))
+#define bh_lock_sock(__sk)	do { spin_lock(&((__sk)->sk_lock.slock)); } while (0)
+#define bh_unlock_sock(__sk)	do { spin_unlock(&((__sk)->sk_lock.slock)); } while (0)
 
 extern struct sock *		sk_alloc(int family, int priority, int zero_it,
 					 kmem_cache_t *slab);

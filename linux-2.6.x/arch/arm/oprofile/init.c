@@ -16,15 +16,15 @@ int __init oprofile_arch_init(struct oprofile_operations **ops)
 {
 	int ret = -ENODEV;
 
-#ifdef CONFIG_CPU_XSCALE
-	ret = pmu_init(ops, &op_xscale_spec);
+#if defined(CONFIG_CPU_XSCALE) || defined(CONFIG_CPU_V6)
+	ret = pmu_init(ops, &op_arm_spec);
 #endif
 	return ret;
 }
 
 void oprofile_arch_exit(void)
 {
-#ifdef CONFIG_CPU_XSCALE
+#if defined(CONFIG_CPU_XSCALE) || defined(CONFIG_CPU_V6)
 	pmu_exit();
 #endif
 }

@@ -110,7 +110,18 @@ struct ipt_table_info
 static LIST_HEAD(ipt_target);
 static LIST_HEAD(ipt_match);
 static LIST_HEAD(ipt_tables);
-#define ADD_COUNTER(c,b,p) do { (c).bcnt += (b); (c).pcnt += (p); } while(0)
+/*
+ * Protect with a lock because on PREEMPT_RT the same table might
+ * be used on two CPUs at once:
+ */
+static DEFINE_SPINLOCK(counter_lock);
+#define ADD_COUNTER(c,b,p) do { 			\
+	unsigned long flags;				\
+	spin_lock_irqsave(&counter_lock, flags);	\
+	(c).bcnt += b;					\
+	(c).pcnt += p;					\
+	spin_unlock_irqrestore(&counter_lock, flags);	\
+} while(0)
 
 #ifdef CONFIG_SMP
 #define TABLE_OFFSET(t,p) (SMP_ALIGN((t)->size)*(p))
@@ -289,8 +300,17 @@ ipt_do_table(struct sk_buff **pskb,
 
 	read_lock_bh(&table->lock);
 	IP_NF_ASSERT(table->valid_hooks & (1 << hook));
+	/*
+	 * on a PREEMPT_RT kernel the task could schedule
+	 * off and smp_processor_id() is not safe. So we take
+	 * the current value of the CPU and use that table. We
+	 * only update the counters while read-locking the table
+	 * and dont change the rules so the possibility of the
+	 * same table being used by two tasks at once is not a
+	 * problem.
+	 */
 	table_base = (void *)table->private->entries
-		+ TABLE_OFFSET(table->private, smp_processor_id());
+		+ TABLE_OFFSET(table->private, _smp_processor_id());
 	e = get_entry(table_base, table->private->hook_entry[hook]);
 
 #ifdef CONFIG_NETFILTER_DEBUG
@@ -298,7 +318,7 @@ ipt_do_table(struct sk_buff **pskb,
 	if (((struct ipt_entry *)table_base)->comefrom != 0xdead57ac
 	    && ((struct ipt_entry *)table_base)->comefrom != 0xeeeeeeec) {
 		printk("ASSERT: CPU #%u, %s comefrom(%p) = %X\n",
-		       smp_processor_id(),
+		       _smp_processor_id(),
 		       table->name,
 		       &((struct ipt_entry *)table_base)->comefrom,
 		       ((struct ipt_entry *)table_base)->comefrom);
@@ -1211,7 +1231,7 @@ do_add_counters(void __user *user, unsigned int len)
 		goto free;
 
 	write_lock_bh(&t->lock);
-	if (t->private->number != paddc->num_counters) {
+	if (t->private->number != tmp.num_counters) {
 		ret = -EINVAL;
 		goto unlock_up_free;
 	}

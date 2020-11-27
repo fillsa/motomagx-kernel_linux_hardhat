@@ -1,3 +1,11 @@
+/*
+ * Copyright 2006 Motorola, Inc.
+ *
+ * Date         Author          Comment
+ * 10/2006      Motorola        Added modem relay support by modifying the
+ *              		NR_LDISCS definition from 16 to 17
+ */
+
 #ifndef _LINUX_TTY_H
 #define _LINUX_TTY_H
 
@@ -34,7 +42,11 @@
 #define NR_PTYS	CONFIG_LEGACY_PTY_COUNT   /* Number of legacy ptys */
 #define NR_UNIX98_PTY_DEFAULT	4096      /* Default maximum for Unix98 ptys */
 #define NR_UNIX98_PTY_MAX	(1 << MINORBITS) /* Absolute limit */
-#define NR_LDISCS		16
+#ifdef CONFIG_MOT_FEAT_MODEM_RELAY
+#define NR_LDISCS		17
+#else
+#define NR_LDISCS               16
+#endif /* CONFIG_MOT_FEAT_MODEM_RELAY */
 
 /*
  * These are set up by the setup-routine at boot-time:

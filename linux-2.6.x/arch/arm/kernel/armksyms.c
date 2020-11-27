@@ -2,21 +2,39 @@
  *  linux/arch/arm/kernel/armksyms.c
  *
  *  Copyright (C) 2000 Russell King
+ *            Copyright Motorola 2006
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Revision History:
+ * 
+ * Date         Author    Comment
+ * ----------   --------  --------------------------
+ * 06/19/2006   Motorola  Support for boardrev API
+ *
  */
+
 #include <linux/module.h>
 #include <linux/string.h>
 #include <linux/delay.h>
 #include <linux/in6.h>
 #include <linux/syscalls.h>
 
+
+#ifdef CONFIG_MOT_FEAT_APP_DUMP
+#include <linux/fs.h>
+#endif /* CONFIG_MOT_FEAT_APP_DUMP */
+
 #include <asm/checksum.h>
 #include <asm/io.h>
 #include <asm/system.h>
 #include <asm/uaccess.h>
+
+#ifdef CONFIG_MOT_FEAT_BRDREV
+#include <asm/boardrev.h>
+#endif
 
 /*
  * libgcc functions - functions that are used internally by the
@@ -30,12 +48,19 @@ extern void __lshrdi3(void);
 extern void __modsi3(void);
 extern void __muldi3(void);
 extern void __ucmpdi2(void);
-extern void __udivdi3(void);
-extern void __umoddi3(void);
-extern void __udivmoddi4(void);
 extern void __udivsi3(void);
 extern void __umodsi3(void);
 extern void __do_div64(void);
+
+extern void __aeabi_idiv(void);
+extern void __aeabi_idivmod(void);
+extern void __aeabi_lasr(void);
+extern void __aeabi_llsl(void);
+extern void __aeabi_llsr(void);
+extern void __aeabi_lmul(void);
+extern void __aeabi_uidiv(void);
+extern void __aeabi_uidivmod(void);
+extern void __aeabi_ulcmp(void);
 
 extern void fpundefinstr(void);
 extern void fp_enter(void);
@@ -44,7 +69,10 @@ extern void fp_enter(void);
  * This has a special calling convention; it doesn't
  * modify any of the usual registers, except for LR.
  */
+#define EXPORT_CRC_ALIAS(sym) __CRC_SYMBOL(sym, "")
+
 #define EXPORT_SYMBOL_ALIAS(sym,orig)		\
+ EXPORT_CRC_ALIAS(sym)				\
  const struct kernel_symbol __ksymtab_##sym	\
   __attribute__((section("__ksymtab"))) =	\
     { (unsigned long)&orig, #sym };
@@ -134,12 +162,21 @@ EXPORT_SYMBOL(__lshrdi3);
 EXPORT_SYMBOL(__modsi3);
 EXPORT_SYMBOL(__muldi3);
 EXPORT_SYMBOL(__ucmpdi2);
-EXPORT_SYMBOL(__udivdi3);
-EXPORT_SYMBOL(__umoddi3);
-EXPORT_SYMBOL(__udivmoddi4);
 EXPORT_SYMBOL(__udivsi3);
 EXPORT_SYMBOL(__umodsi3);
 EXPORT_SYMBOL(__do_div64);
+
+#ifdef CONFIG_AEABI
+EXPORT_SYMBOL(__aeabi_idiv);
+EXPORT_SYMBOL(__aeabi_idivmod);
+EXPORT_SYMBOL(__aeabi_lasr);
+EXPORT_SYMBOL(__aeabi_llsl);
+EXPORT_SYMBOL(__aeabi_llsr);
+EXPORT_SYMBOL(__aeabi_lmul);
+EXPORT_SYMBOL(__aeabi_uidiv);
+EXPORT_SYMBOL(__aeabi_uidivmod);
+EXPORT_SYMBOL(__aeabi_ulcmp);
+#endif
 
 	/* bitops */
 EXPORT_SYMBOL(_set_bit_le);
@@ -169,7 +206,20 @@ EXPORT_SYMBOL(_find_next_bit_be);
 	/* syscalls */
 EXPORT_SYMBOL(sys_write);
 EXPORT_SYMBOL(sys_read);
-EXPORT_SYMBOL(sys_lseek);
 EXPORT_SYMBOL(sys_open);
+EXPORT_SYMBOL(sys_lseek);
 EXPORT_SYMBOL(sys_exit);
 EXPORT_SYMBOL(sys_wait4);
+
+#ifdef CONFIG_MOT_FEAT_BRDREV
+EXPORT_SYMBOL(boardrev);
+#endif
+
+#ifdef CONFIG_MOT_FEAT_APP_DUMP
+extern void c_backtrace (unsigned long fp, int pmode);
+EXPORT_SYMBOL(c_backtrace);
+#endif /* CONFIG_MOT_FEAT_APP_DUMP */
+#if defined(CONFIG_MOT_FEAT_APP_DUMP) || defined(CONFIG_APLOGGER)
+EXPORT_SYMBOL(sys_rename);
+EXPORT_SYMBOL(do_truncate);
+#endif /* defined(CONFIG_MOT_FEAT_APP_DUMP) || defined(CONFIG_APLOGGER) */

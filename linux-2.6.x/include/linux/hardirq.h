@@ -57,16 +57,22 @@
  * Are we doing bottom half or hardware interrupt processing?
  * Are we in a softirq context? Interrupt context?
  */
-#define in_irq()		(hardirq_count())
-#define in_softirq()		(softirq_count())
-#define in_interrupt()		(irq_count())
+#define in_irq()	(hardirq_count() || (current->flags & PF_HARDIRQ))
+#define in_softirq()	(softirq_count() || (current->flags & PF_SOFTIRQ))
+#define in_interrupt()	(irq_count())
+
+#if defined(CONFIG_PREEMPT) && \
+	!defined(CONFIG_PREEMPT_BKL) && \
+		!defined(CONFIG_PREEMPT_RT)
+# define in_atomic()	((preempt_count() & ~PREEMPT_ACTIVE) != kernel_locked())
+#else
+# define in_atomic()	((preempt_count() & ~PREEMPT_ACTIVE) != 0)
+#endif
 
 #ifdef CONFIG_PREEMPT
-# define in_atomic()	((preempt_count() & ~PREEMPT_ACTIVE) != kernel_locked())
 # define preemptible()	(preempt_count() == 0 && !irqs_disabled())
 # define IRQ_EXIT_OFFSET (HARDIRQ_OFFSET-1)
 #else
-# define in_atomic()	(preempt_count() != 0)
 # define preemptible()	0
 # define IRQ_EXIT_OFFSET HARDIRQ_OFFSET
 #endif
@@ -77,12 +83,10 @@ extern void synchronize_irq(unsigned int irq);
 # define synchronize_irq(irq)	barrier()
 #endif
 
-#ifdef CONFIG_GENERIC_HARDIRQS
-#define nmi_enter()		(preempt_count() += HARDIRQ_OFFSET)
-#define nmi_exit()		(preempt_count() -= HARDIRQ_OFFSET)
+#define nmi_enter()		irq_enter()
+#define nmi_exit()		sub_preempt_count(HARDIRQ_OFFSET)
 
-#define irq_enter()		(preempt_count() += HARDIRQ_OFFSET)
+#define irq_enter()		add_preempt_count(HARDIRQ_OFFSET)
 extern void irq_exit(void);
-#endif
 
 #endif /* LINUX_HARDIRQ_H */

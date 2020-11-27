@@ -1,10 +1,18 @@
 /*
- * $Id: mtd_blkdevs.c,v 1.24 2004/11/16 18:28:59 dwmw2 Exp $
+ * $Id: mtd_blkdevs.c,v 1.23 2004/08/19 01:54:36 tpoynor Exp $
  *
+ * Copyright (C) 2005-2006 Motorola, Inc.
  * (C) 2003 David Woodhouse <dwmw2@infradead.org>
  *
  * Interface to Linux 2.5 block layer for MTD 'translation layers'.
  *
+ * ChangeLog:
+ * (mm-dd-yyyy) Author    Comment
+ * 06-27-2005	Motorola  added string name for mtd char and block device.
+ *			  support both /dev/mtd{block}/num and /dev/mtd{block}/str
+ *			  as mtd char and block device name.
+ * 
+ * 11-27-2006   Motorola  changed priority of mtd block driver to -20.
  */
 
 #include <linux/kernel.h>
@@ -83,7 +91,9 @@ static int mtd_blktrans_thread(void *arg)
 	/* we might get involved when memory gets low, so use PF_MEMALLOC */
 	current->flags |= PF_MEMALLOC | PF_NOFREEZE;
 
+
 	daemonize("%sd", tr->name);
+
 
 	/* daemonize() doesn't do this for us since some kernel threads
 	   actually want to deal with signals. We can't just call 
@@ -93,6 +103,10 @@ static int mtd_blktrans_thread(void *arg)
 	sigfillset(&current->blocked);
 	recalc_sigpending();
 	spin_unlock_irq(&current->sighand->siglock);
+
+#ifdef CONFIG_MOT_WFN473
+        set_user_nice(current, -20);
+#endif
 
 	spin_lock_irq(rq->queue_lock);
 		
@@ -290,10 +304,30 @@ int add_mtd_blktrans_dev(struct mtd_blktrans_dev *new)
 	gd->first_minor = (new->devnum) << tr->part_bits;
 	gd->fops = &mtd_blktrans_ops;
 	
-	snprintf(gd->disk_name, sizeof(gd->disk_name),
-		 "%s%c", tr->name, (tr->part_bits?'a':'0') + new->devnum);
-	snprintf(gd->devfs_name, sizeof(gd->devfs_name),
-		 "%s/%c", tr->name, (tr->part_bits?'a':'0') + new->devnum);
+	if (tr->part_bits)
+		if (new->devnum < 26) {
+			snprintf(gd->disk_name, sizeof(gd->disk_name),
+				 "%s%c", tr->name, 'a' + new->devnum);
+			snprintf(gd->devfs_name, sizeof(gd->devfs_name),
+				 "%s/%c", tr->name, 'a' + new->devnum);
+		} else {
+			snprintf(gd->disk_name, sizeof(gd->disk_name),
+				 "%s%c%c", tr->name,
+				 'a' - 1 + new->devnum / 26,
+				 'a' + new->devnum % 26);
+			snprintf(gd->devfs_name, sizeof(gd->devfs_name),
+				 "%s/%c%c", tr->name,
+				 'a' - 1 + new->devnum / 26,
+				 'a' + new->devnum % 26);
+		}
+	else {
+		snprintf(gd->disk_name, sizeof(gd->disk_name),
+			 "%s%d", tr->name, new->devnum);
+		snprintf(gd->devfs_name, sizeof(gd->devfs_name),
+			 "%s/%d", tr->name, new->devnum);
+	}
+	devfs_mk_bdev(MKDEV(gd->major, gd->first_minor),
+			S_IFBLK|S_IRUSR|S_IWUSR, "%s/%s", tr->name, new->mtd->name);
 
 	/* 2.5 has capacity in units of 512 bytes while still
 	   having BLOCK_SIZE_BITS set to 10. Just to keep us amused. */

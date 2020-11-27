@@ -78,7 +78,9 @@ static const char *cpu_name[] = {
 	[CPU_SR71000]	"Sandcraft SR71000"
 };
 
-
+#if defined(CONFIG_CPU_TIMER)
+extern int missed_timer_count;
+#endif
 static int show_cpuinfo(struct seq_file *m, void *v)
 {
 	unsigned int version = current_cpu_data.processor_id;
@@ -120,6 +122,10 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	        cpu_has_vce ? "%u" : "not available");
 	seq_printf(m, fmt, 'D', vced_count);
 	seq_printf(m, fmt, 'I', vcei_count);
+
+#if defined(CONFIG_CPU_TIMER)
+	seq_printf(m, "missed timers\t\t: %d\n", missed_timer_count);
+#endif
 
 	return 0;
 }

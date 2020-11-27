@@ -2,10 +2,20 @@
  *  linux/drivers/char/mem.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *  Copyright (C) Motorola 2006
  *
  *  Added devfs support. 
  *    Jan-11-1998, C. Scott Ananian <cananian@alumni.princeton.edu>
  *  Shared /dev/zero mmaping support, Feb 2000, Kanoj Sarcar <kanoj@sgi.com>
+ *
+ *  Revision History:
+ *
+ * Date         Author    Comment
+ * ----------   --------  ---------------------------
+ * 06/14/2006   Motorola  Added CONFIG_MOT_SECURE_USERMEM to
+ *                        conditionally remove userspace access
+ *                        to /dev/mem and /dev/kmem.
+ *
  */
 
 #include <linux/config.h>
@@ -35,6 +45,7 @@
 extern void tapechar_init(void);
 #endif
 
+#ifndef CONFIG_MOT_FEAT_SECURE_USERMEM
 /*
  * Architectures vary in how they handle caching for addresses
  * outside of main memory.
@@ -335,6 +346,7 @@ static ssize_t write_kmem(struct file * file, const char __user * buf,
  	*ppos = p;
  	return virtr + wrote;
 }
+#endif /* CONFIG_MOT_FEAT_SECURE_USERMEM */
 
 #if defined(CONFIG_ISA) || !defined(__mc68000__)
 static ssize_t read_port(struct file * file, char __user * buf,
@@ -531,6 +543,7 @@ static loff_t null_lseek(struct file * file, loff_t offset, int orig)
 	return file->f_pos = 0;
 }
 
+#if defined(CONFIG_ISA) || !defined(__mc68000__) || !defined(CONFIG_MOT_FEAT_SECURE_USERMEM)
 /*
  * The memory devices use the full 32/64 bits of the offset, and so we cannot
  * check against negative addresses: they are ok. The return value is weird,
@@ -566,12 +579,16 @@ static int open_port(struct inode * inode, struct file * filp)
 {
 	return capable(CAP_SYS_RAWIO) ? 0 : -EPERM;
 }
+#endif
 
-#define mmap_kmem	mmap_mem
+
 #define zero_lseek	null_lseek
 #define full_lseek      null_lseek
 #define write_zero	write_null
 #define read_full       read_zero
+
+#ifndef CONFIG_MOT_FEAT_SECURE_USERMEM
+#define mmap_kmem	mmap_mem
 #define open_mem	open_port
 #define open_kmem	open_mem
 
@@ -590,6 +607,7 @@ static struct file_operations kmem_fops = {
 	.mmap		= mmap_kmem,
 	.open		= open_kmem,
 };
+#endif /* CONFIG_MOT_FEAT_SECURE_USERMEM */
 
 static struct file_operations null_fops = {
 	.llseek		= null_lseek,
@@ -644,12 +662,14 @@ static struct file_operations kmsg_fops = {
 static int memory_open(struct inode * inode, struct file * filp)
 {
 	switch (iminor(inode)) {
+#ifndef CONFIG_MOT_FEAT_SECURE_USERMEM
 		case 1:
 			filp->f_op = &mem_fops;
 			break;
 		case 2:
 			filp->f_op = &kmem_fops;
 			break;
+#endif /* CONFIG_MOT_FEAT_SECURE_USERMEM */
 		case 3:
 			filp->f_op = &null_fops;
 			break;
@@ -691,8 +711,10 @@ static const struct {
 	umode_t			mode;
 	struct file_operations	*fops;
 } devlist[] = { /* list of minor devices */
+#ifndef CONFIG_MOT_FEAT_SECURE_USERMEM
 	{1, "mem",     S_IRUSR | S_IWUSR | S_IRGRP, &mem_fops},
 	{2, "kmem",    S_IRUSR | S_IWUSR | S_IRGRP, &kmem_fops},
+#endif /* CONFIG_MOT_FEAT_SECURE_USERMEM */
 	{3, "null",    S_IRUGO | S_IWUGO,           &null_fops},
 #if defined(CONFIG_ISA) || !defined(__mc68000__)
 	{4, "port",    S_IRUSR | S_IWUSR | S_IRGRP, &port_fops},

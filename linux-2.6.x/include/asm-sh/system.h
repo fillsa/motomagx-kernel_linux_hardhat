@@ -7,6 +7,8 @@
  */
 
 #include <linux/config.h>
+#include <linux/ilatency.h>
+#include <asm/types.h>
 
 /*
  *	switch_to() should switch tasks to task nr n, first
@@ -95,6 +97,69 @@ extern void __xchg_called_with_bad_pointer(void);
 #define set_wmb(var, value) do { var = value; wmb(); } while (0)
 
 /* Interrupt Control */
+#ifdef CONFIG_ILATENCY
+#define local_irq_enable()      ilat_irq_enable(__BASE_FILE__,__LINE__,0)
+#define local_irq_disable()     ilat_irq_disable(__BASE_FILE__,__LINE__)
+#define local_irq_save(x)       do {local_save_flags(x);local_irq_disable();} while (0)
+#define local_irq_restore(x)    ilat_restore_flags(__BASE_FILE__,__LINE__,x)
+
+static __inline__ void __local_irq_enable(void)
+{
+	unsigned long __dummy0, __dummy1;
+
+	__asm__ __volatile__("stc	sr, %0\n\t"
+			     "and	%1, %0\n\t"
+			     "stc	r6_bank, %1\n\t"
+			     "or	%1, %0\n\t"
+			     "ldc	%0, sr"
+			     : "=&r" (__dummy0), "=r" (__dummy1)
+			     : "1" (~0x000000f0)
+			     : "memory");
+}
+
+static __inline__ void __local_irq_disable(void)
+{
+	unsigned long __dummy;
+	__asm__ __volatile__("stc	sr, %0\n\t"
+			     "or	#0xf0, %0\n\t"
+			     "ldc	%0, sr"
+			     : "=&z" (__dummy)
+			     : /* no inputs */
+			     : "memory");
+}
+
+#ifdef DEBUG_CLI_STI
+static __inline__ void  __local_irq_restore(unsigned long x)
+{
+	if ((x & 0x000000f0) != 0x000000f0)
+		__local_irq_enable();
+	else {
+		unsigned long flags;
+		__local_save_flags(flags);
+
+		if (flags == 0) {
+			extern void dump_stack(void);
+			printk(KERN_ERR "BUG!\n");
+			dump_stack();
+			__local_irq_disable();
+		}
+	}
+}
+#else
+#define __local_irq_restore(x) do { 			\
+	if ((x & 0x000000f0) != 0x000000f0)		\
+		__local_irq_enable();				\
+} while (0)
+#endif
+
+#define really_restore_flags(x) do { 			\
+	if ((x & 0x000000f0) != 0x000000f0)		\
+		__local_irq_enable();				\
+	else						\
+		__local_irq_disable();				\
+} while (0)
+#else
+
 static __inline__ void local_irq_enable(void)
 {
 	unsigned long __dummy0, __dummy1;
@@ -119,16 +184,6 @@ static __inline__ void local_irq_disable(void)
 			     : /* no inputs */
 			     : "memory");
 }
-
-#define local_save_flags(x) \
-	__asm__("stc sr, %0; and #0xf0, %0" : "=&z" (x) :/**/: "memory" )
-
-#define irqs_disabled()			\
-({					\
-	unsigned long flags;		\
-	local_save_flags(flags);	\
-	(flags != 0);			\
-})
 
 static __inline__ unsigned long local_irq_save(void)
 {
@@ -176,6 +231,16 @@ static __inline__ void  local_irq_restore(unsigned long x)
 	else						\
 		local_irq_disable();				\
 } while (0)
+#endif
+#define local_save_flags(x) \
+	__asm__("stc sr, %0; and #0xf0, %0" : "=&z" (x) :/**/: "memory" )
+
+#define irqs_disabled()			\
+({					\
+	unsigned long flags;		\
+	local_save_flags(flags);	\
+	(flags != 0);			\
+})
 
 /*
  * Jump to P2 area.
@@ -214,7 +279,9 @@ do {							\
 } while (0)
 
 /* For spinlocks etc */
+#ifndef CONFIG_ILATENCY
 #define local_irq_save(x)	x = local_irq_save()
+#endif
 
 static __inline__ unsigned long xchg_u32(volatile int * m, unsigned long val)
 {
@@ -251,6 +318,45 @@ static __inline__ unsigned long __xchg(unsigned long x, volatile void * ptr, int
 	__xchg_called_with_bad_pointer();
 	return x;
 }
+
+static inline unsigned long __cmpxchg_u32(volatile int * m, unsigned long old,
+	unsigned long new)
+{       
+	__u32 retval;
+	unsigned long flags;
+
+	local_irq_save(flags);
+	retval = *m;
+	if (retval == old)
+		*m = new;
+	local_irq_restore(flags);       /* implies memory barrier  */
+	return retval;
+}
+
+/* This function doesn't exist, so you'll get a linker error
+ * if something tries to do an invalid cmpxchg(). */
+extern void __cmpxchg_called_with_bad_pointer(void);
+
+#define __HAVE_ARCH_CMPXCHG	1
+
+static inline unsigned long __cmpxchg(volatile void * ptr, unsigned long old,
+		unsigned long new, int size)
+{
+	switch (size) {
+	case 4:
+		return __cmpxchg_u32(ptr, old, new);
+	}
+	__cmpxchg_called_with_bad_pointer();
+	return old;
+}
+
+#define cmpxchg(ptr,o,n)						 \
+  ({									 \
+     __typeof__(*(ptr)) _o_ = (o);					 \
+     __typeof__(*(ptr)) _n_ = (n);					 \
+     (__typeof__(*(ptr))) __cmpxchg((ptr), (unsigned long)_o_,		 \
+				    (unsigned long)_n_, sizeof(*(ptr))); \
+  })
 
 /* XXX
  * disable hlt during certain critical i/o operations

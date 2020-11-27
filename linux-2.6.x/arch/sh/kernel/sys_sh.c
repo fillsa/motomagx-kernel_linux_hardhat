@@ -21,6 +21,7 @@
 #include <linux/mman.h>
 #include <linux/file.h>
 #include <linux/utsname.h>
+#include <linux/ltt-events.h>
 
 #include <asm/uaccess.h>
 #include <asm/ipc.h>
@@ -165,6 +166,8 @@ asmlinkage int sys_ipc(uint call, int first, int second,
 
 	version = call >> 16; /* hack for backward compatibility */
 	call &= 0xffff;
+
+	ltt_ev_ipc(LTT_EV_IPC_CALL, call, first);
 
 	if (call <= SEMCTL)
 		switch (call) {

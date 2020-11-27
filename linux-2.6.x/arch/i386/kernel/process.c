@@ -36,6 +36,8 @@
 #include <linux/module.h>
 #include <linux/kallsyms.h>
 #include <linux/ptrace.h>
+#include <linux/ilatency.h>
+#include <linux/ltt-events.h>
 
 #include <asm/uaccess.h>
 #include <asm/pgtable.h>
@@ -50,8 +52,11 @@
 #include <asm/math_emu.h>
 #endif
 
+#include <linux/vst.h>
 #include <linux/irq.h>
 #include <linux/err.h>
+
+#include <linux/dpm.h>
 
 asmlinkage void ret_from_fork(void) __asm__("ret_from_fork");
 
@@ -72,6 +77,7 @@ unsigned long thread_saved_pc(struct task_struct *tsk)
  * Powermanagement idle function, if any..
  */
 void (*pm_idle)(void);
+static cpumask_t cpu_idle_map;
 
 void disable_hlt(void)
 {
@@ -93,13 +99,17 @@ EXPORT_SYMBOL(enable_hlt);
  */
 void default_idle(void)
 {
-	if (!hlt_counter && current_cpu_data.hlt_works_ok) {
+	if (!hlt_counter && boot_cpu_data.hlt_works_ok) {
 		local_irq_disable();
-		if (!need_resched())
+		if (!need_resched()) {
+			latency_check();
+  			if (vst_setup())
+				return;
 			safe_halt();
-		else
+		} else
 			local_irq_enable();
 	} else {
+		local_irq_enable();
 		cpu_relax();
 	}
 }
@@ -144,28 +154,44 @@ static void poll_idle (void)
  */
 void cpu_idle (void)
 {
+	int cpu = _smp_processor_id();
+
 	/* endless idle loop with no priority at all */
 	while (1) {
 		while (!need_resched()) {
 			void (*idle)(void);
-			/*
-			 * Mark this as an RCU critical section so that
-			 * synchronize_kernel() in the unload path waits
-			 * for our completion.
-			 */
-			rcu_read_lock();
+
+			if (cpu_isset(cpu, cpu_idle_map))
+				cpu_clear(cpu, cpu_idle_map);
+			rmb();
 			idle = pm_idle;
 
 			if (!idle)
 				idle = default_idle;
 
-			irq_stat[smp_processor_id()].idle_timestamp = jiffies;
+			irq_stat[cpu].idle_timestamp = jiffies;
+			stop_critical_timing();
 			idle();
-			rcu_read_unlock();
 		}
-		schedule();
+		__schedule();
 	}
 }
+
+void cpu_idle_wait(void)
+{
+	int cpu;
+	cpumask_t map;
+
+	for_each_online_cpu(cpu)
+		cpu_set(cpu, cpu_idle_map);
+
+	wmb();
+	do {
+		ssleep(1);
+		cpus_and(map, cpu_idle_map, cpu_online_map);
+	} while (!cpus_empty(map));
+}
+EXPORT_SYMBOL_GPL(cpu_idle_wait);
 
 /*
  * This uses new MONITOR/MWAIT instructions on P4 processors with PNI,
@@ -273,7 +299,27 @@ __asm__(".section .text\n"
 	"call *%ebx\n\t"
 	"pushl %eax\n\t"
 	"call do_exit\n"
+	"kernel_thread_helper_end:\n\t"
 	".previous");
+#ifdef CONFIG_KGDB
+#include <linux/dwarf2-lang.h>
+
+	/* This dwarf code tells gdb that this is the end of the unwind */
+	/* This uses the CFA set up for pc=1 located in entry.S */
+#define _ESP 4
+#define _PC  8 
+#define _EIP 8 
+__asm__(
+	QUOTE_THIS(
+		CFI_preamble(dwarf_4,_PC,1,1)
+		CFA_define_reference(_ESP,0)	/* Stack pointer */
+		CFA_undefine_reg(_EIP)	
+		CFI_postamble()
+	
+		FDE_preamble(dwarf_4,kernel_thread_helper,kernel_thread_helper_end)
+		FDE_postamble()
+		));
+#endif
 
 /*
  * Create a kernel thread
@@ -281,6 +327,7 @@ __asm__(".section .text\n"
 int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 {
 	struct pt_regs regs;
+	long pid;
 
 	memset(&regs, 0, sizeof(regs));
 
@@ -295,7 +342,12 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	regs.eflags = X86_EFLAGS_IF | X86_EFLAGS_SF | X86_EFLAGS_PF | 0x2;
 
 	/* Ok, create the new process.. */
-	return do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
+	pid = do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
+#if (CONFIG_LTT)
+	if(pid >= 0)
+		ltt_ev_process(LTT_EV_PROCESS_KTHREAD, pid, (int) fn);
+#endif
+	return pid;
 }
 
 /*
@@ -308,11 +360,16 @@ void exit_thread(void)
 
 	/* The process may have allocated an io port bitmap... nuke it. */
 	if (unlikely(NULL != t->io_bitmap_ptr)) {
-		int cpu = get_cpu();
-		struct tss_struct *tss = &per_cpu(init_tss, cpu);
+		int cpu;
+		struct tss_struct *tss;
+		void *io_bitmap_ptr = t->io_bitmap_ptr;
 
-		kfree(t->io_bitmap_ptr);
 		t->io_bitmap_ptr = NULL;
+		mb();
+		kfree(io_bitmap_ptr);
+
+		cpu = get_cpu();
+		tss = &per_cpu(init_tss, cpu);
 		/*
 		 * Careful, clear this in the TSS too:
 		 */
@@ -607,6 +664,9 @@ struct task_struct fastcall * __switch_to(struct task_struct *prev_p, struct tas
 	if (unlikely(prev->io_bitmap_ptr || next->io_bitmap_ptr))
 		handle_io_bitmap(next, tss);
 
+#ifdef CONFIG_DPM
+	dpm_set_os(next_p->dpm_state);
+#endif /* CONFIG_DPM */
 	return prev_p;
 }
 

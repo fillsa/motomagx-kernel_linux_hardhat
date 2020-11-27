@@ -133,6 +133,7 @@ static void xrun(snd_pcm_substream_t *substream)
 	snd_pcm_stop(substream, SNDRV_PCM_STATE_XRUN);
 #ifdef CONFIG_SND_DEBUG
 	if (substream->pstr->xrun_debug) {
+		user_trace_stop();
 		snd_printd(KERN_DEBUG "XRUN: pcmC%dD%d%c\n",
 			   substream->pcm->card->number,
 			   substream->pcm->device,

@@ -48,11 +48,13 @@ struct wait_bit_queue {
 	wait_queue_t wait;
 };
 
+#if 1
 struct __wait_queue_head {
 	spinlock_t lock;
 	struct list_head task_list;
 };
 typedef struct __wait_queue_head wait_queue_head_t;
+#endif
 
 
 /*
@@ -68,7 +70,7 @@ typedef struct __wait_queue_head wait_queue_head_t;
 	wait_queue_t name = __WAITQUEUE_INITIALIZER(name, tsk)
 
 #define __WAIT_QUEUE_HEAD_INITIALIZER(name) {				\
-	.lock		= SPIN_LOCK_UNLOCKED,				\
+	.lock		= SPIN_LOCK_UNLOCKED,			\
 	.task_list	= { &(name).task_list, &(name).task_list } }
 
 #define DECLARE_WAIT_QUEUE_HEAD(name) \
@@ -79,7 +81,7 @@ typedef struct __wait_queue_head wait_queue_head_t;
 
 static inline void init_waitqueue_head(wait_queue_head_t *q)
 {
-	q->lock = SPIN_LOCK_UNLOCKED;
+	spin_lock_init(&q->lock);
 	INIT_LIST_HEAD(&q->task_list);
 }
 

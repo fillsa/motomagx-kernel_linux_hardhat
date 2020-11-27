@@ -7,6 +7,7 @@
  *
  *  Copyright 1999 ARM Limited
  *  Copyright (C) 2000-2001 Deep Blue Solutions Ltd.
+ *  Copyright (C) 2008 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,6 +23,12 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
+/*
+ * Date         Author          Comment
+ * 01/03/2008   Motorola        Add up function in uart_pm_functions.
+*/
+
+
 #include <linux/config.h>
 #include <linux/module.h>
 #include <linux/tty.h>
@@ -57,6 +64,12 @@ static DECLARE_MUTEX(port_sem);
 #define uart_console(port)	((port)->cons && (port)->cons->index == (port)->line)
 #else
 #define uart_console(port)	(0)
+#endif
+
+#ifdef CONFIG_KGDB_CONSOLE
+#define uart_kgdb(port)         (port->cons && !strcmp(port->cons->name, "kgdb"))
+#else
+#define uart_kgdb(port)         (0)
 #endif
 
 static void uart_change_speed(struct uart_state *state, struct termios *old_termios);
@@ -856,7 +869,11 @@ uart_tiocmset(struct tty_struct *tty, struct file *file,
 static void uart_break_ctl(struct tty_struct *tty, int break_state)
 {
 	struct uart_state *state = tty->driver_data;
-	struct uart_port *port = state->port;
+	struct uart_port *port;
+
+	if (!state)
+		return;
+	port = state->port;
 
 	BUG_ON(!kernel_locked());
 
@@ -1002,6 +1019,64 @@ static int uart_get_count(struct uart_state *state,
 	return copy_to_user(icnt, &icount, sizeof(icount)) ? -EFAULT : 0;
 }
 
+#ifdef CONFIG_MOT_FEAT_SERIAL
+/**
+ * uart_pm_functions - This function can be called directly or from the uart_ioctl.
+ * @tty: tty structure
+ * @cmd: IOCTL command
+ * @arg: IOCTL argument if any
+ * 
+ * This can suspend a UART, resume a UART and check if TX buffer is empty. Also
+ * note that this function can sleep.
+ * 
+ */
+int uart_pm_functions(struct tty_struct *tty,  unsigned int cmd, unsigned long arg)
+{
+    
+	struct uart_state *state = tty->driver_data;
+	int ret = -ENOIOCTLCMD;
+        down(&state->sem);
+
+	switch (cmd) {
+        case TIOCPMSUSPEND: {
+                struct uart_driver *drv = (struct uart_driver *)tty->driver->driver_state;
+                ret = -EAGAIN;
+                if((arg == TIOC_PMSYNC) && (state->pm_state == UART_STATE_RESUME)) { /*SYNC call; wait till TX idle */
+                        while (!((state->port->ops)->tx_empty(state->port))) {
+                                msleep(10);
+                        }
+                }
+                up(&state->sem);
+                if(state->pm_state == UART_STATE_RESUME)
+                        ret = uart_suspend_port(drv, state->port);
+
+                break;
+                }
+
+        case TIOCPMRESUME: {
+                struct uart_driver *drv = (struct uart_driver *)tty->driver->driver_state;
+
+                ret = -EAGAIN;
+                up(&state->sem);
+                if(state->pm_state != UART_STATE_RESUME)
+                        ret = uart_resume_port(drv, state->port);
+                break;
+                }
+
+        case TIOCPMTXIDLE:
+                ret = -EAGAIN;
+                up(&state->sem);
+                if(state->pm_state == UART_STATE_RESUME)
+                        ret = (state->port->ops)->tx_empty(state->port); /* Returns 0 if TX not idle */
+                break;
+	default:
+                up(&state->sem);
+		break;
+        }
+	return ret;
+}
+#endif
+
 /*
  * Called via sys_ioctl under the BKL.  We can use spin_lock_irq() here.
  */
@@ -1056,7 +1131,10 @@ uart_ioctl(struct tty_struct *tty, struct file *filp, unsigned int cmd,
 	case TIOCGICOUNT:
 		ret = uart_get_count(state, uarg);
 		break;
+	
 	}
+	
+
 
 	if (ret != -ENOIOCTLCMD)
 		goto out;
@@ -1077,6 +1155,14 @@ uart_ioctl(struct tty_struct *tty, struct file *filp, unsigned int cmd,
 		ret = uart_get_lsr_info(state, uarg);
 		break;
 
+#ifdef CONFIG_MOT_FEAT_SERIAL
+	case TIOCPMSUSPEND: 
+	case TIOCPMRESUME: 
+	case TIOCPMTXIDLE:
+                up(&state->sem);
+                ret = uart_pm_functions(tty, cmd, arg);
+                goto out;
+#endif
 	default: {
 		struct uart_port *port = state->port;
 		if (port->ops->ioctl)
@@ -1160,6 +1246,16 @@ static void uart_close(struct tty_struct *tty, struct file *filp)
 		return;
 
 	port = state->port;
+
+#ifdef CONFIG_MOT_FEAT_SERIAL
+	/* Switch on the clocks if it is already suspended *
+	 * UART_STATE_RESUME = 0; UART_STATE_SUSPEND = 1,2,3 ?
+         */	
+	if(state->pm_state != UART_STATE_RESUME) {
+		struct uart_driver *drv = (struct uart_driver *)tty->driver->driver_state;
+		uart_resume_port(drv, state->port);
+	}
+#endif
 
 	DPRINTK("uart_close(%d) called\n", port->line);
 
@@ -1833,6 +1929,30 @@ int uart_suspend_port(struct uart_driver *drv, struct uart_port *port)
 
 	down(&state->sem);
 
+#ifdef CONFIG_MOT_FEAT_SERIAL
+      if (state->info && state->info->flags & UIF_INITIALIZED) {
+                struct uart_ops *ops = port->ops;
+
+                spin_lock_irq(&port->lock);
+                ops->stop_tx(port, 0);
+                ops->set_mctrl(port, 0);
+                ops->stop_rx(port);
+                spin_unlock_irq(&port->lock);
+
+                /*
+                 * Wait for the transmitter to empty.
+                 */
+                while (!ops->tx_empty(port)) {
+                        msleep(10);
+                }
+                /*
+                 * Disable the console device before suspending.
+                 */
+                if (uart_console(port))
+                        console_stop(port->cons);
+                ops->shutdown(port);
+        }
+#else
 	if (state->info && state->info->flags & UIF_INITIALIZED) {
 		struct uart_ops *ops = port->ops;
 
@@ -1851,12 +1971,13 @@ int uart_suspend_port(struct uart_driver *drv, struct uart_port *port)
 
 		ops->shutdown(port);
 	}
-
 	/*
 	 * Disable the console device before suspending.
 	 */
 	if (uart_console(port))
 		console_stop(port->cons);
+
+#endif
 
 	uart_change_pm(state, 3);
 
@@ -1873,26 +1994,44 @@ int uart_resume_port(struct uart_driver *drv, struct uart_port *port)
 
 	uart_change_pm(state, 0);
 
-	/*
-	 * Re-enable the console device after suspending.
-	 */
-	if (uart_console(port)) {
-		uart_change_speed(state, NULL);
-		console_start(port->cons);
-	}
-
+#ifdef CONFIG_MOT_FEAT_SERIAL
 	if (state->info && state->info->flags & UIF_INITIALIZED) {
 		struct uart_ops *ops = port->ops;
 
-		ops->set_mctrl(port, 0);
-		ops->startup(port);
-		uart_change_speed(state, NULL);
-		spin_lock_irq(&port->lock);
-		ops->set_mctrl(port, port->mctrl);
-		ops->start_tx(port, 0);
-		spin_unlock_irq(&port->lock);
-	}
-
+                ops->startup(port);
+                /*
+                 * Re-enable the console device after suspending.
+                 */
+                if (uart_console(port)) {
+                        uart_change_speed(state, NULL);
+                        console_start(port->cons);
+                }
+                ops->set_mctrl(port, 0);
+                uart_change_speed(state, NULL);
+                spin_lock_irq(&port->lock);
+                ops->set_mctrl(port, port->mctrl);
+                ops->start_tx(port, 0);
+                spin_unlock_irq(&port->lock);
+        }
+#else
+	/*
+	 * Re-enable the console device after suspending.
+ 	 */
+        if (uart_console(port)) {
+                uart_change_speed(state, NULL);
+                console_start(port->cons);
+        }
+        if (state->info && state->info->flags & UIF_INITIALIZED) {
+                struct uart_ops *ops = port->ops;
+                ops->set_mctrl(port, 0);
+                ops->startup(port);
+                uart_change_speed(state, NULL);
+                spin_lock_irq(&port->lock);
+                ops->set_mctrl(port, port->mctrl);
+                ops->start_tx(port, 0);
+                spin_unlock_irq(&port->lock);
+       }
+#endif
 	up(&state->sem);
 
 	return 0;
@@ -1957,9 +2096,9 @@ uart_configure_port(struct uart_driver *drv, struct uart_state *state,
 
 		/*
 		 * Power down all ports by default, except the
-		 * console if we have one.
+		 * console (if we have one) and kgdb dummy console.
 		 */
-		if (!uart_console(port))
+		if (!uart_console(port) && !uart_kgdb(port))
 			uart_change_pm(state, 3);
 	}
 }
@@ -2375,6 +2514,8 @@ EXPORT_SYMBOL(uart_register_port);
 EXPORT_SYMBOL(uart_unregister_port);
 EXPORT_SYMBOL(uart_add_one_port);
 EXPORT_SYMBOL(uart_remove_one_port);
-
+#ifdef CONFIG_MOT_FEAT_SERIAL 
+EXPORT_SYMBOL(uart_pm_functions);
+#endif
 MODULE_DESCRIPTION("Serial driver core");
 MODULE_LICENSE("GPL");

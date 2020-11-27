@@ -33,9 +33,6 @@
 #include <asm/machvec.h>
 #include <asm/rtc.h>
 #include <asm/freq.h>
-#ifdef CONFIG_SH_KGDB
-#include <asm/kgdb.h>
-#endif
 
 #include <linux/timex.h>
 #include <linux/irq.h>
@@ -45,6 +42,9 @@
 #define TMU_TSTR_INIT	1
 
 #define TMU0_TCR_CALIB	0x0000
+
+#define TMU1_TCR_INIT	0x0000	/* Clock/4, rising edge; no interrupt */
+#define TMU1_TSTR_INIT	0x02	/* Bit to turn on TMU1 */
 
 #if defined(CONFIG_CPU_SH3)
 #if defined(CONFIG_CPU_SUBTYPE_SH7300)
@@ -66,6 +66,10 @@
 #define TMU0_TCOR	0xfffffe94	/* Long access */
 #define TMU0_TCNT	0xfffffe98	/* Long access */
 #define TMU0_TCR	0xfffffe9c	/* Word access */
+
+#define TMU1_TCOR	0xfffffea0	/* Long access */
+#define TMU1_TCNT	0xfffffea4	/* Long access */
+#define TMU1_TCR	0xfffffea8	/* Word access */
 #endif
 #elif defined(CONFIG_CPU_SH4)
 #define TMU_TOCR	0xffd80000	/* Byte access */
@@ -75,6 +79,10 @@
 #define TMU0_TCNT	0xffd8000c	/* Long access */
 #define TMU0_TCR	0xffd80010	/* Word access */
 
+#define TMU1_TCOR	0xffd80014	/* Long access */
+#define TMU1_TCNT	0xffd80018	/* Long access */
+#define TMU1_TCR	0xffd8001c	/* Word access */
+
 #ifdef CONFIG_CPU_SUBTYPE_ST40STB1
 #define CLOCKGEN_MEMCLKCR 0xbb040038
 #define MEMCLKCR_RATIO_MASK 0x7
@@ -83,7 +91,7 @@
 
 extern unsigned long wall_jiffies;
 #define TICK_SIZE (tick_nsec / 1000)
-spinlock_t tmu0_lock = SPIN_LOCK_UNLOCKED;
+DEFINE_SPINLOCK(tmu0_lock);
 
 u64 jiffies_64 = INITIAL_JIFFIES;
 
@@ -666,21 +674,26 @@ void __init time_init(void)
 
 	printk("Interval = %ld\n", interval);
 
-	/* Start TMU0 */
+	/* Stop all timers. */
 	ctrl_outb(0, TMU_TSTR);
 #if !defined(CONFIG_CPU_SUBTYPE_SH7300)
 	ctrl_outb(TMU_TOCR_INIT, TMU_TOCR);
 #endif
+
+#if defined(CONFIG_START_TMU1)
+        /* Start TMU1 (free-running)
+         * TMU1 must be running before the first jiffy interrupt
+         * occurs, because sched calls get_arch_cycles(), which
+         * relies needs this to be running.
+         */
+        ctrl_outw(TMU1_TCR_INIT, TMU1_TCR);
+        ctrl_outl(0xffffffff, TMU1_TCOR);
+        ctrl_outl(0xffffffff, TMU1_TCNT);
+        ctrl_outb((ctrl_inb(TMU_TSTR) | TMU1_TSTR_INIT), TMU_TSTR);
+#endif
+	/* Start TMU0. */
 	ctrl_outw(TMU0_TCR_INIT, TMU0_TCR);
 	ctrl_outl(interval, TMU0_TCOR);
 	ctrl_outl(interval, TMU0_TCNT);
 	ctrl_outb(TMU_TSTR_INIT, TMU_TSTR);
-
-#if defined(CONFIG_SH_KGDB)
-	/*
-	 * Set up kgdb as requested. We do it here because the serial
-	 * init uses the timer vars we just set up for figuring baud.
-	 */
-	kgdb_init();
-#endif
 }

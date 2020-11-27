@@ -1,9 +1,14 @@
 #ifndef _X86_64_SEMAPHORE_H
 #define _X86_64_SEMAPHORE_H
 
+#include <linux/config.h>
 #include <linux/linkage.h>
 
 #ifdef __KERNEL__
+
+#ifdef CONFIG_PREEMPT_RT
+# include <linux/rt_lock.h>
+#else
 
 /*
  * SMP- and interrupt-safe semaphores..
@@ -192,5 +197,6 @@ static inline void up(struct semaphore * sem)
 		:"D" (sem)
 		:"memory");
 }
+#endif /* CONFIG_PREEMPT_RT */
 #endif /* __KERNEL__ */
 #endif

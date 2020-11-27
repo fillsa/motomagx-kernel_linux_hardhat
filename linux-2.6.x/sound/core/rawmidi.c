@@ -133,7 +133,8 @@ int snd_rawmidi_drain_output(snd_rawmidi_substream_t * substream)
 	err = 0;
 	runtime->drain = 1;
 	while (runtime->avail < runtime->buffer_size) {
-		timeout = interruptible_sleep_on_timeout(&runtime->sleep, 10 * HZ);
+		timeout = wait_event_interruptible_timeout(runtime->sleep, 
+				runtime->avail < runtime->buffer_size, 10 * HZ);
 		if (signal_pending(current)) {
 			err = -ERESTARTSYS;
 			break;
@@ -673,7 +674,7 @@ static int snd_rawmidi_input_status(snd_rawmidi_substream_t * substream,
 	return 0;
 }
 
-static inline int _snd_rawmidi_ioctl(struct inode *inode, struct file *file,
+static inline long snd_rawmidi_ioctl(struct file *file,
 				     unsigned int cmd, unsigned long arg)
 {
 	snd_rawmidi_file_t *rfile;
@@ -782,17 +783,6 @@ static inline int _snd_rawmidi_ioctl(struct inode *inode, struct file *file,
 #endif
 	}
 	return -ENOTTY;
-}
-
-/* FIXME: need to unlock BKL to allow preemption */
-static int snd_rawmidi_ioctl(struct inode *inode, struct file *file,
-			     unsigned int cmd, unsigned long arg)
-{
-	int err;
-	unlock_kernel();
-	err = _snd_rawmidi_ioctl(inode, file, cmd, arg);
-	lock_kernel();
-	return err;
 }
 
 int snd_rawmidi_control_ioctl(snd_card_t * card, snd_ctl_file_t * control,
@@ -1345,7 +1335,7 @@ static struct file_operations snd_rawmidi_f_ops =
 	.open =		snd_rawmidi_open,
 	.release =	snd_rawmidi_release,
 	.poll =		snd_rawmidi_poll,
-	.ioctl =	snd_rawmidi_ioctl,
+	.unlocked_ioctl = snd_rawmidi_ioctl,
 };
 
 static snd_minor_t snd_rawmidi_reg =

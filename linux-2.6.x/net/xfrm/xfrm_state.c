@@ -26,7 +26,7 @@
       destination/tunnel endpoint. (output)
  */
 
-static spinlock_t xfrm_state_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(xfrm_state_lock);
 
 /* Hash table to find appropriate SA towards given target (endpoint
  * of tunnel or destination of transport mode) allowed by selector.
@@ -39,12 +39,14 @@ static struct list_head xfrm_state_byspi[XFRM_DST_HSIZE];
 
 DECLARE_WAIT_QUEUE_HEAD(km_waitq);
 
-static rwlock_t xfrm_state_afinfo_lock = RW_LOCK_UNLOCKED;
+static DEFINE_RWLOCK(xfrm_state_afinfo_lock);
 static struct xfrm_state_afinfo *xfrm_state_afinfo[NPROTO];
 
 static struct work_struct xfrm_state_gc_work;
 static struct list_head xfrm_state_gc_list = LIST_HEAD_INIT(xfrm_state_gc_list);
-static spinlock_t xfrm_state_gc_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(xfrm_state_gc_lock);
+
+static int xfrm_state_gc_flush_bundles;
 
 static void __xfrm_state_delete(struct xfrm_state *x);
 
@@ -63,6 +65,10 @@ static void xfrm_state_gc_destroy(struct xfrm_state *x)
 		kfree(x->calg);
 	if (x->encap)
 		kfree(x->encap);
+#ifdef CONFIG_XFRM_ENHANCEMENT
+	if (x->coaddr)
+		kfree(x->coaddr);
+#endif
 	if (x->type) {
 		x->type->destructor(x);
 		xfrm_put_type(x->type);
@@ -75,6 +81,11 @@ static void xfrm_state_gc_task(void *data)
 	struct xfrm_state *x;
 	struct list_head *entry, *tmp;
 	struct list_head gc_list = LIST_HEAD_INIT(gc_list);
+
+	if (xfrm_state_gc_flush_bundles) {
+		xfrm_state_gc_flush_bundles = 0;
+		xfrm_flush_bundles();
+	}
 
 	spin_lock_bh(&xfrm_state_gc_lock);
 	list_splice_init(&xfrm_state_gc_list, &gc_list);
@@ -221,8 +232,10 @@ static void __xfrm_state_delete(struct xfrm_state *x)
 		 * our caller holds.  A larger value means that
 		 * there are DSTs attached to this xfrm_state.
 		 */
-		if (atomic_read(&x->refcnt) > 2)
-			xfrm_flush_bundles();
+		if (atomic_read(&x->refcnt) > 2) {
+			xfrm_state_gc_flush_bundles = 1;
+			schedule_work(&xfrm_state_gc_work);
+		}	
 
 		/* All xfrm_state objects are created by xfrm_state_alloc.
 		 * The xfrm_state_alloc call gives a reference, and that
@@ -286,18 +299,29 @@ xfrm_state_find(xfrm_address_t *daddr, xfrm_address_t *saddr,
 		unsigned short family)
 {
 	unsigned h = xfrm_dst_hash(daddr, family);
-	struct xfrm_state *x;
+	struct xfrm_state *x, *x0;
 	int acquire_in_progress = 0;
 	int error = 0;
 	struct xfrm_state *best = NULL;
+	struct xfrm_state_afinfo *afinfo;
+
+	afinfo = xfrm_state_get_afinfo(family);
+	if (afinfo == NULL) {
+		*err = -EAFNOSUPPORT;
+		return NULL;
+	}
 
 	spin_lock_bh(&xfrm_state_lock);
 	list_for_each_entry(x, xfrm_state_bydst+h, bydst) {
 		if (x->props.family == family &&
 		    x->props.reqid == tmpl->reqid &&
+#ifdef CONFIG_XFRM_ENHANCEMENT
+		    (x->props.flags & XFRM_STATE_WILDRECV) == 0 &&
+#endif
 		    xfrm_state_addr_check(x, daddr, saddr, family) &&
 		    tmpl->mode == x->props.mode &&
-		    tmpl->id.proto == x->id.proto) {
+		    tmpl->id.proto == x->id.proto &&
+		    (tmpl->id.spi == x->id.spi || !tmpl->id.spi)) {
 			/* Resolution logic:
 			   1. There is a valid state with matching selector.
 			      Done.
@@ -324,19 +348,32 @@ xfrm_state_find(xfrm_address_t *daddr, xfrm_address_t *saddr,
 			} else if (x->km.state == XFRM_STATE_ERROR ||
 				   x->km.state == XFRM_STATE_EXPIRED) {
 				if (xfrm_selector_match(&x->sel, fl, family))
-					error = 1;
+					error = -ESRCH;
 			}
 		}
 	}
 
 	x = best;
-	if (!x && !error && !acquire_in_progress &&
-	    ((x = xfrm_state_alloc()) != NULL)) {
+	if (!x && !error && !acquire_in_progress) {
+		if (tmpl->id.spi &&
+		    (x0 = afinfo->state_lookup(daddr, tmpl->id.spi,
+					       tmpl->id.proto)) != NULL) {
+			xfrm_state_put(x0);
+			error = -EEXIST;
+			goto out;
+		}
+		x = xfrm_state_alloc();
+		if (x == NULL) {
+			error = -ENOMEM;
+			goto out;
+		}
+		XFRM_DBG("%s: aquiring...\n", __FUNCTION__);
 		/* Initialize temporary selector matching only
 		 * to current session. */
 		xfrm_init_tempsel(x, fl, tmpl, daddr, saddr, family);
 
 		if (km_query(x, tmpl, pol) == 0) {
+			XFRM_DBG("%s: aquired\n", __FUNCTION__);
 			x->km.state = XFRM_STATE_ACQ;
 			list_add_tail(&x->bydst, xfrm_state_bydst+h);
 			xfrm_state_hold(x);
@@ -353,15 +390,16 @@ xfrm_state_find(xfrm_address_t *daddr, xfrm_address_t *saddr,
 			x->km.state = XFRM_STATE_DEAD;
 			xfrm_state_put(x);
 			x = NULL;
-			error = 1;
+			error = -ESRCH;
 		}
 	}
+out:
 	if (x)
 		xfrm_state_hold(x);
 	else
-		*err = acquire_in_progress ? -EAGAIN :
-			(error ? -ESRCH : -ENOMEM);
+		*err = acquire_in_progress ? -EAGAIN : error;
 	spin_unlock_bh(&xfrm_state_lock);
+	xfrm_state_put_afinfo(afinfo);
 	return x;
 }
 
@@ -489,6 +527,17 @@ out:
 	if (likely(x1->km.state == XFRM_STATE_VALID)) {
 		if (x->encap && x1->encap)
 			memcpy(x1->encap, x->encap, sizeof(*x1->encap));
+#ifdef CONFIG_XFRM_ENHANCEMENT
+		if (x->coaddr && x1->coaddr)
+			memcpy(x1->coaddr, x->coaddr, sizeof(*x1->coaddr));
+
+		/* 
+		 * If selector is different from original state,
+		 * change the selector.
+		 */
+		memcpy(&x1->sel, &x->sel, sizeof(x1->sel));
+	        atomic_inc(&flow_cache_genid);
+#endif
 		memcpy(&x1->lft, &x->lft, sizeof(x1->lft));
 		x1->km.dying = 0;
 
@@ -567,6 +616,24 @@ xfrm_state_lookup(xfrm_address_t *daddr, u32 spi, u8 proto,
 	return x;
 }
 
+#ifdef CONFIG_XFRM_ENHANCEMENT
+struct xfrm_state *
+xfrm_state_lookup_byaddr(xfrm_address_t *daddr, xfrm_address_t *saddr,
+			 u8 proto, unsigned short family)
+{
+	struct xfrm_state *x;
+	struct xfrm_state_afinfo *afinfo = xfrm_state_get_afinfo(family);
+	if (!afinfo)
+		return NULL;
+
+	spin_lock_bh(&xfrm_state_lock);
+	x = afinfo->state_lookup_byaddr(daddr, saddr, proto);
+	spin_unlock_bh(&xfrm_state_lock);
+	xfrm_state_put_afinfo(afinfo);
+	return x;
+}
+#endif
+
 struct xfrm_state *
 xfrm_find_acq(u8 mode, u32 reqid, u8 proto, 
 	      xfrm_address_t *daddr, xfrm_address_t *saddr, 
@@ -593,7 +660,7 @@ static struct xfrm_state *__xfrm_find_acq_byseq(u32 seq)
 
 	for (i = 0; i < XFRM_DST_HSIZE; i++) {
 		list_for_each_entry(x, xfrm_state_bydst+i, bydst) {
-			if (x->km.seq == seq) {
+			if (x->km.seq == seq && x->km.state == XFRM_STATE_ACQ) {
 				xfrm_state_hold(x);
 				return x;
 			}
@@ -616,7 +683,7 @@ u32 xfrm_get_acqseq(void)
 {
 	u32 res;
 	static u32 acqseq;
-	static spinlock_t acqseq_lock = SPIN_LOCK_UNLOCKED;
+	static DEFINE_SPINLOCK(acqseq_lock);
 
 	spin_lock_bh(&acqseq_lock);
 	res = (++acqseq ? : ++acqseq);
@@ -743,8 +810,332 @@ void xfrm_replay_advance(struct xfrm_state *x, u32 seq)
 	}
 }
 
+#ifdef CONFIG_XFRM_ENHANCEMENT
+struct xfrm_state_bulk_entry {
+	struct list_head list;
+	struct xfrm_state *state;
+	int reflected;
+};
+
+struct xfrm_state_bulk_info *xfrm_state_bulk_alloc(void)
+{
+	struct xfrm_state_bulk_info *bi;
+
+	bi = kmalloc(sizeof(struct xfrm_state_bulk_info), GFP_KERNEL);
+	if (!bi)
+		return NULL;
+	memset(bi, 0, sizeof(*bi));
+
+	INIT_LIST_HEAD(&bi->lh);
+	bi->count = 0;
+	bi->reflected = 0;
+
+	return bi;
+}
+
+void xfrm_state_bulk_free(struct xfrm_state_bulk_info *bi)
+{
+	INIT_LIST_HEAD(&bi->lh);
+
+	memset(bi, 0, sizeof(*bi));
+
+	kfree(bi);
+}
+
+/*
+ * Create new bulk message by constructing new state for each entry on
+ * existing bulk message which was prepared by hold function.
+ * If error occures destruct function will be called for each constructed
+ * entry.
+ */
+int xfrm_state_bulk_rearrange(
+	struct xfrm_state_bulk_info *new_bi, struct xfrm_state_bulk_info *bi,
+	void *arg,
+	struct xfrm_state *(*construct)(struct xfrm_state *, void *, int *),
+	void (*destruct)(struct xfrm_state *, void *))
+{
+	struct xfrm_state *state;
+	struct xfrm_state_bulk_entry *e;
+	struct xfrm_state_bulk_entry *new_e;
+	int err = 0;
+
+	if (new_bi->reflected != 0)
+		return -EINVAL;
+	if (new_bi->count > 0)
+		return -EINVAL;
+	if (bi->reflected != 1)
+		return -EINVAL;
+	if (bi->count == 0)
+		return -EINVAL;
+
+	list_for_each_entry(e, &bi->lh, list) {
+		new_e = kmalloc(sizeof(struct xfrm_state_bulk_entry),
+				GFP_KERNEL);
+		if (!new_e) {
+			err = -ENOMEM;
+			goto out;
+		}
+		memset(new_e, 0, sizeof(*new_e));
+
+		state = construct(e->state, arg, &err);
+		if (!state) {
+			kfree(new_e);
+			new_e = NULL;
+			if (!err)
+				err = -ENOMEM;
+			goto out;
+		}
+		err = 0;
+
+		new_e->state = state;
+		new_e->reflected = 0;
+
+		list_add(&new_e->list, &new_bi->lh);
+		new_bi->count++;
+
+		state = NULL;
+		new_e = NULL;
+	}
+
+ out:
+	if (err)
+		xfrm_state_bulk_destruct(new_bi, arg, destruct);
+
+	return err;
+}
+
+/*
+ * Destruct bulk message for each entry. This function must used only after
+ * rearrange function and before insert one.
+ */
+void xfrm_state_bulk_destruct(struct xfrm_state_bulk_info *bi, void *arg,
+			      void (*destruct)(struct xfrm_state *, void *))
+{
+	struct list_head *le;
+	struct list_head *tmp;
+	struct xfrm_state_bulk_entry *e;
+
+	if (bi->reflected != 0) {
+		BUG();
+		return;
+	}
+
+	list_for_each_safe(le, tmp, &bi->lh) {
+		e = list_entry(le, struct xfrm_state_bulk_entry, list);
+
+		if (e->reflected != 0) {
+			BUG();
+			continue;
+		}
+
+		list_del(&e->list);
+		bi->count --;
+
+		destruct(e->state, arg);
+		e->state = NULL;
+
+		kfree(e);
+		e = NULL;
+	}
+
+	BUG_ON(bi->count > 0);
+}
+
+/*
+ * Search state all over by a filter and hold them to bulk message.
+ */
+int xfrm_state_bulk_hold(struct xfrm_state_bulk_info *bi, void *arg,
+			 int (*filter)(struct xfrm_state *, void *))
+{
+	struct xfrm_state *state;
+	struct xfrm_state *x;
+	struct xfrm_state_bulk_entry *e;
+	int err = 0;
+	int ret;
+	int i;
+
+	if (bi->reflected != 0)
+		return -EINVAL;
+	if (bi->count > 0)
+		return -EINVAL;
+
+	spin_lock_bh(&xfrm_state_lock);
+
+	for (i = 0; i < XFRM_DST_HSIZE; i++) {
+		list_for_each_entry(x, xfrm_state_bydst+i, bydst) {
+			if (x->km.state != XFRM_STATE_VALID)
+				continue;
+			ret = filter(x, arg);
+			if (ret < 0) {
+				err = ret;
+				goto out;
+			} else if (ret == 0)
+				continue;
+
+			e = kmalloc(sizeof(struct xfrm_state_bulk_entry),
+				    GFP_ATOMIC);
+			if (!e) {
+				err = -ENOMEM;
+				goto out;
+			}
+			memset(e, 0, sizeof(*e));
+
+			state = x;
+			xfrm_state_hold(state);
+			e->state = state;
+			e->reflected = 1;
+
+			list_add(&e->list, &bi->lh);
+			bi->count++;
+		}
+	}
+
+ out:
+	if (bi->count > 0)
+		bi->reflected = 1;
+	else
+		err = -ESRCH;
+
+	spin_unlock_bh(&xfrm_state_lock);
+
+	if (err && bi->count > 0)
+		xfrm_state_bulk_put(bi);
+
+	return err;
+}
+
+/*
+ * Release all state in bulk message which was inserted or held.
+ */
+void xfrm_state_bulk_put(struct xfrm_state_bulk_info *bi)
+{
+	struct xfrm_state *state;
+	struct xfrm_state_bulk_entry *e;
+	struct list_head *le;
+	struct list_head *tmp;	
+
+	if (bi->reflected != 1)
+		return;
+	if (bi->count == 0)
+		return;
+
+	spin_lock_bh(&xfrm_state_lock);
+
+	list_for_each_safe(le, tmp, &bi->lh) {
+		e = list_entry(le, struct xfrm_state_bulk_entry, list);
+
+		list_del(&e->list);
+		bi->count --;
+
+		state = e->state;
+		e->state = NULL;
+
+		xfrm_state_put(state); /* XXX: for the bulk list */
+		state = NULL;
+
+		kfree(e);
+	}
+
+	bi->reflected = 0;
+
+	spin_unlock_bh(&xfrm_state_lock);
+}
+
+/*
+ * Reflect bulk message to real state database by inserting it.
+ * This operation is done without checking existing entry when force mode;
+ * e.g. the force mode is used such a situation as destination addresses are
+ * the same between old and new SA (and the old SA must be going to be removed
+ * after this function).
+ */
+int xfrm_state_bulk_insert(struct xfrm_state_bulk_info *bi, int force)
+{
+	struct xfrm_state_afinfo *afinfo;
+	struct xfrm_state *state;
+	struct xfrm_state *x;
+	struct xfrm_state_bulk_entry *e;
+	int err = 0;
+
+	if (bi->reflected != 0)
+		return -EINVAL;
+	if (bi->count == 0)
+		return -EINVAL;
+
+	spin_lock_bh(&xfrm_state_lock);
+
+	list_for_each_entry(e, &bi->lh, list) {
+		if (e->reflected != 0) {
+			BUG();
+			continue;
+		}
+
+		state = e->state;
+
+		if (!force) {
+			afinfo = xfrm_state_get_afinfo(state->props.family);
+			if (unlikely(afinfo == NULL)) {
+				err = -EAFNOSUPPORT;
+				goto out;
+			}
+
+			x = afinfo->state_lookup(&state->id.daddr,
+						 state->id.spi,
+						 state->id.proto);
+			xfrm_state_put_afinfo(afinfo);
+			if (x) {
+				xfrm_state_put(x);
+				x = NULL;
+				err = -EEXIST;
+				goto out;
+			}
+		}
+
+		__xfrm_state_insert(state);
+
+		xfrm_state_hold(state); /* XXX: for the bulk list */
+
+		e->reflected = 1;
+	}
+
+ out:
+	bi->reflected = 1;
+
+	spin_unlock_bh(&xfrm_state_lock);
+
+	if (err)
+		xfrm_state_bulk_delete(bi);
+
+	return err;
+}
+
+/*
+ * Reflect bulk message to real state database by deleting it.
+ */
+void xfrm_state_bulk_delete(struct xfrm_state_bulk_info *bi)
+{
+	struct xfrm_state *state;
+	struct xfrm_state_bulk_entry *e;
+
+	if (bi->reflected != 1)
+		return;
+
+	list_for_each_entry(e, &bi->lh, list) {
+		if (e->reflected != 1)
+			continue;
+
+		state = e->state;
+		xfrm_state_delete(state);
+		xfrm_state_put(state);
+
+		e->reflected = 0;
+	}
+
+	bi->reflected = 0;
+}
+#endif
+
 static struct list_head xfrm_km_list = LIST_HEAD_INIT(xfrm_km_list);
-static rwlock_t		xfrm_km_lock = RW_LOCK_UNLOCKED;
+static DEFINE_RWLOCK(xfrm_km_lock);
 
 void km_state_expired(struct xfrm_state *x, int hard)
 {
@@ -772,8 +1163,6 @@ int km_query(struct xfrm_state *x, struct xfrm_tmpl *t, struct xfrm_policy *pol)
 	read_lock(&xfrm_km_lock);
 	list_for_each_entry(km, &xfrm_km_list, list) {
 		err = km->acquire(x, t, pol, XFRM_POLICY_OUT);
-		if (!err)
-			break;
 	}
 	read_unlock(&xfrm_km_lock);
 	return err;

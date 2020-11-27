@@ -6,6 +6,11 @@
  *
  * Unicode based case conversion 1999 by Wolfram Pienkoss
  *
+ * Copyright (C) 2007  Motorola, Inc.
+ *
+ * ChangeLog:
+ *(mm-dd-yyyy)  Author    Comment
+ * 06-25-2007   Motorola  Update to fix bug in character translation
  */
 
 #include <linux/module.h>
@@ -21,7 +26,7 @@
 
 static struct nls_table default_table;
 static struct nls_table *tables = &default_table;
-static spinlock_t nls_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(nls_lock);
 
 /*
  * Sample implementation from Unicode home page.
@@ -154,6 +159,9 @@ utf8_wcstombs(__u8 *s, const wchar_t *pwcs, int maxlen)
 			}
 		} else {
 			*op++ = (__u8) *ip;
+#ifdef CONFIG_MOT_WFN494
+			maxlen--;
+#endif
 		}
 		ip++;
 	}

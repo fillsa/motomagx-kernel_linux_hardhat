@@ -1,9 +1,27 @@
 /*
  *  linux/include/linux/mmc/mmc.h
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * Copyright (C) 2006 Motorola
+ * 
+ * This program is free software; you can redistribute it
+ * and/or modify it under the terms of the GNU General
+ * Public License as published by the Free Software
+ * Foundation; either version 2 of the License, or (at
+ * your option) any later version.  You should have
+ * received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free
+ * Software Foundation, Inc., 675 Mass Ave,
+ * Cambridge, MA 02139, USA
+ *
+ * This Program is distributed in the hope that it will
+ * be useful, but WITHOUT ANY WARRANTY;
+ * without even the implied warranty of
+ * MERCHANTIBILITY or FITNESS FOR A
+ * PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * Date		Author			Comment
+ * 11/17/2006	Motorola		Support SDA 2.0
  */
 #ifndef MMC_H
 #define MMC_H
@@ -11,6 +29,7 @@
 #include <linux/list.h>
 #include <linux/interrupt.h>
 #include <linux/device.h>
+#include <linux/mmc/external.h>
 
 struct request;
 struct mmc_data;
@@ -37,6 +56,10 @@ struct mmc_command {
 #define MMC_RSP_R1B	(MMC_RSP_SHORT|MMC_RSP_CRC|MMC_RSP_BUSY)
 #define MMC_RSP_R2	(MMC_RSP_LONG|MMC_RSP_CRC)
 #define MMC_RSP_R3	(MMC_RSP_SHORT)
+#define MMC_RSP_R6	(MMC_RSP_SHORT|MMC_RSP_CRC)
+#ifdef CONFIG_MOT_FEAT_MMCSD_HCSD
+#define MMC_RSP_R7	(MMC_RSP_SHORT|MMC_RSP_CRC)
+#endif
 
 	unsigned int		retries;	/* max number of retries */
 	unsigned int		error;		/* command error */
@@ -88,6 +111,8 @@ struct mmc_card;
 
 extern int mmc_wait_for_req(struct mmc_host *, struct mmc_request *);
 extern int mmc_wait_for_cmd(struct mmc_host *, struct mmc_command *, int);
+extern int mmc_wait_for_app_cmd(struct mmc_host *, unsigned int,
+	struct mmc_command *, int);
 
 extern int __mmc_claim_host(struct mmc_host *host, struct mmc_card *card);
 

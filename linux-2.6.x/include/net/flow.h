@@ -71,12 +71,23 @@ struct flowi {
 		} dnports;
 
 		__u32		spi;
+
+#ifdef CONFIG_IPV6_MIP6
+		struct {
+			__u8	type;
+			__u16    bu_flags;
+		} mht;
+#endif
 	} uli_u;
 #define fl_ip_sport	uli_u.ports.sport
 #define fl_ip_dport	uli_u.ports.dport
 #define fl_icmp_type	uli_u.icmpt.type
 #define fl_icmp_code	uli_u.icmpt.code
 #define fl_ipsec_spi	uli_u.spi
+#ifdef CONFIG_IPV6_MIP6
+#define fl_mh_type	uli_u.mht.type
+#define fl_mh_bu_flags	uli_u.mht.bu_flags
+#endif
 } __attribute__((__aligned__(BITS_PER_LONG/8)));
 
 #define FLOW_DIR_IN	0

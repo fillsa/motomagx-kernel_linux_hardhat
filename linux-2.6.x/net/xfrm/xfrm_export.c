@@ -18,6 +18,9 @@ EXPORT_SYMBOL(xfrm_state_update);
 EXPORT_SYMBOL(xfrm_state_check_expire);
 EXPORT_SYMBOL(xfrm_state_check);
 EXPORT_SYMBOL(xfrm_state_lookup);
+#ifdef CONFIG_XFRM_ENHANCEMENT
+EXPORT_SYMBOL(xfrm_state_lookup_byaddr);
+#endif
 EXPORT_SYMBOL(xfrm_state_register_afinfo);
 EXPORT_SYMBOL(xfrm_state_unregister_afinfo);
 EXPORT_SYMBOL(xfrm_state_delete_tunnel);
@@ -34,6 +37,16 @@ EXPORT_SYMBOL(xfrm_register_km);
 EXPORT_SYMBOL(xfrm_unregister_km);
 EXPORT_SYMBOL(xfrm_state_delete);
 EXPORT_SYMBOL(xfrm_state_walk);
+#ifdef CONFIG_XFRM_ENHANCEMENT
+EXPORT_SYMBOL(xfrm_state_bulk_alloc);
+EXPORT_SYMBOL(xfrm_state_bulk_free);
+EXPORT_SYMBOL(xfrm_state_bulk_rearrange);
+EXPORT_SYMBOL(xfrm_state_bulk_destruct);
+EXPORT_SYMBOL(xfrm_state_bulk_hold);
+EXPORT_SYMBOL(xfrm_state_bulk_put);
+EXPORT_SYMBOL(xfrm_state_bulk_insert);
+EXPORT_SYMBOL(xfrm_state_bulk_delete);
+#endif
 EXPORT_SYMBOL(xfrm_find_acq_byseq);
 EXPORT_SYMBOL(xfrm_find_acq);
 EXPORT_SYMBOL(xfrm_alloc_spi);
@@ -47,6 +60,13 @@ EXPORT_SYMBOL(xfrm_policy_list);
 EXPORT_SYMBOL(xfrm_dst_lookup);
 EXPORT_SYMBOL(xfrm_policy_register_afinfo);
 EXPORT_SYMBOL(xfrm_policy_unregister_afinfo);
+
+#ifdef CONFIG_INET_TUNNEL_MODULE
+EXPORT_SYMBOL(xfrm_tunnel_handler);
+#endif
+#ifdef CONFIG_NET_KEY_MIGRATE
+EXPORT_SYMBOL(xfrm_migrate_address);
+#endif
 
 EXPORT_SYMBOL_GPL(xfrm_probe_algs);
 EXPORT_SYMBOL_GPL(xfrm_count_auth_supported);

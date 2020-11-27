@@ -72,7 +72,7 @@ struct xfrm6_tunnel_spi {
 # define XFRM6_TUNNEL_SPI_MAGIC 0xdeadbeef
 #endif
 
-static rwlock_t xfrm6_tunnel_spi_lock = RW_LOCK_UNLOCKED;
+static DEFINE_RWLOCK(xfrm6_tunnel_spi_lock);
 
 static u32 xfrm6_tunnel_spi;
 
@@ -358,7 +358,6 @@ static int xfrm6_tunnel_input(struct xfrm_state *x, struct xfrm_decap_state *dec
 	return 0;
 }
 
-static struct xfrm6_tunnel *xfrm6_tunnel_handler;
 static DECLARE_MUTEX(xfrm6_tunnel_sem);
 
 int xfrm6_tunnel_register(struct xfrm6_tunnel *handler)

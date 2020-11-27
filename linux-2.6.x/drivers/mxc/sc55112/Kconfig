@@ -1,0 +1,5 @@
+#
+# Character device configuration
+#
+
+source drivers/mxc/sc55112/core/Kconfig

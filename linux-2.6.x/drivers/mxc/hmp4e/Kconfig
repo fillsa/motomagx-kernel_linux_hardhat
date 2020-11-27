@@ -1,0 +1,16 @@
+#
+# MPEG4 Encoder kernel module  configuration
+#
+
+menu "MXC MPEG4 Encoder Kernel module support"
+
+config MXC_HMP4E
+	tristate "MPEG4 Encoder support"
+	depends on ARCH_MXC
+	depends on !ARCH_MXC91131
+	depends on !ARCH_MXC91231
+	---help---
+	  Say Y to get the MPEG4 Encoder kernel module available on MXC platform.
+
+endmenu
+

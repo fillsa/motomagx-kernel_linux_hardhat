@@ -1,0 +1,17 @@
+# 
+# Copyright (C) 2005-2006  Motorola, Inc.
+#
+
+#
+# APAL (Audio Driver) configuration
+#
+
+menu "APAL (Audio Driver) support"
+
+
+config APAL
+	tristate "APAL support"
+	---help---
+	  Say Y to get the APAL (Audio Driver) available on MXC platform. 
+
+endmenu

@@ -6,15 +6,20 @@
 #include <asm/segment.h>
 #include <asm/cpufeature.h>
 #include <linux/bitops.h> /* for LOCK_PREFIX */
+#include <linux/ilatency.h>
 
 #ifdef __KERNEL__
 
 struct task_struct;	/* one of the stranger aspects of C forward declarations.. */
 extern struct task_struct * FASTCALL(__switch_to(struct task_struct *prev, struct task_struct *next));
 
+/* sleeping_thread_to_gdb_regs depends on this code. Correct it if you change
+ * any of the following */
 #define switch_to(prev,next,last) do {					\
 	unsigned long esi,edi;						\
-	asm volatile("pushfl\n\t"					\
+	asm volatile(".globl __switch_to_begin\n"			\
+		     "__switch_to_begin:"				\
+		     "pushfl\n\t"					\
 		     "pushl %%ebp\n\t"					\
 		     "movl %%esp,%0\n\t"	/* save ESP */		\
 		     "movl %5,%%esp\n\t"	/* restore ESP */	\
@@ -23,7 +28,9 @@ extern struct task_struct * FASTCALL(__switch_to(struct task_struct *prev, struc
 		     "jmp __switch_to\n"				\
 		     "1:\t"						\
 		     "popl %%ebp\n\t"					\
-		     "popfl"						\
+		     "popfl\n"						\
+		     ".globl __switch_to_end\n"				\
+		     "__switch_to_end:\n"				\
 		     :"=m" (prev->thread.esp),"=m" (prev->thread.eip),	\
 		      "=a" (last),"=S" (esi),"=D" (edi)			\
 		     :"m" (next->thread.esp),"m" (next->thread.eip),	\
@@ -440,23 +447,53 @@ struct alt_instr {
 
 #define set_wmb(var, value) do { var = value; wmb(); } while (0)
 
+#ifdef CONFIG_CRITICAL_IRQSOFF_TIMING
+  extern void notrace trace_irqs_off_lowlevel(void);
+  extern void notrace trace_irqs_off(void);
+  extern void notrace trace_irqs_on(void);
+#else
+# define trace_irqs_off_lowlevel()	do { } while (0)
+# define trace_irqs_off()		do { } while (0)
+# define trace_irqs_on()		do { } while (0)
+#endif
+
 /* interrupt control.. */
 #define local_save_flags(x)	do { typecheck(unsigned long,x); __asm__ __volatile__("pushfl ; popl %0":"=g" (x): /* no input */); } while (0)
-#define local_irq_restore(x) 	do { typecheck(unsigned long,x); __asm__ __volatile__("pushl %0 ; popfl": /* no output */ :"g" (x):"memory", "cc"); } while (0)
-#define local_irq_disable() 	__asm__ __volatile__("cli": : :"memory")
-#define local_irq_enable()	__asm__ __volatile__("sti": : :"memory")
+#ifdef CONFIG_ILATENCY
+#define local_irq_enable()      ilat_irq_enable(__BASE_FILE__,__LINE__,0)
+#define local_irq_disable()     ilat_irq_disable(__BASE_FILE__,__LINE__)
+#define local_irq_save(x)       do {local_save_flags(x);local_irq_disable();} while (0)
+#define local_irq_restore(x)    ilat_restore_flags(__BASE_FILE__,__LINE__,x)
+                                                                                
+#define __local_irq_restore(x)  do { typecheck(unsigned long,x); __asm__ __volatile__("pushl %0 ; popfl": /* no output */ :"g" (x):"memory", "cc"); } while (0)
+#define __local_irq_disable()   __asm__ __volatile__("cli": : :"memory")
+#define __local_irq_enable()    __asm__ __volatile__("sti": : :"memory")
+                                                                                
+#else
+
+#define local_irq_restore(x) 	do { typecheck(unsigned long,x); if (irqs_disabled_flags(x)) trace_irqs_off(); else trace_irqs_on(); __asm__ __volatile__("pushl %0 ; popfl": /* no output */ :"g" (x):"memory", "cc"); } while (0)
+#define local_irq_disable() 	do { __asm__ __volatile__("cli": : :"memory"); trace_irqs_off(); } while (0)
+#define local_irq_enable()	do { trace_irqs_on(); __asm__ __volatile__("sti": : :"memory"); } while (0)
+#endif
 /* used in the idle loop; sti takes one instruction cycle to complete */
-#define safe_halt()		__asm__ __volatile__("sti; hlt": : :"memory")
+#define safe_halt()		do { trace_irqs_on(); __asm__ __volatile__("sti; hlt": : :"memory"); } while (0)
+
+#define irqs_disabled_flags(flags)	\
+({					\
+	!(flags & (1<<9));		\
+})
 
 #define irqs_disabled()			\
 ({					\
 	unsigned long flags;		\
 	local_save_flags(flags);	\
-	!(flags & (1<<9));		\
+	irqs_disabled_flags(flags);	\
 })
 
+#ifndef CONFIG_ILATENCY
 /* For spinlocks etc */
-#define local_irq_save(x)	__asm__ __volatile__("pushfl ; popl %0 ; cli":"=g" (x): /* no input */ :"memory")
+#define local_irq_save(x)	do { __asm__ __volatile__("pushfl ; popl %0 ; cli":"=g" (x): /* no input */ :"memory"); trace_irqs_off(); } while (0)
+#endif
 
 /*
  * disable hlt during certain critical i/o operations
@@ -466,5 +503,6 @@ void disable_hlt(void);
 void enable_hlt(void);
 
 extern int es7000_plat;
+void cpu_idle_wait(void);
 
 #endif

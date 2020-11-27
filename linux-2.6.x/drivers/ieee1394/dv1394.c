@@ -172,7 +172,7 @@ static void ir_tasklet_func(unsigned long data);
 
 /* list of all video_cards */
 static LIST_HEAD(dv1394_cards);
-static spinlock_t dv1394_cards_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(dv1394_cards_lock);
 
 /* translate from a struct file* to the corresponding struct video_card* */
 

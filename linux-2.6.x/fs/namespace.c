@@ -1,10 +1,19 @@
 /*
  *  linux/fs/namespace.c
  *
+ * Copyright (C) 2006 Motorola Inc
  * (C) Copyright Al Viro 2000, 2001
  *	Released under GPL v2.
  *
- * Based on code from fs/super.c, copyright Linus Torvalds and others.
+ */
+
+/* ChangeLog:
+ * (mm-dd-yyyy) Author    Comment
+ * 07-03-2006   Motorola  Add link from super_block to vfsmount 
+ *			  structure to support later name lookups.
+ */
+
+/* Based on code from fs/super.c, copyright Linus Torvalds and others.
  * Heavily rewritten.
  */
 
@@ -37,7 +46,7 @@ static inline int sysfs_init(void)
 #endif
 
 /* spinlock for vfsmount related operations, inplace of dcache_lock */
-spinlock_t vfsmount_lock __cacheline_aligned_in_smp = SPIN_LOCK_UNLOCKED;
+ __cacheline_aligned_in_smp DEFINE_SPINLOCK(vfsmount_lock);
 
 static struct list_head *mount_hashtable;
 static int hash_mask, hash_bits;
@@ -816,6 +825,12 @@ int do_add_mount(struct vfsmount *newmnt, struct nameidata *nd,
 		spin_unlock(&vfsmount_lock);
 	}
 
+#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+	/* Store a back-pointer to the vfsmount structure in the
+	   super_block to allow name lookup later, when the nameidata
+	   isn't available */
+	newmnt->mnt_sb->s_vfsmount = newmnt;
+#endif /* CONFIG_MOT_FEAT_SECURE_DRM */
 unlock:
 	up_write(&current->namespace->sem);
 	mntput(newmnt);

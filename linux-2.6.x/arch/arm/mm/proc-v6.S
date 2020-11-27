@@ -2,12 +2,21 @@
  *  linux/arch/arm/mm/proc-v6.S
  *
  *  Copyright (C) 2001 Deep Blue Solutions Ltd.
+ *  Copyright (C) 2006-2007 Motorola Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  *
  *  This is the "shell" of the ARMv6 processor support.
+ *
+ *
+ * Date        Author            Comment
+ * ==========  ================  ========================
+ * 09/26/2006  Motorola          Initial creation
+ * 11/15/2006  Motorola          Added workaround errata 380532
+ * 02/21/2007  Motorola          Added fix for errata 411920
+ * 03/28/2007  Motorola          Added cache optimization
  */
 #include <linux/linkage.h>
 #include <asm/assembler.h>
@@ -18,6 +27,81 @@
 #include "proc-macros.S"
 
 #define D_CACHE_LINE_SIZE	32
+
+#ifdef CONFIG_CPU_CACHE_L210
+#include <asm/hardware.h>
+
+#ifdef CONFIG_MOT_FEAT_CACHE_OPTIMIZATION
+#include <asm/arch/mxc_pm.h>
+#endif /* CONFIG_MOT_FEAT_CACHE_OPTIMIZATION */
+
+	.macro ENABLE_L2_CACHE
+	mcr	p15, 0, r0, c7, c10, 4		@ drain write buffer
+
+	mov	r1, #L2CC_BASE_ADDR
+	ldr	r2, [r1, #0x100]		@ ARM L210 Control
+	bic	r2, r2, #0x1
+	str	r2, [r1, #0x100]		@ disable L2
+
+	mcr	p15, 0, r0, c7, c10, 4		@ drain write buffer
+
+	/*
+	 * Configure L2 Cache:
+	 * - 128k size(16k way)
+	 * - 8-way associativity
+	 * - 0 ws TAG/VALID/DIRTY
+	 * - 7 ws DATA R/W
+	 */
+	ldr	r2, [r1, #0x104]		@ ARM L210 Auxiliary Control
+	and	r2, r2, #0xFE000000
+	orr	r2, r2, #0x00030000
+
+#ifdef CONFIG_MOT_FEAT_CACHE_OPTIMIZATION
+#if CORE_MAX_FREQ == CORE_FREQ_532
+	orr	r2, r2, #0x00000024
+#elif CORE_MAX_FREQ == CORE_FREQ_399
+	orr	r2, r2, #0x0000001B
+#elif CORE_MAX_FREQ == CORE_FREQ_266
+	orr	r2, r2, #0x00000012
+#elif CORE_MAX_FREQ == CORE_FREQ_133
+	orr	r2, r2, #0x00000009
+#else
+#error "Unsupported maximum core frequency!"
+#endif /* CORE_MAX_FREQ */
+#endif /* CONFIG_MOT_FEAT_CACHE_OPTIMIZATION
+
+#ifndef CONFIG_MOT_FEAT_CACHE_OPTIMIZATION
+	orr	r2, r2, #0x00000024
+#endif /* CONFIG_MOT_FEAT_CACHE_OPTIMIZATION */
+
+	str	r2, [r1, #0x104]
+
+	mcr	p15, 0, r0, c7, c10, 4		@ drain write buffer
+
+	/* Invalidate By Way */
+	ldr	r2, =0xff
+	str	r2, [r1, #0x77C]		@ ARM L210 Invalidate By Way
+
+L2_inv_loop:
+	ldr	r2, [r1, #0x77C]
+	cmp	r2, #0
+	bne	L2_inv_loop
+
+	mcr	p15, 0, r0, c7, c10, 4		@ drain write buffer
+	/* Force L2 write through */
+#ifndef CONFIG_MOT_FEAT_CACHE_OPTIMIZATION
+	ldr	r2, =0x2
+	str	r2, [r1, #0xF40]
+#endif /* CONFIG_MOT_FEAT_CACHE_OPTIMIZATION */
+	/* Enable L2 */
+	ldr	r2, [r1, #0x100]		@ ARM L210 Control
+	orr	r2, r2, #0x1
+	str	r2, [r1, #0x100]
+	.endm	/* ENABLE_L2_CACHE */
+
+#else
+#define ENABLE_L2_CACHE
+#endif /* CONFIG_CPU_CACHE_L210 */
 
 	.macro	cpsie, flags
 	.ifc \flags, f
@@ -35,6 +119,7 @@
 	.err
 	.endm
 
+#ifndef CONFIG_MOT_WFN477
 	.macro	cpsid, flags
 	.ifc \flags, f
 	.long	0xf10c0040
@@ -50,12 +135,20 @@
 	.endif
 	.err
 	.endm
+#endif
 
 ENTRY(cpu_v6_proc_init)
 	mov	pc, lr
 
 ENTRY(cpu_v6_proc_fin)
-	mov	pc, lr
+	stmfd	sp!, {lr}
+	cpsid	if				@ disable interrupts
+	bl	v6_flush_kern_cache_all
+	mrc	p15, 0, r0, c1, c0, 0		@ ctrl register
+	bic	r0, r0, #0x1000			@ ...i............
+	bic	r0, r0, #0x0006			@ .............ca.
+	mcr	p15, 0, r0, c1, c0, 0		@ disable caches
+	ldmfd	sp!, {pc}
 
 /*
  *	cpu_v6_reset(loc)
@@ -105,16 +198,14 @@ ENTRY(cpu_v6_dcache_clean_area)
 ENTRY(cpu_v6_switch_mm)
 	mov	r2, #0
 	ldr	r1, [r1, #MM_CONTEXT_ID]	@ get mm->context.id
+#ifdef CONFIG_CPU_CACHE_L210
+	orr	r0, r0, #0x18			@ set outer cacheable write back pgtable
+#endif
+	mcr	p15, 0, r2, c7, c5, 6		@ flush BTAC/BTB	
 	mcr	p15, 0, r2, c7, c10, 4		@ drain write buffer
 	mcr	p15, 0, r0, c2, c0, 0		@ set TTB 0
 	mcr	p15, 0, r1, c13, c0, 1		@ set context ID
 	mov	pc, lr
-
-#define nG	(1 << 11)
-#define APX	(1 << 9)
-#define AP1	(1 << 5)
-#define AP0	(1 << 4)
-#define XN	(1 << 0)
 
 /*
  *	cpu_v6_set_pte(ptep, pte)
@@ -131,31 +222,31 @@ ENTRY(cpu_v6_switch_mm)
  *	  100x   1   0   1	r/o	no acc
  *	  10x0   1   0   1	r/o	no acc
  *	  1011   0   0   1	r/w	no acc
- *	  110x   1   1   0	r/o	r/o
- *	  11x0   1   1   0	r/o	r/o
+ *	  110x   0   1   0	r/w	r/o
+ *	  11x0   0   1   0	r/w	r/o
  *	  1111   0   1   1	r/w	r/w
  */
 ENTRY(cpu_v6_set_pte)
 	str	r1, [r0], #-2048		@ linux version
 
-	bic	r2, r1, #0x00000ff0
+	bic	r2, r1, #0x000007f0
 	bic	r2, r2, #0x00000003
-	orr	r2, r2, #AP0 | 2
+	orr	r2, r2, #PTE_EXT_AP0 | 2
 
 	tst	r1, #L_PTE_WRITE
 	tstne	r1, #L_PTE_DIRTY
-	orreq	r2, r2, #APX
+	orreq	r2, r2, #PTE_EXT_APX
 
 	tst	r1, #L_PTE_USER
-	orrne	r2, r2, #AP1 | nG
-	tstne	r2, #APX
-	eorne	r2, r2, #AP0
+	orrne	r2, r2, #PTE_EXT_AP1
+	tstne	r2, #PTE_EXT_APX
+	bicne	r2, r2, #PTE_EXT_APX | PTE_EXT_AP0
 
 	tst	r1, #L_PTE_YOUNG
-	biceq	r2, r2, #APX | AP1 | AP0
+	biceq	r2, r2, #PTE_EXT_APX | PTE_EXT_AP_MASK
 
 @	tst	r1, #L_PTE_EXEC
-@	orreq	r2, r2, #XN
+@	orreq	r2, r2, #PTE_EXT_XN
 
 	tst	r1, #L_PTE_PRESENT
 	moveq	r2, #0
@@ -189,27 +280,74 @@ cpu_v6_name:
  *	- cache type register is implemented
  */
 __v6_setup:
-	mov	r10, #0
-	mcr	p15, 0, r10, c7, c14, 0		@ clean+invalidate D cache
-	mcr	p15, 0, r10, c7, c5, 0		@ invalidate I cache
-	mcr	p15, 0, r10, c7, c15, 0		@ clean+invalidate cache
-	mcr	p15, 0, r10, c7, c10, 4		@ drain write buffer
-	mcr	p15, 0, r10, c8, c7, 0		@ invalidate I + D TLBs
-	mcr	p15, 0, r10, c2, c0, 2		@ TTB control register
-	mcr	p15, 0, r4, c2, c0, 0		@ load TTB0
-	mcr	p15, 0, r4, c2, c0, 1		@ load TTB1
-	mov	r10, #0x1f			@ domains 0, 1 = manager
-	mcr	p15, 0, r10, c3, c0, 0		@ load domain access register
-	mrc	p15, 0, r0, c1, c0, 0		@ read control register
-#ifdef CONFIG_VFP
-	mrc	p15, 0, r10, c1, c0, 2
-	orr	r10, r10, #(3 << 20)
-	mcr	p15, 0, r10, c1, c0, 2		@ Enable full access to VFP
+	mov	r0, #0
+	mcr	p15, 0, r0, c7, c14, 0		@ clean+invalidate D cache
+
+	/* Fix for ARM errata 411920 */ 
+#ifndef CONFIG_MOT_WFN477
+	mcr	p15, 0, r0, c7, c5, 0		@ invalidate I cache
+#else
+	mrs	r1, cpsr
+	cpsid	ifa						@ disable interrupts
+	mcr	p15, 0, r0, c7, c12, 5		@ Stop Prefetch Range
+	mcr	p15, 0, r0, c7, c5, 0		@ Invalidate Entire Instruction Cache
+	mcr	p15, 0, r0, c7, c5, 0		@ Invalidate Entire Instruction Cache
+	mcr	p15, 0, r0, c7, c5, 0		@ Invalidate Entire Instruction Cache
+	mcr	p15, 0, r0, c7, c5, 0		@ Invalidate Entire Instruction Cache
+	msr	cpsr_c, r1					@ reenable interrupts
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
 #endif
-	ldr	r10, cr1_clear			@ get mask for bits to clear
-	bic	r0, r0, r10			@ clear bits them
-	ldr	r10, cr1_set			@ get mask for bits to set
-	orr	r0, r0, r10			@ set them
+
+	mcr	p15, 0, r0, c7, c15, 0		@ clean+invalidate cache
+	mcr	p15, 0, r0, c7, c10, 4		@ drain write buffer
+	mcr	p15, 0, r0, c8, c7, 0		@ invalidate I + D TLBs
+	mcr	p15, 0, r0, c2, c0, 2		@ TTB control register
+#ifdef CONFIG_CPU_CACHE_L210
+	orr	r4, r4, #0x18			@ set outer cacheable write back pgtable
+#endif
+	mcr	p15, 0, r4, c2, c0, 1		@ load TTB1
+	ENABLE_L2_CACHE
+#ifdef CONFIG_VFP
+	mrc	p15, 0, r0, c1, c0, 2
+	orr	r0, r0, #(0xf << 20)
+	mcr	p15, 0, r0, c1, c0, 2		@ Enable full access to VFP
+#endif
+	/* The conditional code below (setting the undocumented bit 31 in
+	 * the auxiliary control register and the FI bit in the control
+	 * register) disables hit-under-miss without putting the processor
+	 * into full low interrupt latency mode to workaround possible
+	 * cache data corruption in ARM1136 r0pX parts when hit-under-miss
+	 * is enabled.
+	 */
+	ldr	r5, =0x4107b360			@ id for ARM1136 r0pX
+	mrc	p15, 0, r0, c0, c0, 0		@ get processor id
+	bic	r0, r0, #0xf			@ mask out part bits [3:0]
+
+#ifdef CONFIG_MOT_WFN462
+        @ Workaround for errata 380532 
+	bic	r0, r0, #0x00100000		@ mask out revision 1 bits too
+#endif
+
+	teq	r0, r5				@ check for the faulty core
+	mrceq	p15, 0, r0, c1, c0, 1		@ load aux control reg
+	orreq	r0, r0, #0x80000000		@ set bit 31
+	mcreq	p15, 0, r0, c1, c0, 1		@ write aux control reg
+	mrc	p15, 0, r0, c1, c0, 0		@ read control register
+	ldr	r5, v6_cr1_clear		@ get mask for bits to clear
+	bic	r0, r0, r5			@ clear bits them
+	ldr	r5, v6_cr1_set			@ get mask for bits to set
+	orr	r0, r0, r5			@ set them
+	orreq	r0, r0, #0x00200000		@ set the FI bit
 	mov	pc, lr				@ return to head.S:__ret
 
 	/*
@@ -218,11 +356,11 @@ __v6_setup:
 	 * rrrr rrrx xxx0 0101 xxxx xxxx x111 xxxx < forced
 	 *         0 110       0011 1.00 .111 1101 < we want
 	 */
-	.type	cr1_clear, #object
-	.type	cr1_set, #object
-cr1_clear:
-	.word	0x0120c302
-cr1_set:
+	.type	v6_cr1_clear, #object
+	.type	v6_cr1_set, #object
+v6_cr1_clear:
+	.word	0x01e0fb7f
+v6_cr1_set:
 	.word	0x00c0387d
 
 	.type	v6_processor_functions, #object
@@ -248,7 +386,7 @@ cpu_elf_name:
 	.size	cpu_elf_name, . - cpu_elf_name
 	.align
 
-	.section ".proc.info", #alloc, #execinstr
+	.section ".proc.info.init", #alloc, #execinstr
 
 	/*
 	 * Match any ARMv6 processor core.
@@ -257,7 +395,11 @@ cpu_elf_name:
 __v6_proc_info:
 	.long	0x0007b000
 	.long	0x0007f000
-	.long	0x00000c0e
+	.long   PMD_TYPE_SECT | \
+		PMD_SECT_BUFFERABLE | \
+		PMD_SECT_CACHEABLE | \
+		PMD_SECT_AP_WRITE | \
+		PMD_SECT_AP_READ
 	b	__v6_setup
 	.long	cpu_arch_name
 	.long	cpu_elf_name

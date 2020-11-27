@@ -56,7 +56,7 @@ static int ticks = 10000;
 /* some device data */
 
 static struct {
-	struct semaphore stop;
+	struct compat_semaphore stop;
 	volatile int running;
 	struct timer_list timer;
 	volatile int queue;

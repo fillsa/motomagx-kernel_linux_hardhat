@@ -65,7 +65,6 @@ struct rcu_ctrlblk {
 	long	cur;		/* Current batch number.                      */
 	long	completed;	/* Number of the last completed batch         */
 	int	next_pending;	/* Is the next batch already waiting?         */
-	seqcount_t lock;	/* For atomic reads of cur and next_pending.  */
 } ____cacheline_maxaligned_in_smp;
 
 /* Is batch a before batch b ? */
@@ -88,9 +87,7 @@ static inline int rcu_batch_after(long a, long b)
 struct rcu_data {
 	/* 1) quiescent state handling : */
 	long		quiescbatch;     /* Batch # for grace period */
-	long		qsctr;		 /* User-mode/idle loop etc. */
-	long            last_qsctr;	 /* value of qsctr at beginning */
-					 /* of rcu grace period */
+	int		passed_quiesc;	 /* User-mode/idle loop etc. */
 	int		qs_pending;	 /* core waits for quiesc state */
 
 	/* 2) batch handling */
@@ -102,6 +99,9 @@ struct rcu_data {
 	struct rcu_head *donelist;
 	struct rcu_head **donetail;
 	int cpu;
+#ifdef CONFIG_PREEMPT_RCU
+	atomic_t	active_readers;
+#endif
 };
 
 DECLARE_PER_CPU(struct rcu_data, rcu_data);
@@ -110,17 +110,26 @@ extern struct rcu_ctrlblk rcu_ctrlblk;
 extern struct rcu_ctrlblk rcu_bh_ctrlblk;
 
 /*
- * Increment the quiscent state counter.
+ * Increment the quiescent state counter.
+ * The counter is a bit degenerated: We do not need to know
+ * how many quiescent states passed, just if there was at least
+ * one since the start of the grace period. Thus just a flag.
  */
 static inline void rcu_qsctr_inc(int cpu)
 {
 	struct rcu_data *rdp = &per_cpu(rcu_data, cpu);
-	rdp->qsctr++;
+#ifdef CONFIG_PREEMPT_RCU
+	if (!atomic_read(&rdp->active_readers))
+#endif
+		rdp->passed_quiesc = 1;
 }
 static inline void rcu_bh_qsctr_inc(int cpu)
 {
 	struct rcu_data *rdp = &per_cpu(rcu_bh_data, cpu);
-	rdp->qsctr++;
+#ifdef CONFIG_PREEMPT_RCU
+	if (!atomic_read(&rdp->active_readers))
+#endif
+		rdp->passed_quiesc = 1;
 }
 
 static inline int __rcu_pending(struct rcu_ctrlblk *rcp,
@@ -183,14 +192,22 @@ static inline int rcu_pending(int cpu)
  *
  * It is illegal to block while in an RCU read-side critical section.
  */
-#define rcu_read_lock()		preempt_disable()
+#ifdef CONFIG_PREEMPT_RCU
+  extern void rcu_read_lock(void);
+#else
+# define rcu_read_lock preempt_disable
+#endif
 
 /**
  * rcu_read_unlock - marks the end of an RCU read-side critical section.
  *
  * See rcu_read_lock() for more information.
  */
-#define rcu_read_unlock()	preempt_enable()
+#ifdef CONFIG_PREEMPT_RCU
+  extern void rcu_read_unlock(void);
+#else
+# define rcu_read_unlock preempt_enable
+#endif
 
 /*
  * So where is rcu_write_lock()?  It does not exist, as there is no
@@ -213,14 +230,16 @@ static inline int rcu_pending(int cpu)
  * can use just rcu_read_lock().
  *
  */
-#define rcu_read_lock_bh()	local_bh_disable()
+//#define rcu_read_lock_bh()	local_bh_disable()
+#define rcu_read_lock_bh()	{ rcu_read_lock(); local_bh_disable(); }
 
 /*
  * rcu_read_unlock_bh - marks the end of a softirq-only RCU critical section
  *
  * See rcu_read_lock_bh() for more information.
  */
-#define rcu_read_unlock_bh()	local_bh_enable()
+//#define rcu_read_unlock_bh()	local_bh_enable()
+#define rcu_read_unlock_bh()	{ local_bh_enable(); rcu_read_unlock(); }
 
 /**
  * rcu_dereference - fetch an RCU-protected pointer in an

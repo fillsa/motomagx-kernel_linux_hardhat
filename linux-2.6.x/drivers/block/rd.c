@@ -1,9 +1,13 @@
 /*
  * ramdisk.c - Multiple RAM disk driver - gzip-loading version - v. 0.8 beta.
  *
+ * Copyright (C) 2006 Motorola Inc
  * (C) Chad Page, Theodore Ts'o, et. al, 1995.
  *
- * This RAM disk is designed to have filesystems created on it and mounted
+ */
+
+
+/* This RAM disk is designed to have filesystems created on it and mounted
  * just like a regular floppy disk.
  *
  * It also does something suggested by Linus: use the buffer cache as the
@@ -40,6 +44,8 @@
  *
  * Make block size and block size shift for RAM disks a global macro
  * and set blk_size for -ENOSPC,     Werner Fink <werner@suse.de>, Apr '99
+ *
+ * 07-17-2006   Motorola  Fixed bounds check on ramdisk open
  */
 
 #include <linux/config.h>
@@ -343,6 +349,11 @@ static struct backing_dev_info rd_file_backing_dev_info = {
 static int rd_open(struct inode *inode, struct file *filp)
 {
 	unsigned unit = iminor(inode);
+
+#ifdef CONFIG_MOT_WFN424
+	if(unit >= CONFIG_BLK_DEV_RAM_COUNT)
+		return -EINVAL;
+#endif
 
 	if (rd_bdev[unit] == NULL) {
 		struct block_device *bdev = inode->i_bdev;

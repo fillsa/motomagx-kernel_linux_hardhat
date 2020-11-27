@@ -2,8 +2,6 @@
  * Carsten Langgaard, carstenl@mips.com
  * Copyright (C) 2000 MIPS Technologies, Inc.  All rights reserved.
  *
- * ########################################################################
- *
  *  This program is free software; you can distribute it and/or modify it
  *  under the terms of the GNU General Public License (Version 2) as
  *  published by the Free Software Foundation.
@@ -16,8 +14,6 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  59 Temple Place - Suite 330, Boston MA 02111-1307, USA.
- *
- * ########################################################################
  *
  * SAA9730 ethernet driver.
  *
@@ -51,7 +47,7 @@ int lan_saa9730_debug;
 #define DRV_MODULE_NAME "saa9730"
 
 static struct pci_device_id saa9730_pci_tbl[] = {
-	{ PCI_VENDOR_ID_PHILIPS, PCI_DEVICE_ID_PHILIPS_SAA9370,
+	{ PCI_VENDOR_ID_PHILIPS, PCI_DEVICE_ID_PHILIPS_SAA9730,
           PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0UL },
 	{ 0, }
 };
@@ -98,13 +94,13 @@ static void evm_saa9730_unblock_lan_int(struct lan_saa9730_private *lp)
 	     &lp->evm_saa9730_regs->InterruptBlock1);
 }
 
-static void show_saa9730_regs(struct lan_saa9730_private *lp)
+static void __attribute_used__ show_saa9730_regs(struct lan_saa9730_private *lp)
 {
 	int i, j;
-	printk("TxmBufferA = %x\n", lp->TxmBuffer[0][0]);
-	printk("TxmBufferB = %x\n", lp->TxmBuffer[1][0]);
-	printk("RcvBufferA = %x\n", lp->RcvBuffer[0][0]);
-	printk("RcvBufferB = %x\n", lp->RcvBuffer[1][0]);
+	printk("TxmBufferA = %p\n", lp->TxmBuffer[0][0]);
+	printk("TxmBufferB = %p\n", lp->TxmBuffer[1][0]);
+	printk("RcvBufferA = %p\n", lp->RcvBuffer[0][0]);
+	printk("RcvBufferB = %p\n", lp->RcvBuffer[1][0]);
 	for (i = 0; i < LAN_SAA9730_BUFFERS; i++) {
 		for (j = 0; j < LAN_SAA9730_TXM_Q_SIZE; j++) {
 			printk("TxmBuffer[%d][%d] = %x\n", i, j,
@@ -214,33 +210,12 @@ static void lan_saa9730_buffer_init(struct lan_saa9730_private *lp)
 	}
 }
 
-static int lan_saa9730_allocate_buffers(struct lan_saa9730_private *lp)
+static int lan_saa9730_allocate_buffers(struct pci_dev *pdev, struct lan_saa9730_private *lp)
 {
-	unsigned int mem_size;
 	void *Pa;
 	unsigned int i, j, RcvBufferSize, TxmBufferSize;
-	unsigned int buffer_start;
 
-	/* 
-	 * Allocate all RX and TX packets in one chunk. 
-	 * The Rx and Tx packets must be PACKET_SIZE aligned.
-	 */
-	mem_size = ((LAN_SAA9730_RCV_Q_SIZE + LAN_SAA9730_TXM_Q_SIZE) *
-		    LAN_SAA9730_PACKET_SIZE * LAN_SAA9730_BUFFERS) +
-	    LAN_SAA9730_PACKET_SIZE;
-	buffer_start =
-	    (unsigned int) kmalloc(mem_size, GFP_DMA | GFP_KERNEL);
-
-	if (!buffer_start)
-		return -ENOMEM;
-
-	/* 
-	 * Set DMA buffer to kseg1 (uncached).
-	 * Make sure to flush before using it uncached.
-	 */
-	Pa = (void *) KSEG1ADDR((buffer_start + LAN_SAA9730_PACKET_SIZE) &
-				~(LAN_SAA9730_PACKET_SIZE - 1));
-	dma_cache_wback_inv((unsigned long) Pa, mem_size);
+	Pa = (void *)ALIGN((unsigned long)lp->buffer_start, LAN_SAA9730_PACKET_SIZE);
 
 	/* Initialize buffer space */
 	RcvBufferSize = LAN_SAA9730_PACKET_SIZE;
@@ -248,13 +223,14 @@ static int lan_saa9730_allocate_buffers(struct lan_saa9730_private *lp)
 	lp->DmaRcvPackets = LAN_SAA9730_RCV_Q_SIZE;
 	lp->DmaTxmPackets = LAN_SAA9730_TXM_Q_SIZE;
 
+	
 	/* Init RX buffers */
 	for (i = 0; i < LAN_SAA9730_BUFFERS; i++) {
 		for (j = 0; j < LAN_SAA9730_RCV_Q_SIZE; j++) {
 			*(unsigned int *) Pa =
 			    cpu_to_le32(RXSF_READY <<
 					RX_STAT_CTL_OWNER_SHF);
-			lp->RcvBuffer[i][j] = (unsigned int) Pa;
+			lp->RcvBuffer[i][j] = Pa;
 			Pa += RcvBufferSize;
 		}
 	}
@@ -265,7 +241,7 @@ static int lan_saa9730_allocate_buffers(struct lan_saa9730_private *lp)
 			*(unsigned int *) Pa =
 			    cpu_to_le32(TXSF_EMPTY <<
 					TX_STAT_CTL_OWNER_SHF);
-			lp->TxmBuffer[i][j] = (unsigned int) Pa;
+			lp->TxmBuffer[i][j] = Pa;
 			Pa += TxmBufferSize;
 		}
 	}
@@ -274,16 +250,14 @@ static int lan_saa9730_allocate_buffers(struct lan_saa9730_private *lp)
 	 * Set rx buffer A and rx buffer B to point to the first two buffer 
 	 * spaces.
 	 */
-	OUTL(PHYSADDR(lp->RcvBuffer[0][0]),
-	     &lp->lan_saa9730_regs->RxBuffA);
-	OUTL(PHYSADDR(lp->RcvBuffer[1][0]),
-	     &lp->lan_saa9730_regs->RxBuffB);
+	OUTL(lp->dma_addr + (lp->RcvBuffer[0][0] - (void *)lp), &lp->lan_saa9730_regs->RxBuffA);
+	OUTL(lp->dma_addr + (lp->RcvBuffer[1][0] - (void *)lp), &lp->lan_saa9730_regs->RxBuffB);
 
 	/* Initialize Buffer Index */
 	lp->NextRcvPacketIndex = 0;
 	lp->NextRcvToUseIsA = 1;
 
-	/* Set current buffer index & next availble packet index */
+	/* Set current buffer index & next available packet index */
 	lp->NextTxmPacketIndex = 0;
 	lp->NextTxmBufferIndex = 0;
 	lp->PendingTxmPacketIndex = 0;
@@ -293,10 +267,8 @@ static int lan_saa9730_allocate_buffers(struct lan_saa9730_private *lp)
 	 * Set txm_buf_a and txm_buf_b to point to the first two buffer
 	 * space 
 	 */
-	OUTL(PHYSADDR(lp->TxmBuffer[0][0]),
-	     &lp->lan_saa9730_regs->TxBuffA);
-	OUTL(PHYSADDR(lp->TxmBuffer[1][0]),
-	     &lp->lan_saa9730_regs->TxBuffB);
+	OUTL(lp->dma_addr + (lp->TxmBuffer[0][0] - (void *)lp), &lp->lan_saa9730_regs->TxBuffA);
+	OUTL(lp->dma_addr + (lp->TxmBuffer[1][0] - (void *)lp), &lp->lan_saa9730_regs->TxBuffB);
 
 	/* Set packet number */
 	OUTL((lp->DmaRcvPackets << PK_COUNT_RX_A_SHF) |
@@ -328,8 +300,7 @@ static int lan_saa9730_cam_load(struct lan_saa9730_private *lp)
 
 static int lan_saa9730_cam_init(struct net_device *dev)
 {
-	struct lan_saa9730_private *lp =
-	    (struct lan_saa9730_private *) dev->priv;
+	struct lan_saa9730_private *lp = netdev_priv(dev);
 	unsigned int i;
 
 	/* Copy MAC-address into all entries. */
@@ -572,8 +543,7 @@ static int lan_saa9730_restart(struct lan_saa9730_private *lp)
 
 static int lan_saa9730_tx(struct net_device *dev)
 {
-	struct lan_saa9730_private *lp =
-	    (struct lan_saa9730_private *) dev->priv;
+	struct lan_saa9730_private *lp = netdev_priv(dev);
 	unsigned int *pPacket;
 	unsigned int tx_status;
 
@@ -649,8 +619,7 @@ static int lan_saa9730_tx(struct net_device *dev)
 
 static int lan_saa9730_rx(struct net_device *dev)
 {
-	struct lan_saa9730_private *lp =
-	    (struct lan_saa9730_private *) dev->priv;
+	struct lan_saa9730_private *lp = netdev_priv(dev);
 	int len = 0;
 	struct sk_buff *skb = 0;
 	unsigned int rx_status;
@@ -767,8 +736,7 @@ static irqreturn_t lan_saa9730_interrupt(const int irq, void *dev_id,
 				  struct pt_regs *regs)
 {
 	struct net_device *dev = (struct net_device *) dev_id;
-	struct lan_saa9730_private *lp =
-	    (struct lan_saa9730_private *) dev->priv;
+	struct lan_saa9730_private *lp = netdev_priv(dev);
 
 	if (lan_saa9730_debug > 5)
 		printk("lan_saa9730_interrupt\n");
@@ -801,8 +769,7 @@ static int lan_saa9730_open_fail(struct net_device *dev)
 
 static int lan_saa9730_open(struct net_device *dev)
 {
-	struct lan_saa9730_private *lp =
-	    (struct lan_saa9730_private *) dev->priv;
+	struct lan_saa9730_private *lp = netdev_priv(dev);
 
 	/* Associate IRQ with lan_saa9730_interrupt */
 	if (request_irq(dev->irq, &lan_saa9730_interrupt, 0, "SAA9730 Eth",
@@ -834,8 +801,7 @@ static int lan_saa9730_write(struct lan_saa9730_private *lp,
 	int PacketIndex;
 
 	if (lan_saa9730_debug > 5)
-		printk("lan_saa9730_write: skb=%08x\n",
-		       (unsigned int) skb);
+		printk("lan_saa9730_write: skb=%p\n", skb);
 
 	BufferIndex = lp->NextTxmBufferIndex;
 	PacketIndex = lp->NextTxmPacketIndex;
@@ -879,8 +845,7 @@ static int lan_saa9730_write(struct lan_saa9730_private *lp,
 
 static void lan_saa9730_tx_timeout(struct net_device *dev)
 {
-	struct lan_saa9730_private *lp =
-	    (struct lan_saa9730_private *) dev->priv;
+	struct lan_saa9730_private *lp = netdev_priv(dev);
 
 	/* Transmitter timeout, serious problems */
 	lp->stats.tx_errors++;
@@ -895,14 +860,13 @@ static void lan_saa9730_tx_timeout(struct net_device *dev)
 static int lan_saa9730_start_xmit(struct sk_buff *skb,
 				  struct net_device *dev)
 {
-	struct lan_saa9730_private *lp =
-	    (struct lan_saa9730_private *) dev->priv;
+	struct lan_saa9730_private *lp = netdev_priv(dev);
 	unsigned long flags;
 	int skblen;
 	int len;
 
 	if (lan_saa9730_debug > 4)
-		printk("Send packet: skb=%08x\n", (unsigned int) skb);
+		printk("Send packet: skb=%p\n", skb);
 
 	skblen = skb->len;
 
@@ -912,8 +876,7 @@ static int lan_saa9730_start_xmit(struct sk_buff *skb,
 
 	if (lan_saa9730_write(lp, skb, skblen)) {
 		spin_unlock_irqrestore(&lp->lock, flags);
-		printk("Error when writing packet to controller: skb=%08x\n",
-		     (unsigned int) skb);
+		printk("Error when writing packet to controller: skb=%p\n", skb);
 		netif_stop_queue(dev);
 		return -1;
 	}
@@ -932,8 +895,7 @@ static int lan_saa9730_start_xmit(struct sk_buff *skb,
 
 static int lan_saa9730_close(struct net_device *dev)
 {
-	struct lan_saa9730_private *lp =
-	    (struct lan_saa9730_private *) dev->priv;
+	struct lan_saa9730_private *lp = netdev_priv(dev);
 
 	if (lan_saa9730_debug > 1)
 		printk("lan_saa9730_close:\n");
@@ -955,16 +917,14 @@ static int lan_saa9730_close(struct net_device *dev)
 static struct net_device_stats *lan_saa9730_get_stats(struct net_device
 						      *dev)
 {
-	struct lan_saa9730_private *lp =
-	    (struct lan_saa9730_private *) dev->priv;
+	struct lan_saa9730_private *lp = netdev_priv(dev);
 
 	return &lp->stats;
 }
 
 static void lan_saa9730_set_multicast(struct net_device *dev)
 {
-	struct lan_saa9730_private *lp =
-	    (struct lan_saa9730_private *) dev->priv;
+	struct lan_saa9730_private *lp = netdev_priv(dev);
 
 	/* Stop the controller */
 	lan_saa9730_stop(lp);
@@ -997,10 +957,6 @@ static void __devexit saa9730_remove_one(struct pci_dev *pdev)
 
         if (dev) {
                 unregister_netdev(dev);
-
-		if (dev->priv)
-			kfree(dev->priv);
-
                 free_netdev(dev);
                 pci_release_regions(pdev);
                 pci_disable_device(pdev);
@@ -1009,38 +965,27 @@ static void __devexit saa9730_remove_one(struct pci_dev *pdev)
 }
 
 
-static int lan_saa9730_init(struct net_device *dev, int ioaddr, int irq)
+static int lan_saa9730_init(struct net_device *dev, struct pci_dev *pdev,
+	unsigned long ioaddr, int irq)
 {
-	struct lan_saa9730_private *lp;
+	struct lan_saa9730_private *lp = netdev_priv(dev);
+	dma_addr_t lp_dma_addr;
 	unsigned char ethernet_addr[6];
 	int ret = 0;
 
 	dev->open = lan_saa9730_open_fail;
 
-	if (get_ethernet_addr(ethernet_addr))
-		return -ENODEV;
-	
+	if (get_ethernet_addr(ethernet_addr)) {
+		ret = -ENODEV;
+		goto out_free_netdev;
+	}
+
 	memcpy(dev->dev_addr, ethernet_addr, 6);
 	dev->base_addr = ioaddr;
 	dev->irq = irq;
-	
-	/* 
-	 * Make certain the data structures used by the controller are aligned 
-	 * and DMAble. 
-	 */
-	/*
-	 *  XXX: that is obviously broken - kfree() won't be happy with us.
-	 */
-	lp = (struct lan_saa9730_private *) (((unsigned long)
-					      kmalloc(sizeof(*lp) + 7,
-						      GFP_DMA | GFP_KERNEL)
-					      + 7) & ~7);
 
-	if (!lp)
-		return -ENOMEM;
-
-	dev->priv = lp;
-	memset(lp, 0, sizeof(*lp));
+	lp->dma_addr = lp_dma_addr;
+	lp->pci_dev = pdev;
 
 	/* Set SAA9730 LAN base address. */
 	lp->lan_saa9730_regs = (t_lan_saa9730_regmap *) (ioaddr +
@@ -1052,32 +997,32 @@ static int lan_saa9730_init(struct net_device *dev, int ioaddr, int irq)
 
 	/* Allocate LAN RX/TX frame buffer space. */
 	/* FIXME: a leak */
-	if ((ret = lan_saa9730_allocate_buffers(lp)))
-		goto out;
+	if ((ret = lan_saa9730_allocate_buffers(pdev, lp)))
+		goto out_free_lp;
 
 	/* Stop LAN controller. */
 	if ((ret = lan_saa9730_stop(lp))) 
-		goto out;
+		goto out_free_lp;
 	
 	/* Initialize CAM registers. */
 	if ((ret = lan_saa9730_cam_init(dev)))
-		goto out;
+		goto out_free_lp;
 
 	/* Initialize MII registers. */
 	if ((ret = lan_saa9730_mii_init(lp)))
-		goto out;
+		goto out_free_lp;
 
 	/* Initialize control registers. */
 	if ((ret = lan_saa9730_control_init(lp))) 
-		goto out;
+		goto out_free_lp;
         
 	/* Load CAM registers. */
 	if ((ret = lan_saa9730_cam_load(lp))) 
-		goto out;
+		goto out_free_lp;
 	
 	/* Initialize DMA context registers. */
 	if ((ret = lan_saa9730_dma_init(lp)))
-		goto out;
+		goto out_free_lp;
 	
 	spin_lock_init(&lp->lock);
 		
@@ -1089,71 +1034,70 @@ static int lan_saa9730_init(struct net_device *dev, int ioaddr, int irq)
 	dev->tx_timeout = lan_saa9730_tx_timeout;
 	dev->watchdog_timeo = (HZ >> 1);
 	dev->dma = 0;
-	
-	ret = register_netdev(dev);
+
+	ret = register_netdev (dev);
 	if (ret)
-		goto out;
+		goto out_free_lp;
+	
 	return 0;
 
- out:
-	if (dev->priv)
-		kfree(dev->priv);
+out_free_lp:
+	/* FIXME: a leak */
+out_free_netdev:
+	free_netdev(dev);
+
 	return ret;
 }
 
 
 static int __devinit saa9730_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
-	struct net_device *dev;
-	unsigned int pci_ioaddr;
+	struct net_device *dev = NULL;
+	unsigned long pci_ioaddr;
 	int err;
 
 	if (lan_saa9730_debug > 1)
 		printk("saa9730.c: PCI bios is present, checking for devices...\n");
 
-	err = -ENOMEM;
-	dev = alloc_etherdev(0);
-	if (!dev)
-		goto out;
-
-	SET_MODULE_OWNER(dev);
-
 	err = pci_enable_device(pdev);
         if (err) {
                 printk(KERN_ERR "Cannot enable PCI device, aborting.\n");
-                goto out1;
+                goto out;
         }
 
 	err = pci_request_regions(pdev, DRV_MODULE_NAME);
 	if (err) {
 		printk(KERN_ERR "Cannot obtain PCI resources, aborting.\n");
-		goto out2;
+		goto out_disable_pdev;
 	}
 
 	pci_irq_line = pdev->irq;
 	/* LAN base address in located at BAR 1. */
-
+	
 	pci_ioaddr = pci_resource_start(pdev, 1);
 	pci_set_master(pdev);
-
-	printk("Found SAA9730 (PCI) at %#x, irq %d.\n",
+	
+	printk("Found SAA9730 (PCI) at %lx, irq %d.\n",
 	       pci_ioaddr, pci_irq_line);
 
-	err = lan_saa9730_init(dev, pci_ioaddr, pci_irq_line);
+	dev = alloc_etherdev(sizeof(struct lan_saa9730_private));
+	if (!dev) 
+		goto out_disable_pdev;
+	
+	err = lan_saa9730_init(dev, pdev, pci_ioaddr, pci_irq_line);
 	if (err) {
 		printk("Lan init failed");
-		goto out2;
+		goto out_disable_pdev;
 	}
-
+	
 	pci_set_drvdata(pdev, dev);
 	SET_NETDEV_DEV(dev, &pdev->dev);
 	return 0;
 	
-out2:
+ out_disable_pdev:
 	pci_disable_device(pdev);
-out1:
-	free_netdev(dev);
-out:
+ out:
+	pci_set_drvdata(pdev, NULL);
 	return err;
 }
 
@@ -1173,12 +1117,10 @@ static int __init saa9730_init(void)
 
 static void __exit saa9730_cleanup(void)
 {
-        pci_unregister_driver(&saa9730_driver);
+	pci_unregister_driver(&saa9730_driver);
 }
 
 module_init(saa9730_init);
 module_exit(saa9730_cleanup);
-
-
 
 MODULE_LICENSE("GPL");

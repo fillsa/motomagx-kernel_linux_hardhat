@@ -1,0 +1,144 @@
+# @(#) balden@seth2.belcarratech.com|otg/functions/acm/Kconfig|20051116204957|31621
+#
+#      Copyright 2006 Motorola, Inc.
+#
+# Changelog:
+# Date               Author           Comment
+# -----------------------------------------------------------------------------
+# 01/17/2006         Motorola         Initial distribution
+# 10/18/2006         Motorola         Add Open Src Software language 
+# 12/11/2006         Motorola         Changes for Open src compliance.
+#
+# This Program is distributed in the hope that it will
+# be useful, but WITHOUT ANY WARRANTY;
+# without even the implied warranty of
+# MERCHANTIBILITY or FITNESS FOR A
+# PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+
+# This program is free software; you can redistribute it
+# and/or modify it under the terms of the GNU General
+# Public License as published by the Free Software
+# Foundation; either version 2 of the License, or (at
+# your option) any later version.  You should have
+# received a copy of the GNU General Public License
+# along with this program; if not, write to the Free
+# Software Foundation, Inc., 675 Mass Ave,
+# Cambridge, MA 02139, USA
+
+menu "OTG ACM Function"
+
+config OTG_ACM
+         tristate "  CDC ACM Function"
+         depends on OTG
+
+menu "OTG ACM function options"
+	depends on OTG && OTG_ACM
+
+config OTG_ACM_VENDORID
+        hex "VendorID (hex value)"
+	depends on OTG_ACM && OTG
+        default "0x15ec"
+
+config OTG_ACM_PRODUCTID
+	depends on OTG_ACM && OTG
+        hex "ProductID (hex value)"
+        default "0xf002"
+config OTG_ACM_BCDDEVICE
+	depends on OTG_ACM && OTG
+        hex "bcdDevice (binary-coded decimal)"
+        default "0x0100"
+
+config OTG_ACM_MANUFACTURER
+	depends on OTG_ACM && OTG
+        string "iManufacturer (string)"
+        default "Belcarra"
+
+config OTG_ACM_PRODUCT_NAME
+	depends on OTG_ACM && OTG
+        string "iProduct (string)"
+        default "Belcarra ACM Device"
+
+config OTG_ACM_DESC
+	depends on OTG_ACM && OTG
+        string "iConfiguration (string)"
+        default "Acm Cfg"
+
+config OTG_ACM_HOTPLUG
+	depends on OTG_ACM && OTG
+	bool "start acm hotplug"
+        default TRUE
+
+config OTG_ACM_COMM_INTF
+	depends on OTG_ACM && OTG
+        string "Comm Interface iInterface (string)"
+        default "Comm Intf"
+
+config OTG_ACM_NODATA_INTF
+	depends on OTG_ACM && OTG
+        string "No Data Interface iInterface (string)"
+        default "NoData Intf"
+
+config OTG_ACM_DATA_INTF
+	depends on OTG_ACM && OTG
+        string "Data Interface iInterface (string)"
+        default "Data Intf"
+
+config OTG_ACM_CONSOLE
+        depends on OTG_ACM && OTG
+        bool "Start console on ACM"
+        default FALSE
+
+endmenu
+endmenu
+
+#menu "OTG MCPC Function"
+#
+#config OTG_MCPC
+#         tristate "  CDC MCPC Function"
+#         depends on OTG
+#
+#menu "OTG MCPC function options"
+#	depends on OTG && OTG_MCPC
+#
+#config OTG_MCPC_VENDORID
+#        hex "VendorID (hex value)"
+#	depends on OTG_MCPC && OTG
+#        default "0x15ec"
+#
+#config OTG_MCPC_PRODUCTID
+#	depends on OTG_MCPC && OTG
+#        hex "ProductID (hex value)"
+#        default "0xf007"
+#config OTG_MCPC_BCDDEVICE
+#	depends on OTG_MCPC && OTG
+#        hex "bcdDevice (binary-coded decimal)"
+#        default "0x0100"
+#
+#config OTG_MCPC_MANUFACTURER
+#	depends on OTG_MCPC && OTG
+#        string "iManufacturer (string)"
+#        default "Belcarra"
+#
+#config OTG_MCPC_PRODUCT_NAME
+#	depends on OTG_MCPC && OTG
+#        string "iProduct (string)"
+#        default "Belcarra MCPC Device"
+#
+#config OTG_MCPC_DESC
+#	depends on OTG_MCPC && OTG
+#        string "iConfiguration (string)"
+#        default "Acm Cfg"
+#
+#config OTG_MCPC_COMM_INTF
+#	depends on OTG_MCPC && OTG
+#        string "Comm Interface iInterface (string)"
+#        default "Comm Intf"
+#
+#config OTG_MCPC_DATA_INTF
+#	depends on OTG_MCPC && OTG
+#        string "Data Interface iInterface (string)"
+#        default "Data Intf"
+#
+#endmenu
+#endmenu

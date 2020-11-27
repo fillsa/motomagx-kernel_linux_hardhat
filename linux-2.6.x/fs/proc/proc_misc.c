@@ -1,11 +1,19 @@
 /*
  *  linux/fs/proc/proc_misc.c
  *
- *  linux/fs/proc/array.c
+ *  Copyright (C) 2006 Motorola Inc.
  *  Copyright (C) 1992  by Linus Torvalds
  *  based on ideas by Darren Senn
  *
- *  This used to be the part of array.c. See the rest of history and credits
+ */
+
+/* ChangeLog:
+ * (mm-dd-yyyy) Author    Comment
+ * 06-27-2006   Motorola  Add SLABFREE info to /proc/slabinfo 
+ * 			  Make meminfo_read_proc available for kpanic
+ */
+
+/*  This used to be the part of array.c. See the rest of history and credits
  *  there. I took this into a separate file and switched the thing to generic
  *  proc_file_inode_operations, leaving in array.c only per-process stuff.
  *  Inumbers allocation made dynamic (via create_proc_entry()).  AV, May 1999.
@@ -66,6 +74,9 @@ extern int get_filesystem_list(char *);
 extern int get_exec_domain_list(char *);
 extern int get_dma_list(char *);
 extern int get_locks_status (char *, char **, off_t, int);
+#ifdef CONFIG_MOT_FEAT_KPANIC
+extern int kpanic_in_progress;
+#endif /* CONFIG_MOT_FEAT_KPANIC */
 
 static int proc_calc_metrics(char *page, char **start, off_t off,
 				 int count, int *eof, int len)
@@ -149,8 +160,11 @@ static int uptime_read_proc(char *page, char **start, off_t off,
 	return proc_calc_metrics(page, start, off, count, eof, len);
 }
 
-static int meminfo_read_proc(char *page, char **start, off_t off,
-				 int count, int *eof, void *data)
+#ifndef CONFIG_MOT_FEAT_KPANIC
+static 
+#endif /* CONFIG_MOT_FEAT_KPANIC */
+int meminfo_read_proc(char *page, char **start, off_t off,
+                                 int count, int *eof, void *data)
 {
 	struct sysinfo i;
 	int len;
@@ -235,6 +249,14 @@ static int meminfo_read_proc(char *page, char **start, off_t off,
 
 		len += hugetlb_report_meminfo(page + len);
 
+#ifdef CONFIG_MOT_FEAT_KPANIC
+	if (kpanic_in_progress) {
+		printk(KERN_EMERG "%s\n", page);
+		/* the return value will be ignored */
+		return -1;
+	}
+	else
+#endif /* CONFIG_MOT_FEAT_KPANIC */
 	return proc_calc_metrics(page, start, off, count, eof, len);
 #undef K
 }
@@ -431,6 +453,41 @@ int show_stat(struct seq_file *p, void *v)
 		nr_running(),
 		nr_iowait());
 
+#ifdef CONFIG_PREEMPT_RT
+	{
+		unsigned long nr_uninterruptible_cpu(int cpu);
+		extern int pi_walk, pi_null, pi_prio;
+		extern int rt_overload_schedule,
+			   rt_overload_wakeup, rt_overload_pulled;
+		unsigned long rt_nr_running_cpu(int cpu);
+		extern atomic_t rt_overload;
+
+		int i;
+
+		seq_printf(p, "rt_overload_schedule: %d\n",
+					rt_overload_schedule);
+		seq_printf(p, "rt_overload_wakeup:   %d\n",
+					rt_overload_wakeup);
+		seq_printf(p, "rt_overload_pulled:   %d\n",
+					rt_overload_pulled);
+		seq_printf(p, "pi_null: %d\n", pi_null);
+		seq_printf(p, "pi_prio: %d\n", pi_prio);
+		seq_printf(p, "pi_walk: %d\n", pi_walk);
+		seq_printf(p, "nr_running(): %ld\n",
+			nr_running());
+		seq_printf(p, "nr_uninterruptible(): %ld\n",
+			nr_uninterruptible());
+		for_each_cpu(i)
+			seq_printf(p, "nr_uninterruptible(%d): %ld\n",
+				i, nr_uninterruptible_cpu(i));
+		for_each_cpu(i)
+			seq_printf(p, "rt_nr_running(%d): %ld\n",
+				i, rt_nr_running_cpu(i));
+		seq_printf(p, "rt_overload: %d\n", atomic_read(&rt_overload));
+		
+	}
+#endif
+
 	return 0;
 }
 
@@ -547,6 +604,20 @@ static int execdomains_read_proc(char *page, char **start, off_t off,
 	return proc_calc_metrics(page, start, off, count, eof, len);
 }
 
+#ifdef CONFIG_LATENCY_TRACE
+extern struct seq_operations latency_trace_op;
+static int latency_trace_open(struct inode *inode, struct file *file)
+{
+	return seq_open(file, &latency_trace_op);
+}
+static struct file_operations proc_latency_trace_operations = {
+	.open		= latency_trace_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= seq_release,
+};
+#endif
+
 #ifdef CONFIG_MAGIC_SYSRQ
 /*
  * writing 'C' to /proc/sysrq-trigger is like sysrq-C
@@ -568,6 +639,23 @@ static struct file_operations proc_sysrq_trigger_operations = {
 	.write		= write_sysrq_trigger,
 };
 #endif
+
+#ifdef CONFIG_MOT_FEAT_SLABFREE_PROC
+extern int slab_cache_freeable_info(void);
+static int slabfree_read_proc(char *page, char **start, off_t off, int count, int *eof, void *data)
+{       
+        int ret = 0;
+        int len = 0;
+                
+        ret = slab_cache_freeable_info();
+        if (ret == -EAGAIN)
+                len = sprintf(page, "BUSY: %d\n", -1);
+        else
+                len = sprintf(page, "SLABFREE: %d\n", (unsigned int)(ret * PAGE_SIZE));
+
+        return proc_calc_metrics(page, start, off, count, eof, len);
+}
+#endif /* CONFIG_MOT_FEAT_SLABFREE_PROC */
 
 struct proc_dir_entry *proc_root_kcore;
 
@@ -601,6 +689,9 @@ void __init proc_misc_init(void)
 		{"cmdline",	cmdline_read_proc},
 		{"locks",	locks_read_proc},
 		{"execdomains",	execdomains_read_proc},
+#ifdef CONFIG_MOT_FEAT_SLABFREE_PROC
+		{"slabfree", slabfree_read_proc},
+#endif /* CONFIG_MOT_FEAT_SLABFREE_PROC */
 		{NULL,}
 	};
 	for (p = simple_ones; p->name; p++)
@@ -625,6 +716,9 @@ void __init proc_misc_init(void)
 #endif
 #ifdef CONFIG_SCHEDSTATS
 	create_seq_entry("schedstat", 0, &proc_schedstat_operations);
+#endif
+#ifdef CONFIG_LATENCY_TRACE
+	create_seq_entry("latency_trace", 0, &proc_latency_trace_operations);
 #endif
 #ifdef CONFIG_PROC_KCORE
 	proc_root_kcore = create_proc_entry("kcore", S_IRUSR, NULL);

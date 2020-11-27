@@ -20,11 +20,6 @@
 
 #if defined(CONFIG_IBM405GP) || defined(CONFIG_IBM405CR)
 
-#ifdef CONFIG_KGDB
-#include <asm/kgdb.h>
-#include <linux/init.h>
-#endif
-
 #ifdef CONFIG_DEBUG_BRINGUP
 
 #include <linux/console.h>

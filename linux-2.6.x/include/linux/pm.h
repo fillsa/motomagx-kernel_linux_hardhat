@@ -209,12 +209,19 @@ struct pm_ops {
 	int (*prepare)(suspend_state_t state);
 	int (*enter)(suspend_state_t state);
 	int (*finish)(suspend_state_t state);
+	int (*wake)(suspend_state_t state);
 };
 
 extern void pm_set_ops(struct pm_ops *);
 
 extern int pm_suspend(suspend_state_t state);
+extern suspend_state_t pm_state_resumed(void);
 
+struct device;
+struct class_device;
+
+extern void pm_set_waker(struct device *dev);
+extern void pm_set_class_waker(struct class_device *dev);
 
 /*
  * Device power management
@@ -224,7 +231,9 @@ struct device;
 
 struct dev_pm_info {
 	u32			power_state;
+	unsigned		can_wakeup:1;
 #ifdef	CONFIG_PM
+	unsigned		should_wakeup:1;
 	u32			prev_state;
 	u8			* saved_state;
 	atomic_t		pm_users;
@@ -236,10 +245,58 @@ struct dev_pm_info {
 extern void device_pm_set_parent(struct device * dev, struct device * parent);
 
 extern int device_suspend(u32 state);
+
+#ifdef CONFIG_PM
+#define device_set_wakeup_enable(dev,val) \
+	((dev)->power.should_wakeup = !!(val))
+#define device_may_wakeup(dev) \
+	(device_can_wakeup(dev) && (dev)->power.should_wakeup)
+#else /* !CONFIG_PM */
+#define device_set_wakeup_enable(dev,val)	do{}while(0)
+#define device_may_wakeup(dev)			(0)
+#endif
+
+/* changes to device_may_wakeup take effect on the next pm state change.
+ * by default, devices should wakeup if they can.
+ */
+#define device_can_wakeup(dev) \
+	((dev)->power.can_wakeup)
+#define device_init_wakeup(dev,val) \
+	do { \
+		device_can_wakeup(dev) = !!(val); \
+		device_set_wakeup_enable(dev,val); \
+	} while(0)
+
 extern int device_power_down(u32 state);
 extern void device_power_up(void);
 extern void device_resume(void);
 
+struct constraint_param {
+	int id;
+	int min;
+	int max;
+};
+
+#define DPM_CONSTRAINT_PARAMS_MAX 20
+
+struct constraints {
+	int asserted;
+	int count;
+	int violations;
+	struct constraint_param param[DPM_CONSTRAINT_PARAMS_MAX];
+	struct list_head entry;
+};
+
+enum {
+	SCALE_PRECHANGE,
+	SCALE_POSTCHANGE,
+	SCALE_MAX
+};
+
+extern void assert_constraints(struct constraints *);
+extern void deassert_constraints(struct constraints *);
+extern void power_event(char *eventstr);
+extern void device_power_event(struct device * dev, char *eventstr);
 
 #endif /* __KERNEL__ */
 

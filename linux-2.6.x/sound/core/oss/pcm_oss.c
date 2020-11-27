@@ -1918,7 +1918,7 @@ static int snd_pcm_oss_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static inline int _snd_pcm_oss_ioctl(struct inode *inode, struct file *file,
+static inline long snd_pcm_oss_ioctl(struct file *file,
 				     unsigned int cmd, unsigned long arg)
 {
 	snd_pcm_oss_file_t *pcm_oss_file;
@@ -2078,17 +2078,6 @@ static inline int _snd_pcm_oss_ioctl(struct inode *inode, struct file *file,
 	return -EINVAL;
 }
 
-/* FIXME: need to unlock BKL to allow preemption */
-static int snd_pcm_oss_ioctl(struct inode *inode, struct file *file,
-			     unsigned int cmd, unsigned long arg)
-{
-	int err;
-	unlock_kernel();
-	err = _snd_pcm_oss_ioctl(inode, file, cmd, arg);
-	lock_kernel();
-	return err;
-}
-
 static ssize_t snd_pcm_oss_read(struct file *file, char __user *buf, size_t count, loff_t *offset)
 {
 	snd_pcm_oss_file_t *pcm_oss_file;
@@ -2119,9 +2108,7 @@ static ssize_t snd_pcm_oss_write(struct file *file, const char __user *buf, size
 	substream = pcm_oss_file->streams[SNDRV_PCM_STREAM_PLAYBACK];
 	if (substream == NULL)
 		return -ENXIO;
-	up(&file->f_dentry->d_inode->i_sem);
 	result = snd_pcm_oss_write1(substream, buf, count);
-	down(&file->f_dentry->d_inode->i_sem);
 #ifdef OSS_DEBUG
 	printk("pcm_oss: write %li bytes (wrote %li bytes)\n", (long)count, (long)result);
 #endif
@@ -2415,7 +2402,7 @@ static struct file_operations snd_pcm_oss_f_reg =
 	.open =		snd_pcm_oss_open,
 	.release =	snd_pcm_oss_release,
 	.poll =		snd_pcm_oss_poll,
-	.ioctl =	snd_pcm_oss_ioctl,
+	.unlocked_ioctl = snd_pcm_oss_ioctl,
 	.mmap =		snd_pcm_oss_mmap,
 };
 

@@ -23,7 +23,8 @@
 #define EF_MIPS_ABI_O64		0x00002000	/* O32 extended for 64 bit.  */
 
 #define PT_MIPS_REGINFO		0x70000000
-#define PT_MIPS_OPTIONS		0x70000001
+#define PT_MIPS_RTPROC		0x70000001
+#define PT_MIPS_OPTIONS		0x70000002
 
 /* Flags in the e_flags field of the header */
 #define EF_MIPS_NOREORDER	0x00000001
@@ -40,9 +41,10 @@
 #define DT_MIPS_ICHECKSUM	0x70000003
 #define DT_MIPS_IVERSION	0x70000004
 #define DT_MIPS_FLAGS		0x70000005
-  #define RHF_NONE		  0
-  #define RHF_HARDWAY		  1
-  #define RHF_NOTPOT		  2
+	#define RHF_NONE	0x00000000
+	#define RHF_HARDWAY	0x00000001
+	#define RHF_NOTPOT	0x00000002
+	#define RHF_SGI_ONLY	0x00000010
 #define DT_MIPS_BASE_ADDRESS	0x70000006
 #define DT_MIPS_CONFLICT	0x70000008
 #define DT_MIPS_LIBLIST		0x70000009
@@ -225,7 +227,7 @@ do {	current->thread.mflags &= ~MF_ABI_MASK;			\
 #endif /* __KERNEL__ */
 
 /* This one accepts IRIX binaries.  */
-#define irix_elf_check_arch(hdr)	((hdr)->e_machine == EM_MIPS)
+#define irix_elf_check_arch(hdr)	((hdr)->e_flags & RHF_SGI_ONLY)
 
 #define USE_ELF_CORE_DUMP
 #define ELF_EXEC_PAGESIZE	PAGE_SIZE

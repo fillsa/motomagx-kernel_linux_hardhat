@@ -1,5 +1,5 @@
 /* This version ported to the Linux-MTD system by dwmw2@infradead.org
- * $Id: ftl.c,v 1.54 2004/11/16 18:33:15 dwmw2 Exp $
+ * $Id: ftl.c,v 1.55 2005/01/17 13:47:21 hvr Exp $
  *
  * Fixes: Arnaldo Carvalho de Melo <acme@conectiva.com.br>
  * - fixes some leaks on failure in build_maps and ftl_notify_add, cleanups
@@ -80,7 +80,7 @@
 
 /* Parameters that can be set with 'insmod' */
 static int shuffle_freq = 50;
-MODULE_PARM(shuffle_freq, "i");
+module_param(shuffle_freq, int, 0);
 
 /*====================================================================*/
 
@@ -357,6 +357,7 @@ static int erase_xfer(partition_t *part,
     if (!erase) 
             return -ENOMEM;
 
+    erase->mtd = part->mbd.mtd;
     erase->callback = ftl_erase_callback;
     erase->addr = xfer->Offset;
     erase->len = 1 << part->header.EraseUnitSize;
@@ -1096,7 +1097,7 @@ struct mtd_blktrans_ops ftl_tr = {
 
 int init_ftl(void)
 {
-	DEBUG(0, "$Id: ftl.c,v 1.54 2004/11/16 18:33:15 dwmw2 Exp $\n");
+	DEBUG(0, "$Id: ftl.c,v 1.55 2005/01/17 13:47:21 hvr Exp $\n");
 
 	return register_mtd_blktrans(&ftl_tr);
 }

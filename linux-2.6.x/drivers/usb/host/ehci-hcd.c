@@ -177,6 +177,9 @@ static int ehci_halt (struct ehci_hcd *ehci)
 {
 	u32	temp = readl (&ehci->regs->status);
 
+	/* disable any irqs left enabled by previous code */
+	writel (0, &ehci->regs->intr_enable);
+
 	if ((temp & STS_HALT) != 0)
 		return 0;
 
@@ -186,6 +189,28 @@ static int ehci_halt (struct ehci_hcd *ehci)
 	return handshake (&ehci->regs->status, STS_HALT, STS_HALT, 16 * 125);
 }
 
+#ifdef CONFIG_USB_EHCI_ARC
+void arc_otg_reset(struct ehci_hcd *);
+/* reset a non-running (STS_HALT == 1) controller */
+static int ehci_reset (struct ehci_hcd *ehci)
+{
+	int retval;
+	u32	command = readl (&ehci->regs->command);
+
+	command |= CMD_RESET;
+	dbg_cmd (ehci, "reset", command);
+	writel (command, &ehci->regs->command);
+	ehci_to_hcd(ehci)->state = USB_STATE_HALT;
+	ehci->next_statechange = jiffies;
+
+	retval = handshake (&ehci->regs->command, CMD_RESET, 0, 250 * 1000);
+	if (retval)
+		return retval;
+
+	arc_otg_reset (ehci);
+	return retval;
+}
+#else
 /* reset a non-running (STS_HALT == 1) controller */
 static int ehci_reset (struct ehci_hcd *ehci)
 {
@@ -198,6 +223,7 @@ static int ehci_reset (struct ehci_hcd *ehci)
 	ehci->next_statechange = jiffies;
 	return handshake (&ehci->regs->command, CMD_RESET, 0, 250 * 1000);
 }
+#endif
 
 /* idle the controller (from running) */
 static void ehci_quiesce (struct ehci_hcd *ehci)
@@ -307,12 +333,17 @@ static int bios_handoff (struct ehci_hcd *ehci, int where, u32 cap)
 
 #endif
 
+/* Reboot notifiers kick in for silicon on any bus (not just pci, etc).
+ * This forcibly disables dma and IRQs, helping kexec and other cases
+ * where the next system software may expect clean state.
+ */
 static int
 ehci_reboot (struct notifier_block *self, unsigned long code, void *null)
 {
 	struct ehci_hcd		*ehci;
 
 	ehci = container_of (self, struct ehci_hcd, reboot_notifier);
+	(void) ehci_halt (ehci);
 
 	/* make BIOS/etc use companion controller during reboot */
 	writel (0, &ehci->regs->configured_flag);
@@ -326,7 +357,9 @@ static int ehci_hc_reset (struct usb_hcd *hcd)
 {
 	struct ehci_hcd		*ehci = hcd_to_ehci (hcd);
 	u32			temp;
+#ifdef	CONFIG_PCI
 	unsigned		count = 256/4;
+#endif
 
 	spin_lock_init (&ehci->lock);
 
@@ -334,6 +367,11 @@ static int ehci_hc_reset (struct usb_hcd *hcd)
 	ehci->regs = hcd->regs + HC_LENGTH (readl (&ehci->caps->hc_capbase));
 	dbg_hcs_params (ehci, "reset");
 	dbg_hcc_params (ehci, "reset");
+
+#ifdef CONFIG_USB_EHCI_ARC
+	arc_otg_reset (ehci);
+	ehci->is_arc_rh_tt = 1;
+#endif
 
 #ifdef	CONFIG_PCI
 	/* EHCI 0.96 and later may have "extended capabilities" */
@@ -1085,6 +1123,7 @@ done:
 
 /*-------------------------------------------------------------------------*/
 
+#ifndef CONFIG_USB_EHCI_ARC
 static const struct hc_driver ehci_driver = {
 	.description =		hcd_name,
 
@@ -1130,11 +1169,15 @@ static const struct hc_driver ehci_driver = {
 	.hub_suspend =		ehci_hub_suspend,
 	.hub_resume =		ehci_hub_resume,
 };
+#endif /* CONFIG_USB_EHCI_ARC */
 
 /*-------------------------------------------------------------------------*/
 
 /* EHCI 1.0 doesn't require PCI */
 
+#ifdef CONFIG_USB_EHCI_ARC
+#include "ehci-arc.c"
+#else
 #ifdef	CONFIG_PCI
 
 /* PCI driver selection metadata; PCI hotplugging uses this */
@@ -1186,6 +1229,11 @@ module_init (init);
 
 static void __exit cleanup (void) 
 {	
+#ifdef	CONFIG_PCI
 	pci_unregister_driver (&ehci_pci_driver);
+#endif	/* PCI */
 }
 module_exit (cleanup);
+
+
+#endif /* CONFIG_USB_EHCI_ARC */

@@ -103,6 +103,7 @@
       the two sets of lengths.
  */
 #include <linux/compiler.h>
+#include <linux/init.h>
 
 #ifdef RCSID
 static char rcsid[] = "#Id: inflate.c,v 0.14 1993/06/10 13:27:04 jloup Exp #";
@@ -276,7 +277,7 @@ STATIC const int dbits = 6;          /* bits in base distance lookup table */
 STATIC unsigned hufts;         /* track memory usage */
 
 
-STATIC int INIT huft_build(
+STATIC __noinstrument int INIT huft_build(
 	unsigned *b,            /* code lengths in bits (all assumed <= BMAX) */
 	unsigned n,             /* number of codes (assumed <= N_MAX) */
 	unsigned s,             /* number of simple-valued codes (0..s-1) */
@@ -304,7 +305,7 @@ STATIC int INIT huft_build(
   register struct huft *q;      /* points to current table */
   struct huft r;                /* table entry for structure assignment */
   struct huft *u[BMAX];         /* table stack */
-  unsigned v[N_MAX];            /* values in order of bit length */
+  unsigned *v;                  /* values in order of bit length */
   register int w;               /* bits before this table == (l * h) */
   unsigned x[BMAX+1];           /* bit offsets, then code stack */
   unsigned *xp;                 /* pointer into x */
@@ -313,6 +314,10 @@ STATIC int INIT huft_build(
 
 DEBG("huft1 ");
 
+  /* allocate new table */
+  v = (unsigned *)malloc(sizeof(unsigned)*N_MAX);
+  if (!v)
+    return 3;             /* not enough memory */
   /* Generate counts for each bit length */
   memzero(c, sizeof(c));
   p = b;  i = n;
@@ -326,6 +331,7 @@ DEBG("huft1 ");
   {
     *t = (struct huft *)NULL;
     *m = 0;
+    free(v);
     return 0;
   }
 
@@ -351,10 +357,14 @@ DEBG("huft3 ");
 
   /* Adjust last length count to fill out codes, if needed */
   for (y = 1 << j; j < i; j++, y <<= 1)
-    if ((y -= c[j]) < 0)
+    if ((y -= c[j]) < 0) {
+      free(v);
       return 2;                 /* bad input: more codes than bits */
-  if ((y -= c[i]) < 0)
+    }
+  if ((y -= c[i]) < 0) {
+    free(v);
     return 2;
+  }
   c[i] += y;
 
 DEBG("huft4 ");
@@ -426,6 +436,7 @@ DEBG1("3 ");
         {
           if (h)
             huft_free(u[0]);
+          free(v);
           return 3;             /* not enough memory */
         }
 DEBG1("4 ");
@@ -489,13 +500,14 @@ DEBG("h6f ");
 
 DEBG("huft7 ");
 
+  free(v);
   /* Return true (1) if we were given an incomplete table */
   return y != 0 && g != 1;
 }
 
 
 
-STATIC int INIT huft_free(
+STATIC __noinstrument int INIT huft_free(
 	struct huft *t         /* table to free */
 	)
 /* Free the malloc'ed tables built by huft_build(), which makes a linked
@@ -517,7 +529,7 @@ STATIC int INIT huft_free(
 }
 
 
-STATIC int INIT inflate_codes(
+STATIC __noinstrument int INIT inflate_codes(
 	struct huft *tl,    /* literal/length decoder tables */
 	struct huft *td,    /* distance decoder tables */
 	int bl,             /* number of bits decoded by tl[] */
@@ -632,7 +644,7 @@ STATIC int INIT inflate_codes(
 
 
 
-STATIC int INIT inflate_stored(void)
+STATIC __noinstrument int INIT inflate_stored(void)
 /* "decompress" an inflated type 0 (stored) block. */
 {
   unsigned n;           /* number of bytes in block */
@@ -693,7 +705,7 @@ DEBG("<stor");
 /*
  * We use `noinline' here to prevent gcc-3.5 from using too much stack space
  */
-STATIC int noinline INIT inflate_fixed(void)
+STATIC __noinstrument int noinline INIT inflate_fixed(void)
 /* decompress an inflated type 1 (fixed Huffman codes) block.  We should
    either replace this with a custom decoder, or at least precompute the
    Huffman tables. */
@@ -749,7 +761,7 @@ DEBG("<fix");
 /*
  * We use `noinline' here to prevent gcc-3.5 from using too much stack space
  */
-STATIC int noinline INIT inflate_dynamic(void)
+STATIC __noinstrument int noinline INIT inflate_dynamic(void)
 /* decompress an inflated type 2 (dynamic Huffman codes) block. */
 {
   int i;                /* temporary variables */
@@ -930,7 +942,7 @@ DEBG("dyn7 ");
 
 
 
-STATIC int INIT inflate_block(
+STATIC __noinstrument int INIT inflate_block(
 	int *e                  /* last block flag */
 	)
 /* decompress an inflated block */
@@ -981,7 +993,7 @@ STATIC int INIT inflate_block(
 
 
 
-STATIC int INIT inflate(void)
+STATIC __noinstrument int INIT inflate(void)
 /* decompress an inflated entry */
 {
   int e;                /* last block flag */
@@ -1043,7 +1055,7 @@ static ulg crc;		/* initialized in makecrc() so it'll reside in bss */
  * gzip-1.0.3/makecrc.c.
  */
 
-static void INIT
+static __noinstrument void INIT
 makecrc(void)
 {
 /* Not copyrighted 1990 Mark Adler	*/
@@ -1091,7 +1103,7 @@ makecrc(void)
 /*
  * Do the uncompression!
  */
-static int INIT gunzip(void)
+static __noinstrument int INIT gunzip(void)
 {
     uch flags;
     unsigned char magic[2]; /* magic header */

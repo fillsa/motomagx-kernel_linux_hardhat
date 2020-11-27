@@ -21,6 +21,17 @@
  * for more details.
  */
 
+/*
+ * These are the bitfields for each
+ * display depth that we support.
+ */
+struct pxafb_rgb {
+	struct fb_bitfield red;
+	struct fb_bitfield green;
+	struct fb_bitfield blue;
+	struct fb_bitfield transp;
+};
+
 /* Shadows for LCD controller registers */
 struct pxafb_lcd_reg {
 	unsigned int lccr0;
@@ -40,10 +51,6 @@ struct pxafb_dma_descriptor {
 struct pxafb_info {
 	struct fb_info		fb;
 	struct device		*dev;
-
-	u_int			max_bpp;
-	u_int			max_xres;
-	u_int			max_yres;
 
 	/*
 	 * These are the addresses we mapped
@@ -87,13 +94,78 @@ struct pxafb_info {
 	volatile u_char		task_state;
 	struct semaphore	ctrlr_sem;
 	wait_queue_head_t	ctrlr_wait;
+	wait_queue_head_t       eof_wait;
 	struct work_struct	task;
+
+	u_int                   eof_mask; /* end-of-frame flags,
+					     mask of DMA channels */
 
 #ifdef CONFIG_CPU_FREQ
 	struct notifier_block	freq_transition;
 	struct notifier_block	freq_policy;
 #endif
+
+#ifdef CONFIG_PXA27x
+	struct overlayfb_info *overlay1fb;
+	struct overlayfb_info *overlay2fb;
+	struct overlayfb_info *cursorfb;
+
+	/* Fields below are used to save/restore overlays parameters
+	 * in enable/disable cycles (used in susped/resume, scale)
+	 * in case if DirectFB is using pxafb driver */
+	u_int                   reg_ovl1c2;
+	u_int                   reg_ovl1c1;
+	u_int                   reg_ovl2c2;
+	u_int                   reg_ovl2c1;
+	u_int			reg_fdadr1;
+	u_int                   reg_fdadr2;
+	u_int                   reg_fdadr3;
+	u_int                   reg_fdadr4;
+#endif				/* CONFIG_PXA27x */
 };
+
+#ifdef CONFIG_PXA27x
+struct overlayfb_info {
+	struct fb_info fb;
+	struct device *dev;
+
+	struct pxafb_info *basefb;
+
+	void *map_cpu;
+	void *screen_cpu;
+	void *palette_cpu;
+	unsigned long map_size;
+	unsigned long palette_size;
+
+	dma_addr_t screen_dma;
+	dma_addr_t map_dma;
+	dma_addr_t palette_dma;
+
+	unsigned long enabled;
+	volatile u_char state;
+
+	/* overlay specific info */
+	unsigned long xpos;	/* screen position (x, y) */
+	unsigned long ypos;
+	unsigned long format;
+
+	/* additional */
+	union {
+		struct pxafb_dma_descriptor *dma0;
+		struct pxafb_dma_descriptor *dma1;
+		struct {
+			struct pxafb_dma_descriptor *dma2;
+			struct pxafb_dma_descriptor *dma3;
+			struct pxafb_dma_descriptor *dma4;
+		};
+		struct {
+			struct pxafb_dma_descriptor *dma5_pal;
+			struct pxafb_dma_descriptor *dma5_frame;
+		};
+	};
+
+};
+#endif				/* CONFIG_PXA27x */
 
 #define TO_INF(ptr,member) container_of(ptr,struct pxafb_info,member)
 
@@ -111,6 +183,8 @@ struct pxafb_info {
 
 #define PXA_NAME	"PXA"
 
+#define FBIO_WAITFORVSYNC       _IOW('F', 0x20, u_int32_t)
+
 /*
  *  Debug macros
  */
@@ -121,9 +195,12 @@ struct pxafb_info {
 #endif
 
 /*
- * Minimum X and Y resolutions
+ * Minimum and maximum X and Y resolutions
  */
 #define MIN_XRES	64
 #define MIN_YRES	64
+#define MAX_XRES       800
+#define MAX_YRES       600
+#define MAX_BPP         32
 
 #endif /* __PXAFB_H__ */

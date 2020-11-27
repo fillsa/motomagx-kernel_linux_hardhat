@@ -99,6 +99,20 @@ asmlinkage long sys_stime(time_t __user *tptr)
 
 asmlinkage long sys_gettimeofday(struct timeval __user *tv, struct timezone __user *tz)
 {
+#ifdef CONFIG_LATENCY_TRACE
+	if (!tv && ((long)tz == 1))
+		return user_trace_start();
+	if (!tv && !tz)
+		return user_trace_stop();
+#endif
+	if (((long)tv == 1) && ((long)tz == 1)) {
+		current->flags |= PF_NOSCHED;
+		return 0;
+	}
+	if (((long)tv == 1) && ((long)tz == 0)) {
+		current->flags &= ~PF_NOSCHED;
+		return 0;
+	}
 	if (likely(tv != NULL)) {
 		struct timeval ktv;
 		do_gettimeofday(&ktv);

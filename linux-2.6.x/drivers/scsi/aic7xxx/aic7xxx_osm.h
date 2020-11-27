@@ -534,9 +534,9 @@ struct ahc_platform_data {
 	pid_t			 dv_pid;
 	struct timer_list	 completeq_timer;
 	struct timer_list	 reset_timer;
-	struct semaphore	 eh_sem;
-	struct semaphore	 dv_sem;
-	struct semaphore	 dv_cmd_sem;	/* XXX This needs to be in
+	struct compat_semaphore	 eh_sem;
+	struct compat_semaphore	 dv_sem;
+	struct compat_semaphore	 dv_cmd_sem;	/* XXX This needs to be in
 						 * the target struct
 						 */
 	struct scsi_device	*dv_scsi_dev;

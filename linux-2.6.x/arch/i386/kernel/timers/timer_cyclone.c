@@ -17,9 +17,9 @@
 #include <asm/io.h>
 #include <asm/pgtable.h>
 #include <asm/fixmap.h>
-#include "io_ports.h"
+#include <asm/i8253.h>
 
-extern spinlock_t i8253_lock;
+#include "io_ports.h"
 
 /* Number of usecs that the last interrupt was delayed */
 static int delay_at_last_interrupt;
@@ -36,7 +36,7 @@ static u32* volatile cyclone_timer;	/* Cyclone MPMC0 register */
 static u32 last_cyclone_low;
 static u32 last_cyclone_high;
 static unsigned long long monotonic_base;
-static seqlock_t monotonic_lock = SEQLOCK_UNLOCKED;
+static DECLARE_RAW_SEQLOCK(monotonic_lock);
 
 /* helper macro to atomically read both cyclone counter registers */
 #define read_cyclone_counter(low,high) \

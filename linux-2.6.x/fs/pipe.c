@@ -160,8 +160,14 @@ pipe_readv(struct file *filp, const struct iovec *_iov,
 		wake_up_interruptible(PIPE_WAIT(*inode));
 		kill_fasync(PIPE_FASYNC_WRITERS(*inode), SIGIO, POLL_OUT);
 	}
+	/*
+	 * Hack: we turn off atime updates for -RT kernels.
+	 * Who uses them on pipes anyway?
+	 */
+#ifndef CONFIG_PREEMPT_RT
 	if (ret > 0)
 		file_accessed(filp);
+#endif
 	return ret;
 }
 
@@ -254,8 +260,14 @@ pipe_writev(struct file *filp, const struct iovec *_iov,
 		wake_up_interruptible(PIPE_WAIT(*inode));
 		kill_fasync(PIPE_FASYNC_READERS(*inode), SIGIO, POLL_IN);
 	}
+	/*
+	 * Hack: we turn off atime updates for -RT kernels.
+	 * Who uses them on pipes anyway?
+	 */
+#ifndef CONFIG_PREEMPT_RT
 	if (ret > 0)
 		inode_update_time(inode, 1);	/* mtime and ctime */
+#endif
 	return ret;
 }
 

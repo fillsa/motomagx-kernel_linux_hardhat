@@ -1,0 +1,16 @@
+# README
+#  
+# Copyright (C) 2006 Motorola Inc.
+#
+
+This directory contains the YAFFS2 source code downloaded from the YAFFS2 Open Source
+on October 24, 2006. The downloaded tar file, 10242006_yaffs2.tar.gz, is in
+this directory.
+
+The following changes were made on the Open Source code.
+
+1) Applied Sergey's patch. This patch is in 10242006_yaffs2.tar.gz. 
+2) The Data Shred feature was added with a mount option, shred.
+3) Enable/disable the mount checkpoint feature with a mount option, nochkpoint.
+
+

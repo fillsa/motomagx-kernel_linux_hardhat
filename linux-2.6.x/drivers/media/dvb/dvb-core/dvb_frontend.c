@@ -500,7 +500,7 @@ static void dvb_frontend_stop(struct dvb_frontend *fe)
 		printk("dvb_frontend_stop: thread PID %d already died\n",
 				fe->thread_pid);
 		/* make sure the mutex was not held by the thread */
-		init_MUTEX (&fe->sem);
+		sema_init (&fe->sem, 1);
 		return;
 	}
 
@@ -831,10 +831,10 @@ int dvb_register_frontend(struct dvb_adapter* dvb,
 	if (down_interruptible (&frontend_mutex))
 		return -ERESTARTSYS;
 
-	init_MUTEX (&fe->sem);
+	sema_init (&fe->sem, 1);
 	init_waitqueue_head (&fe->wait_queue);
 	init_waitqueue_head (&fe->events.wait_queue);
-	init_MUTEX (&fe->events.sem);
+	sema_init (&fe->events.sem, 1);
 	fe->events.eventw = fe->events.eventr = 0;
 	fe->events.overflow = 0;
 	fe->dvb = dvb;

@@ -1,5 +1,5 @@
 # drivers/mtd/nand/Kconfig
-# $Id: Kconfig,v 1.22 2004/10/05 22:11:46 gleixner Exp $
+# $Id: Kconfig,v 1.31 2005/06/20 12:03:21 bjd Exp $
 
 menu "NAND Flash Device Drivers"
 	depends on MTD!=n
@@ -7,6 +7,7 @@ menu "NAND Flash Device Drivers"
 config MTD_NAND
 	tristate "NAND Device Support"
 	depends on MTD
+	select MTD_NAND_IDS
 	help
 	  This enables support for accessing all type of NAND flash
 	  devices. For further information see
@@ -48,16 +49,43 @@ config MTD_NAND_SPIA
 	help
 	  If you had to ask, you don't have one. Say 'N'.
 
+config MTD_NAND_OMAP
+        tristate "NAND Flash device on OMAP H3/H2  board"
+        depends on ARM && ARCH_OMAP && MTD_NAND && (MACH_OMAP_H2 || MACH_OMAP_H3)
+        help
+          Support for NAND flash on Texas Instruments H3/H2  platform.
+
+config MTD_NAND_PNX4008
+	tristate "NAND Flash device on PNX4008"
+	depends on ARM && ARCH_PNX4008 && MTD_NAND
+	help
+	  Support for MLC NAND Flash controller on PNX4008
+
+config MTD_NAND_PNX4008_DMA
+	bool "Use DMA for transfers on PNX4008 flash"
+	default y
+	depends on MTD_NAND_PNX4008
+
+config MTD_NAND_PNX4008_HWECC
+	bool "Enable hardware error-control on PNX4008 flash"
+	default y
+	depends on MTD_NAND_PNX4008
+
 config MTD_NAND_TOTO
 	tristate "NAND Flash device on TOTO board"
 	depends on ARM && ARCH_OMAP && MTD_NAND
 	help
 	  Support for NAND flash on Texas Instruments Toto platform.
 
+config MTD_NAND_OMAP_HW
+	bool "OMAP HW NAND Flash controller support"
+        depends on ARM && ARCH_OMAP16XX && MTD_NAND
+
+	help
+	  Driver for TI OMAP16xx hardware NAND flash controller.
+
 config MTD_NAND_IDS
 	tristate
-	default y if MTD_NAND = y || MTD_DOC2000 = y || MTD_DOC2001 = y || MTD_DOC2001PLUS = y
-	default m if MTD_NAND = m || MTD_DOC2000 = m || MTD_DOC2001 = m || MTD_DOC2001PLUS = m
 
 config MTD_NAND_TX4925NDFMC
 	tristate "SmartMedia Card on Toshiba RBTX4925 reference board"
@@ -96,10 +124,11 @@ config MTD_NAND_PPCHAMELEONEVB
 	  This enables the NAND flash driver on the PPChameleon EVB Board.
 
 config MTD_NAND_S3C2410
-	tristate "NAND Flash support for S3C2410 SoC"
+	tristate "NAND Flash support for S3C2410/S3C2440 SoC"
 	depends on ARCH_S3C2410 && MTD_NAND
 	help
-	  This enables the NAND flash controller on the S3C2410.
+	  This enables the NAND flash controller on the S3C2410 and S3C2440
+	  SoCs
 
 	  No board specfic support is done by this driver, each board
 	  must advertise a platform_device for the driver to attach. 
@@ -192,4 +221,142 @@ config MTD_NAND_DISKONCHIP_BBTWRITE
 	  Even if you leave this disabled, you can enable BBT writes at module
 	  load time (assuming you build diskonchip as a module) with the module
 	  parameter "inftl_bbt_write=1".
+	  
+config MTD_NAND_SHARPSL
+ 	bool "Support for NAND Flash on Sharp SL Series (C7xx + others)"
+ 	depends on MTD_NAND	&& ARCH_PXA
+ 
+config MTD_NAND_NANDSIM
+	tristate "Support for NAND Flash Simulator"
+	depends on m && MTD_NAND && MTD_PARTITIONS
+	help
+	  The simulator may simulate verious NAND flash chips for the
+	  MTD nand layer.
+
+config MTD_NAND_NANDSIM_FIRST_ID
+	hex "First ID byte"
+	range 0x00 0xff
+	default 0x98
+	depends on MTD_NAND_NANDSIM
+	help 
+     	  The fist byte returned by NAND Flash 'read ID' command (manufaturer ID).
+
+config MTD_NAND_NANDSIM_SECOND_ID
+	hex "Second ID byte"
+	range 0x00 0xff
+	default 0x39
+	depends on MTD_NAND_NANDSIM
+	help
+	  The second byte returned by NAND Flash 'read ID' command (chip ID).
+
+config MTD_NAND_NANDSIM_THIRD_ID
+	hex "Third ID byte"
+	range 0x00 0xff
+	default 0xff
+	depends on MTD_NAND_NANDSIM
+	help
+	  The third byte returned by NAND Flash 'read ID' command.
+
+config MTD_NAND_NANDSIM_FOURTH_ID
+	hex "Fourth ID byte"
+	range 0x00 0xff
+	default 0xff
+	depends on MTD_NAND_NANDSIM
+	help
+	  The fourth byte returned by NAND Flash 'read ID' command.
+
+config MTD_NAND_NANDSIM_DEBUG
+	bool "NAND Simulator debugging"
+	depends on MTD_NAND_NANDSIM
+	help
+	  Only helful for tracking problems.
+
+config MTD_NAND_NANDSIM_LOG
+        bool "NAND Simulator logging"
+	depends on MTD_NAND_NANDSIM
+	help
+	   Logs the track of NAND read/write/erase commands.
+
+config MTD_NAND_NANDSIM_DELAY
+	bool "Emulate NAND chip delays using busy-wait cycles"
+	default n
+	depends on MTD_NAND_NANDSIM
+
+config MTD_NAND_NANDSIM_ACCESS_DELAY
+	int "Access delay (microiseconds)"
+	default 25
+	depends on MTD_NAND_NANDSIM_DELAY
+
+config MTD_NAND_NANDSIM_PROGRAM_DELAY
+	int "Program delay (microseconds)"
+	default 200
+	depends on MTD_NAND_NANDSIM_DELAY
+
+config MTD_NAND_NANDSIM_ERASE_DELAY
+	int "Erase delay (milliseconds)"
+	default 2
+	depends on MTD_NAND_NANDSIM_DELAY
+
+config MTD_NAND_NANDSIM_OUTPUT_CYCLE
+	int "Word output (from flash) time (nanoseconds)"
+	default 40
+	depends on MTD_NAND_NANDSIM_DELAY
+	help
+	  For 16 bit devices word is 2 bytes, for 8 bit devices - 1 byte
+
+config MTD_NAND_NANDSIM_INPUT_CYCLE
+	int "Word input (to flash) time (nanoseconds)"
+	default 50
+	depends on MTD_NAND_NANDSIM_DELAY
+	help
+	  For 16 bit devices word is 2 bytes, for 8 bit devices - 1 byte
+
+config MTD_NAND_MXC
+	tristate "MXC NAND support"
+	depends on MTD_NAND
+	depends on ARCH_MXC
+	help
+	  This enables the driver for the NAND flash controller on the
+	  MXC processors.
+
+config MTD_NAND_MXC_SWECC
+	bool "Software ECC support"
+	depends on MTD_NAND_MXC
+	help
+	  This enables the support for Software ECC handling. By
+	  default MXC NAND controller Hardware ECC is supported.
+
+config MTD_NAND_MXC_FORCE_CE
+	bool "NAND chip select operation support"
+	depends on MTD_NAND_MXC
+	help
+	  This enables the NAND chip select by using CE control line. By
+	  default CE operation is disabled.
+
+config MTD_NAND_MXC_ECC_CORRECTION_OPTION2
+	bool "ECC correction in S/W"
+	depends on MTD_NAND_MXC
+	help
+	  This enables the Option2 NFC ECC correction in software. By
+	  default Option 1 is selected. Enable if you need option2 ECC correction.
+
+config CONFIG_MXC_NAND_LOW_LEVEL_ERASE
+	bool "Low level NAND erase"
+	depends on MTD_NAND_MXC
+	help
+	  This enables the erase of whole NAND flash. By
+	  default low level erase operation is disabled.
+
+config MTD_NAND_BBM
+	bool "NAND Bad Block Management support"
+	depends on MTD_NAND
+	default "n"
+	help
+	  This enables the driver for the NAND flash to support Bad Block Management
+
+config MTD_NAND_BBM_DBG
+	bool "NAND Bad Block Management Debug support"
+	depends on MTD_NAND && MTD_NAND_BBM
+	help
+	  This is for Bad Block Management development only
 endmenu

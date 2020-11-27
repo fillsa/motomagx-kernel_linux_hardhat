@@ -27,6 +27,7 @@
 #include <linux/shmem_fs.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
+#include <linux/ltt-events.h>
 #include <asm/uaccess.h>
 
 #include "util.h"
@@ -168,8 +169,8 @@ static struct vm_operations_struct shm_vm_ops = {
 	.close	= shm_close,	/* callback for when the vm-area is released */
 	.nopage	= shmem_nopage,
 #ifdef CONFIG_NUMA
-	.set_policy = shmem_set_policy,
-	.get_policy = shmem_get_policy,
+	.set_policy = generic_file_set_policy,
+	.get_policy = generic_file_get_policy,
 #endif
 };
 
@@ -277,6 +278,7 @@ asmlinkage long sys_shmget (key_t key, size_t size, int shmflg)
 		shm_unlock(shp);
 	}
 	up(&shm_ids.sem);
+	ltt_ev_ipc(LTT_EV_IPC_SHM_CREATE, err, shmflg);
 
 	return err;
 }

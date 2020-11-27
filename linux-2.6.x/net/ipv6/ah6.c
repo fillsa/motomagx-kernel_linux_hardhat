@@ -36,6 +36,10 @@
 #include <net/xfrm.h>
 #include <asm/scatterlist.h>
 
+#ifdef CONFIG_IPV6_MIP6
+#include <net/mip6.h>
+#endif
+
 static int zero_out_mutable_opts(struct ipv6_opt_hdr *opthdr)
 {
 	u8 *opt = (u8 *)opthdr;
@@ -73,6 +77,68 @@ static int zero_out_mutable_opts(struct ipv6_opt_hdr *opthdr)
 bad:
 	return 0;
 }
+
+#ifdef CONFIG_IPV6_MIP6
+/**
+ *	ipv6_rearrange_destopt - rearrange IPv6 destination options header
+ *	@iph: IPv6 header
+ *	@destopt: destionation options header
+ */
+static void ipv6_rearrange_destopt(struct ipv6hdr *iph, struct ipv6_opt_hdr *destopt)
+{
+	u8 *opt = (u8 *)destopt;
+	int len = ipv6_optlen(destopt);
+	int off = 0;
+	int optlen = 0;
+
+	off += 2;
+	len -= 2;
+
+	while (len > 0) {
+
+		switch (opt[off]) {
+
+		case IPV6_TLV_PAD0:
+			optlen = 1;
+			break;
+		default:
+			if (len < 2) 
+				goto bad;
+			optlen = opt[off+1]+2;
+			if (len < optlen)
+				goto bad;
+
+			/* Rearrange the source address in @iph and the
+			 * addresses in home address option for final source.
+			 * See 11.3.2 of RFC 3775 for details.
+			 */
+			if (opt[off] == IPV6_TLV_HAO) {
+				struct in6_addr final_addr;
+				struct destopt_hao *hao;
+
+				hao = (struct destopt_hao *)&opt[off];
+				if (hao->length != sizeof(hao->addr)) {
+					if (net_ratelimit())
+						printk(KERN_WARNING "destopt hao: invalid header length: %u\n", hao->length);
+					goto bad;
+				}
+				ipv6_addr_copy(&final_addr, &hao->addr);
+				ipv6_addr_copy(&hao->addr, &iph->saddr);
+				ipv6_addr_copy(&iph->saddr, &final_addr);
+			}
+			break;
+		}
+
+		off += optlen;
+		len -= optlen;
+	}
+	if (len == 0)
+		return;
+
+bad:
+	return;
+}
+#endif
 
 /**
  *	ipv6_rearrange_rthdr - rearrange IPv6 routing header
@@ -113,7 +179,11 @@ static void ipv6_rearrange_rthdr(struct ipv6hdr *iph, struct ipv6_rt_hdr *rthdr)
 	ipv6_addr_copy(&iph->daddr, &final_addr);
 }
 
+#ifdef CONFIG_IPV6_MIP6
+static int ipv6_clear_mutable_options(struct ipv6hdr *iph, int len, int dir)
+#else
 static int ipv6_clear_mutable_options(struct ipv6hdr *iph, int len)
+#endif
 {
 	union {
 		struct ipv6hdr *iph;
@@ -128,6 +198,28 @@ static int ipv6_clear_mutable_options(struct ipv6hdr *iph, int len)
 
 	while (exthdr.raw < end) {
 		switch (nexthdr) {
+#ifdef CONFIG_IPV6_MIP6
+		case NEXTHDR_HOP:
+			if (!zero_out_mutable_opts(exthdr.opth)) {
+				LIMIT_NETDEBUG(printk(
+					KERN_WARNING "overrun %sopts\n",
+					nexthdr == NEXTHDR_HOP ?
+						"hop" : "dest"));
+				return -EINVAL;
+			}
+			break;
+		case NEXTHDR_DEST:
+			if (dir == XFRM_POLICY_OUT)
+				ipv6_rearrange_destopt(iph, exthdr.opth);
+			if (!zero_out_mutable_opts(exthdr.opth)) {
+				LIMIT_NETDEBUG(printk(
+					KERN_WARNING "overrun %sopts\n",
+					nexthdr == NEXTHDR_HOP ?
+						"hop" : "dest"));
+				return -EINVAL;
+			}
+			break;
+#else
 		case NEXTHDR_HOP:
 		case NEXTHDR_DEST:
 			if (!zero_out_mutable_opts(exthdr.opth)) {
@@ -138,6 +230,7 @@ static int ipv6_clear_mutable_options(struct ipv6hdr *iph, int len)
 				return -EINVAL;
 			}
 			break;
+#endif
 
 		case NEXTHDR_ROUTING:
 			ipv6_rearrange_rthdr(iph, exthdr.rth);
@@ -191,9 +284,16 @@ static int ah6_output(struct sk_buff *skb)
 			goto error;
 		}
 		memcpy(tmp_ext, &top_iph->daddr, extlen);
+#ifdef CONFIG_IPV6_MIP6
+		err = ipv6_clear_mutable_options(top_iph,
+						 extlen - sizeof(*tmp_ext) +
+						 sizeof(*top_iph),
+						 XFRM_POLICY_OUT);
+#else
 		err = ipv6_clear_mutable_options(top_iph,
 						 extlen - sizeof(*tmp_ext) +
 						 sizeof(*top_iph));
+#endif
 		if (err)
 			goto error_free_iph;
 	}
@@ -264,6 +364,8 @@ static int ah6_input(struct xfrm_state *x, struct xfrm_decap_state *decap, struc
 
 	hdr_len = skb->data - skb->nh.raw;
 	ah = (struct ipv6_auth_hdr*)skb->data;
+	if (x->props.replay_window && xfrm_replay_check(x, ah->seq_no))
+		goto out;
 	ahp = x->data;
 	nexthdr = ah->nexthdr;
 	ah_hlen = (ah->hdrlen + 2) << 2;
@@ -279,8 +381,13 @@ static int ah6_input(struct xfrm_state *x, struct xfrm_decap_state *decap, struc
 	if (!tmp_hdr)
 		goto out;
 	memcpy(tmp_hdr, skb->nh.raw, hdr_len);
+#ifdef CONFIG_IPV6_MIP6
+	if (ipv6_clear_mutable_options(skb->nh.ipv6h, hdr_len, XFRM_POLICY_IN))
+		goto out;
+#else
 	if (ipv6_clear_mutable_options(skb->nh.ipv6h, hdr_len))
 		goto out;
+#endif
 	skb->nh.ipv6h->priority    = 0;
 	skb->nh.ipv6h->flow_lbl[0] = 0;
 	skb->nh.ipv6h->flow_lbl[1] = 0;
@@ -302,6 +409,8 @@ static int ah6_input(struct xfrm_state *x, struct xfrm_decap_state *decap, struc
 		}
 	}
 
+	if (x->props.replay_window)
+		xfrm_replay_advance(x, ah->seq_no);
 	skb->nh.raw = skb_pull(skb, ah_hlen);
 	memcpy(skb->nh.raw, tmp_hdr, hdr_len);
 	skb->nh.ipv6h->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
@@ -375,7 +484,7 @@ static int ah6_init_state(struct xfrm_state *x, void *args)
 	 * we need for AH processing.  This lookup cannot fail here
 	 * after a successful crypto_alloc_tfm().
 	 */
-	aalg_desc = xfrm_aalg_get_byname(x->aalg->alg_name);
+	aalg_desc = xfrm_aalg_get_byname(x->aalg->alg_name, 0);
 	BUG_ON(!aalg_desc);
 
 	if (aalg_desc->uinfo.auth.icv_fullbits/8 !=

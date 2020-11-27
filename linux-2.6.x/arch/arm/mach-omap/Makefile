@@ -29,10 +29,16 @@ obj-$(CONFIG_LEDS) += $(led-y)
 # Power Management
 obj-$(CONFIG_PM) += pm.o sleep.o
 
+obj-$(CONFIG_OMAP_BOOT_REASON) += bootreason.o
+obj-$(CONFIG_OMAP_GPIO_SWITCH) += gpio-switch.o
+
 ifeq ($(CONFIG_ARCH_OMAP1510),y)
 # Innovator-1510 FPGA
 obj-$(CONFIG_MACH_OMAP_INNOVATOR) += fpga.o
 endif
 
-# kgdb support
-obj-$(CONFIG_KGDB_SERIAL)	+= kgdb-serial.o
+# DSP subsystem
+obj-y += dsp/
+
+# Dynamic power management
+obj-$(CONFIG_DPM)		+= omap_dpm.o

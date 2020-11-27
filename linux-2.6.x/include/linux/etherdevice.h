@@ -49,6 +49,34 @@ static inline void eth_copy_and_sum (struct sk_buff *dest,
 }
 
 /**
+ * is_zero_ether_addr - Determine if give Ethernet address is all
+ * zeros.
+ */
+static inline int is_zero_ether_addr(const u8 *addr)
+{
+	return !(addr[0] | addr[1] | addr[2] | addr[3] | addr[4] | addr[5]);
+}
+
+/**
+ * is_multicast_ether_addr - Determine if the given Ethernet address is a
+ * multicast address.
+ *
+ * @addr: Pointer to a six-byte array containing the Ethernet address
+ *
+ * Return true if the address is a multicast address.
+ */
+static inline int is_multicast_ether_addr(const u8 *addr)
+{
+	return ((addr[0] != 0xff) && (0x01 & addr[0]));
+}
+
+static inline int is_broadcast_ether_addr(const u8 *addr)
+{
+        return ((addr[0] == 0xff) && (addr[1] == 0xff) && (addr[2] == 0xff) &&  
+		(addr[3] == 0xff) && (addr[4] == 0xff) && (addr[5] == 0xff));
+}
+
+/**
  * is_valid_ether_addr - Determine if the given Ethernet address is valid
  * @addr: Pointer to a six-byte array containing the Ethernet address
  *

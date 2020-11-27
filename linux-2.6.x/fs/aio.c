@@ -57,7 +57,7 @@ static struct workqueue_struct *aio_wq;
 static void aio_fput_routine(void *);
 static DECLARE_WORK(fput_work, aio_fput_routine, NULL);
 
-static spinlock_t	fput_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(fput_lock);
 LIST_HEAD(fput_head);
 
 static void aio_kick_handler(void *);
@@ -573,9 +573,11 @@ static void use_mm(struct mm_struct *mm)
 	tsk->flags |= PF_BORROWED_MM;
 	active_mm = tsk->active_mm;
 	atomic_inc(&mm->mm_count);
+	local_irq_disable(); // FIXME
+	activate_mm(active_mm, mm);
 	tsk->mm = mm;
 	tsk->active_mm = mm;
-	activate_mm(active_mm, mm);
+	local_irq_enable();
 	task_unlock(tsk);
 
 	mmdrop(active_mm);

@@ -115,7 +115,7 @@
 DEFINE_SNMP_STAT(struct udp_mib, udp_statistics);
 
 struct hlist_head udp_hash[UDP_HTABLE_SIZE];
-rwlock_t udp_hash_lock = RW_LOCK_UNLOCKED;
+DEFINE_RWLOCK(udp_hash_lock);
 
 /* Shared by v4/v6 udp. */
 int udp_port_rover;
@@ -951,6 +951,8 @@ static int udp_encap_rcv(struct sock * sk, struct sk_buff *skb)
 	 * header and optional ESP marker bytes) and then modify the
 	 * protocol to ESP, and then call into the transform receiver.
 	 */
+	if (skb_cloned(skb) && pskb_expand_head(skb, 0, 0, GFP_ATOMIC))
+		return 0;
 
 	/* Now we can update and verify the packet length... */
 	iph = skb->nh.iph;

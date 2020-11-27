@@ -1,0 +1,56 @@
+#
+# PMIC sc55112 client modules
+#
+
+config MXC_PMIC_SC55112_CONNECTIVITY
+        tristate "sc55112 USB/RS-232 connectivity support"
+        depends on MXC_PMIC_SC55112
+        ---help---
+          This is the sc55112 connectivity client driver that provides
+          support for handling USB (or USB On-the-Go) and RS-232 connections
+          with external peripherals. Note that the sc55112 PMIC ADC driver
+          must also be selected in order to build and use the connectivity
+          driver.
+
+config MXC_PMIC_SC55112_AUDIO
+        tristate "sc55112 audio support"
+        depends on MXC_PMIC_SC55112
+        ---help---
+          This is the sc55112 audio client driver that provides support
+          for the audio CODECs, amplifier, and mixer hardware. This driver
+          is required to provide audio recording and playback using the
+          sc55112.
+
+config MXC_PMIC_SC55112_ADC
+        tristate "sc55112 ADC support"
+        depends on MXC_PMIC_SC55112
+        ---help---
+        This is the sc55112 ADC module driver. This module provides kernel API
+        for the ADC system of sc55112.
+        It controls also the touch screen interface.
+        If you want sc55112 ADC support, you should say Y here
+
+config MXC_PMIC_SC55112_BATTERY
+	tristate "sc55112 Battery support"
+	depends on MXC_PMIC_SC55112
+	---help---
+	This is the sc55112 Battery module driver. This module provides kernel
+	API for the Battery system of sc55112.
+	If you want sc55112 Battery support, you should say Y here
+
+
+config MXC_PMIC_SC55112_LIGHT
+	tristate "sc55112 Light support"
+	depends on MXC_PMIC_SC55112
+	---help---
+	This is the sc55112 Light module driver. This module provides kernel
+	API for the backlight and tri-color LED system of sc55112.
+	If you want sc55112 Light support, you should say Y here
+
+config MXC_PMIC_SC55112_POWER
+	tristate "sc55112 Power Control support"
+	depends on MXC_PMIC_SC55112
+	---help---
+	This is the sc55112 Power Control module driver. This module provides
+	kernel API for the Power Control system of sc55112.
+	If you want sc55112 Power Control support, you should say Y here

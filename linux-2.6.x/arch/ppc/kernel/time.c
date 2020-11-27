@@ -57,6 +57,7 @@
 #include <linux/time.h>
 #include <linux/init.h>
 #include <linux/profile.h>
+#include <linux/ltt-events.h>
 
 #include <asm/segment.h>
 #include <asm/io.h>
@@ -72,6 +73,15 @@ u64 jiffies_64 = INITIAL_JIFFIES;
 
 EXPORT_SYMBOL(jiffies_64);
 
+#ifdef CONFIG_HIGH_RES_TIMERS
+#include <linux/hrtime.h>
+int hr_time_resolution = CONFIG_HIGH_RES_RESOLUTION;
+int arch_to_nsec;
+int nsec_to_arch;
+EXPORT_SYMBOL(arch_to_nsec);
+EXPORT_SYMBOL(nsec_to_arch);
+int hr_tick;
+#endif
 unsigned long disarm_decr[NR_CPUS];
 
 extern struct timezone sys_tz;
@@ -91,7 +101,7 @@ extern unsigned long wall_jiffies;
 
 static long time_offset;
 
-spinlock_t rtc_lock = SPIN_LOCK_UNLOCKED;
+DEFINE_SPINLOCK(rtc_lock);
 
 EXPORT_SYMBOL(rtc_lock);
 
@@ -121,6 +131,73 @@ unsigned long profile_pc(struct pt_regs *regs)
 EXPORT_SYMBOL(profile_pc);
 #endif
 
+#ifdef CONFIG_HIGH_RES_TIMERS
+int hr_set_dec(unsigned long count) {
+
+	if (time_before(count, get_tbl()))
+		/* missed it */
+		return 1;
+
+	/* ok, we've got a shot */
+	set_dec(count - get_tbl());
+
+	if (time_after(count, get_tbl())) {
+		hr_tick = 1;
+		return 0; /* made it */
+	}
+
+	/*
+	 * Ohh, just missed it. If we were slow enough to have loaded the
+	 * decrementer with a negative value, we're going to have to wait
+	 * an awfully long time for another decrementer interrupt. So, we'll
+	 * trigger an interrupt right now and let timer_interrupt recover and
+	 * re-schedule the next jiffie to make up for our mistake.
+	 */
+	set_dec(1);
+	return 1;
+
+}
+int schedule_hr_timer_int(unsigned long ref_jiffies, int cycles) {
+
+	unsigned long temp_jiffies, seq;
+	unsigned long req_tb, next_jiffy_tb;
+
+	do {
+		seq = read_seqbegin(&xtime_lock);
+		temp_jiffies = jiffies;
+		req_tb = tb_last_stamp;
+	} while (read_seqretry(&xtime_lock, seq));
+
+	if (time_before(ref_jiffies, temp_jiffies))
+		return 1; /* missed it */
+
+	next_jiffy_tb = req_tb + tb_ticks_per_jiffy;
+	req_tb += cycles + (ref_jiffies - temp_jiffies) * tb_ticks_per_jiffy;
+
+	if (time_after(req_tb, next_jiffy_tb))
+		BUG();
+
+	return hr_set_dec(req_tb);
+}
+void __init hr_time_init(void)
+{
+	unsigned tb_ticks_per_sec;
+
+	/*
+	 * Use mulhwu_scale_factor to find the number ticks needed to equal
+	 * 1,000,000 uSecs (1 Sec).
+	 */
+	tb_ticks_per_sec = mulhwu_scale_factor(tb_to_us, USEC_PER_SEC);
+
+	arch_to_nsec = div_sc_n(HR_TIME_SCALE_NSEC, NSEC_PER_SEC,
+				tb_ticks_per_sec);
+	nsec_to_arch = div_sc_n(HR_TIME_SCALE_CYCLES, tb_ticks_per_sec,
+				NSEC_PER_SEC);
+
+	printk("hr_time_init: arch_to_nsec = %u, nsec_to_arch = %u\n",
+		arch_to_nsec, nsec_to_arch);
+}
+#endif
 /*
  * timer_interrupt - gets called when the decrementer overflows,
  * with interrupts disabled.
@@ -135,6 +212,8 @@ void timer_interrupt(struct pt_regs * regs)
 
 	if (atomic_read(&ppc_n_lost_interrupts) != 0)
 		do_IRQ(regs);
+	
+	ltt_ev_trap_entry(regs->trap, instruction_pointer(regs));
 
 	irq_enter();
 
@@ -184,6 +263,12 @@ void timer_interrupt(struct pt_regs * regs)
 	}
 	if ( !disarm_decr[smp_processor_id()] )
 		set_dec(next_dec);
+#ifdef CONFIG_HIGH_RES_TIMERS
+	if (hr_tick) {
+		do_hr_timer_int();
+		hr_tick = 0;
+	}
+#endif
 	last_jiffy_stamp(cpu) = jiffy_stamp;
 
 #ifdef CONFIG_SMP
@@ -194,6 +279,8 @@ void timer_interrupt(struct pt_regs * regs)
 		ppc_md.heartbeat();
 
 	irq_exit();
+
+	ltt_ev_trap_exit();
 }
 
 /*
@@ -208,7 +295,11 @@ void do_gettimeofday(struct timeval *tv)
 	do {
 		seq = read_seqbegin_irqsave(&xtime_lock, flags);
 		sec = xtime.tv_sec;
+#if defined(CONFIG_HIGH_RES_TIMERS)
+		usec = xtime.tv_nsec;
+#else
 		usec = (xtime.tv_nsec / 1000);
+#endif
 		delta = tb_ticks_since(tb_last_stamp);
 #ifdef CONFIG_SMP
 		/* As long as timebases are not in sync, gettimeofday can only
@@ -220,7 +311,12 @@ void do_gettimeofday(struct timeval *tv)
 		lost_ticks = jiffies - wall_jiffies;
 	} while (read_seqretry_irqrestore(&xtime_lock, seq, flags));
 
+#if defined(CONFIG_HIGH_RES_TIMERS)
+	usec += arch_cycle_to_nsec(tb_ticks_per_jiffy * lost_ticks + delta);
+	usec /= 1000;
+#else
 	usec += mulhwu(tb_to_us, tb_ticks_per_jiffy * lost_ticks + delta);
+#endif	
 	while (usec >= 1000000) {
 	  	sec++;
 		usec -= 1000000;
@@ -263,7 +359,11 @@ int do_settimeofday(struct timespec *tv)
 	tb_delta = tb_ticks_since(last_jiffy_stamp(smp_processor_id()));
 	tb_delta += (jiffies - wall_jiffies) * tb_ticks_per_jiffy;
 
+#if defined(CONFIG_HIGH_RES_TIMERS)
+	new_nsec -= arch_cycle_to_nsec(tb_delta);
+#else
 	new_nsec -= 1000 * mulhwu(tb_to_us, tb_delta);
+#endif
 
 	wtm_sec  = wall_to_monotonic.tv_sec + (xtime.tv_sec - new_sec);
 	wtm_nsec = wall_to_monotonic.tv_nsec + (xtime.tv_nsec - new_nsec);
@@ -306,6 +406,9 @@ void __init time_init(void)
                 ppc_md.calibrate_decr();
 		tb_to_ns_scale = mulhwu(tb_to_us, 1000 << 10);
 	}
+#ifdef CONFIG_HIGH_RES_TIMERS
+	hr_time_init();
+#endif
 
 	/* Now that the decrementer is calibrated, it can be used in case the
 	 * clock is stuck, but the fact that we have to handle the 601

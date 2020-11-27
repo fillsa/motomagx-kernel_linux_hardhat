@@ -118,13 +118,16 @@
  *
  *	V.   Miscellaneous
  *
- * 	VLAN offloading of tagging, stripping and filtering is not
- * 	supported, but driver will accommodate the extra 4-byte VLAN tag
- * 	for processing by upper layers.  Tx/Rx Checksum offloading is not
- * 	supported.  Tx Scatter/Gather is not supported.  Jumbo Frames is
- * 	not supported (hardware limitation).
+ * 	VLAN offloading of tagging, stripping is supported. Rx Checksum 
+ *	offloading is supported for mac revisions later than 82559 101M. 
+ *	Tx Checksum and Scatter/Gather is supported.  
  *
- * 	MagicPacket(tm) WoL support is enabled/disabled via ethtool.
+ *	Ethtool support added for get/set driver settings, Scatter/Gather, 
+ *	checksum offload, flow control.  
+ *
+ *	NAPI is now truely configurable.
+ *
+ *	Jumbo Frames is	not supported (hardware limitation).
  *
  * 	Thanks to JC (jchapman@katalix.com) for helping with
  * 	testing/troubleshooting the development driver.
@@ -146,15 +149,24 @@
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/mii.h>
+#ifdef NETIF_F_HW_VLAN_TX
 #include <linux/if_vlan.h>
+#endif
 #include <linux/skbuff.h>
 #include <linux/ethtool.h>
 #include <linux/string.h>
+#include <linux/reboot.h>
 #include <asm/unaligned.h>
 
+#include <linux/tcp.h>
+#include <linux/udp.h>
 
 #define DRV_NAME		"e100"
-#define DRV_EXT		"-NAPI"
+#ifdef CONFIG_E100_NAPI
+#define DRV_EXT 		"-NAPI"
+#else
+#define DRV_EXT
+#endif
 #define DRV_VERSION		"3.2.3-k2"DRV_EXT
 #define DRV_DESCRIPTION		"Intel(R) PRO/100 Network Driver"
 #define DRV_COPYRIGHT		"Copyright(c) 1999-2004 Intel Corporation"
@@ -167,7 +179,7 @@ MODULE_DESCRIPTION(DRV_DESCRIPTION);
 MODULE_AUTHOR(DRV_COPYRIGHT);
 MODULE_LICENSE("GPL");
 
-static int debug = 3;
+static int debug = 0;
 module_param(debug, int, 0);
 MODULE_PARM_DESC(debug, "Debug level (0=none,...,16=all)");
 #define DPRINTK(nlevel, klevel, fmt, args...) \
@@ -350,8 +362,11 @@ enum eeprom_config_asf {
 };
 
 enum cb_status {
-	cb_complete = 0x8000,
-	cb_ok       = 0x2000,
+	cb_complete 	= 0x8000,
+	cb_ok       	= 0x2000,
+	cb_vlan_detect	= 0x1000,
+	cb_fail		= 0x0800,
+	cb_mask		= 0xf000,
 };
 
 enum cb_command {
@@ -363,6 +378,7 @@ enum cb_command {
 	cb_ucode  = 0x0005,
 	cb_dump   = 0x0006,
 	cb_tx_sf  = 0x0008,
+	cb_ipcbtx = 0x0009,
 	cb_cid    = 0x1f00,
 	cb_i      = 0x2000,
 	cb_s      = 0x4000,
@@ -370,12 +386,21 @@ enum cb_command {
 };
 
 struct rfd {
+	/* 8255x */
 	u16 status;
 	u16 command;
 	u32 link;
 	u32 rbd;
 	u16 actual_size;
 	u16 size;
+	/* D102 */
+	u16 vlan_id;
+	u8 rcv_parser_status;
+	u8 reserved;
+	u16 security_status;
+	u8 csum_status;
+	u8 zcopy_status;
+	u8 pad[8]; /* 16-byte alignment */
 };
 
 struct rx {
@@ -434,8 +459,37 @@ struct multi {
 	u8 addr[E100_MAX_MULTICAST_ADDRS * ETH_ALEN + 2/*pad*/];
 };
 
-/* Important: keep total struct u32-aligned */
+struct ipcb {
+	u16 activation;
+	u8 ip_activation_low;
+	u8 ip_activation_high;
+	u16 vlan;
+	u8 ip_header_offset;
+	u8 tcp_header_offset;
+	u32 tbd_zero_address; /* tx buffer 0 address */
+	u16 tbd_zero_size;
+	u16 total_tcp_payload;
+}; /* 2 DWORDS */
+
+enum ipcb_ctrl {
+	ipcb_ip_checksum_enable 	= 0x10,
+	ipcb_tcpudp_checksum_enable	= 0x20,
+	ipcb_tcp_packet 		= 0X40,
+	ipcb_largesend_enable 		= 0x80,
+	ipcb_hardwareparsing_enable	= 0x01,
+	ipcb_insertvlan_enable 		= 0x02,
+	ipcb_ip_activation_default      = ipcb_hardwareparsing_enable,
+};
+
 #define UCODE_SIZE			134
+#define TBD_ARRAY_SIZE			(2+MAX_SKB_FRAGS)
+struct tbd {
+	u32 buf_addr;
+	u16 size;
+	u16 eol;
+};
+
+/* Important: keep total struct u32-aligned */
 struct cb {
 	u16 status;
 	u16 command;
@@ -450,18 +504,21 @@ struct cb {
 			u16 tcb_byte_count;
 			u8 threshold;
 			u8 tbd_count;
-			struct {
-				u32 buf_addr;
-				u16 size;
-				u16 eol;
-			} tbd;
+			
+			union {
+				struct ipcb ipcb;
+				struct tbd tbd[TBD_ARRAY_SIZE];
+			} tcbu;
 		} tcb;
 		u32 dump_buffer_addr;
 	} u;
+	struct tbd *tbd_ptr;
+	u32 tbd_nonseg;
+	u32 tbd_seg;
 	struct cb *next, *prev;
 	dma_addr_t dma_addr;
 	struct sk_buff *skb;
-};
+} __attribute__ ((packed));
 
 enum loopback {
 	lb_none = 0, lb_mac = 1, lb_phy = 3,
@@ -529,7 +586,18 @@ struct nic {
 		multicast_all      = (1 << 2),
 		wol_magic          = (1 << 3),
 		ich_10h_workaround = (1 << 4),
+		fc_capable	   = (1 << 5),
+		fc_tx_only	   = (1 << 6), /* Link partner not FC capable 
+						* but capable of autoneg */
+		fc_disabled	   = (1 << 7),
 	} flags					____cacheline_aligned;
+
+	enum {
+		use_ipcb	   = (1 << 0), /* 82550/1 */
+		rx_csum_offload	   = (1 << 1), 
+		tx_csum_offload	   = (1 << 2), 
+		vlan_tagging	   = (1 << 3),
+	} offload_features			____cacheline_aligned; 
 
 	enum mac mac;
 	enum phy phy;
@@ -558,7 +626,9 @@ struct nic {
 	u32 rx_fc_unsupported;
 	u32 rx_tco_frames;
 	u32 rx_over_length_errors;
-
+	u32 rx_intr_frames;
+	struct vlan_group *vlangrp;
+	u16 rfd_size;
 	u8 rev_id;
 	u16 leds;
 	u16 eeprom_wc;
@@ -897,10 +967,32 @@ static void e100_get_defaults(struct nic *nic)
 	nic->params.rfds = rfds;
 	nic->params.cbs = cbs;
 
+	nic->flags |= fc_disabled;
+	nic->offload_features &= ~rx_csum_offload;
+	nic->offload_features &= ~tx_csum_offload;
+	nic->offload_features &= ~vlan_tagging;
+
+	if(nic->mac >= mac_82559_D101M) {		
+		/* Enable 82559/0/1 Receive Checksum Offload for TCP and UDP by default */		
+		nic->offload_features |= rx_csum_offload;
+		if(nic->mac >= mac_82550_D102) {
+			nic->offload_features |= tx_csum_offload;
+			nic->offload_features |= use_ipcb;
+
+			nic->offload_features |= vlan_tagging;
+			nic->rfd_size = 32; 
+		} else {
+			if(nic->pdev->device == 0x1209) {
+				nic->offload_features &= ~rx_csum_offload;
+			}
+			nic->offload_features &= ~use_ipcb;
+			nic->rfd_size = 16; 
+		}
+	}
 	/* Quadwords to DMA into FIFO before starting frame transmit */
 	nic->tx_threshold = 0xE0;
 
-	nic->tx_command = cpu_to_le16(cb_tx | cb_i | cb_tx_sf |
+	nic->tx_command = cpu_to_le16(cb_i | cb_tx_sf |
 		((nic->mac >= mac_82558_D101_A4) ? cb_cid : 0));
 
 	/* Template for a freshly allocated RFD */
@@ -916,6 +1008,45 @@ static void e100_get_defaults(struct nic *nic)
 	nic->mii.mdio_write = mdio_write;
 }
 
+#define DFLT_FC_DELAY_LSB	0x1f	/* Delay for outgoing Pause frames */
+#define DFLT_FC_DELAY_MSB	0x01
+#define DFLT_NO_FC_DELAY_LSB	0x00	/* No flow control default value */
+#define DFLT_NO_FC_DELAY_MSB	0x40
+static void e100_config_fc(struct nic *nic, struct config *config)
+{
+	/* Enable fc if the link supports it */
+	if(nic->flags & (fc_capable | fc_tx_only)) {
+		if(nic->flags & fc_tx_only) {
+			/* If link partner is capable of autoneg, but  */
+			/* not capable of flow control, Received PAUSE */
+			/* frames are still honored, i.e.,             */
+			/* transmitted frames would be paused by       */
+			/* incoming PAUSE frames                       */
+			config->fc_delay_lo = DFLT_NO_FC_DELAY_LSB;
+			config->fc_delay_hi = DFLT_NO_FC_DELAY_MSB;
+			config->fc_reject = 0x1;
+			config->fc_restop = 0x0;
+			config->fc_restart = 0x0;
+			config->fc_disable = 0x0;
+		} else {
+			config->fc_delay_lo = DFLT_FC_DELAY_LSB;
+			config->fc_delay_hi = DFLT_FC_DELAY_MSB;
+			config->fc_reject = 0x1;
+			config->fc_restop = 0x1;
+			config->fc_restart = 0x1;
+			config->fc_disable = 0x0;
+		}
+	} else {
+		config->fc_delay_lo = DFLT_NO_FC_DELAY_LSB;
+		config->fc_delay_hi = DFLT_NO_FC_DELAY_MSB;
+		config->fc_reject = 0x0;
+		config->fc_restop = 0x0;
+		config->fc_restart = 0x0;
+		config->fc_disable = 0x1;
+	}
+}
+
+#define ADD_CONFIG_BYTES_D102	10		/* Extra config bytes for D102 */
 static void e100_configure(struct nic *nic, struct cb *cb, struct sk_buff *skb)
 {
 	struct config *config = &cb->u.config;
@@ -969,7 +1100,15 @@ static void e100_configure(struct nic *nic, struct cb *cb, struct sk_buff *skb)
 		config->magic_packet_disable = 0x1;	/* 1=off, 0=on */
 
 	if(nic->mac >= mac_82558_D101_A4) {
-		config->fc_disable = 0x1;	/* 1=Tx fc off, 0=Tx fc on */
+		if(nic->flags & fc_disabled)
+			config->fc_disable = 0x1;	/* 1=Tx fc off, 0=Tx fc on */
+		else
+			config->fc_disable = 0x0;
+
+		/* Configure flow control parameters */		
+		if(config->fc_disable == 0x0)
+			e100_config_fc(nic, config);
+
 		config->mwi_enable = 0x1;	/* 1=enable, 0=disable */
 		config->standard_tcb = 0x0;	/* 1=standard, 0=extended */
 		config->rx_long_ok = 0x1;	/* 1=VLANs ok, 0=standard */
@@ -978,6 +1117,54 @@ static void e100_configure(struct nic *nic, struct cb *cb, struct sk_buff *skb)
 		else
 			config->standard_stat_counter = 0x0;
 	}
+
+	if(nic->mac >= mac_82559_D101M) {		
+		if(nic->mac >= mac_82550_D102) {
+			nic->offload_features |= use_ipcb;
+		
+			nic->offload_features |= vlan_tagging;
+			nic->rfd_size = 32; 
+		} else {
+			nic->offload_features &= ~use_ipcb;
+			nic->offload_features &= ~vlan_tagging;
+			nic->rfd_size = 16; 
+		}
+	}
+
+	if((nic->offload_features & rx_csum_offload) && 
+		(nic->mac >= mac_82559_D101M) && 
+		(nic->pdev->device != 0x1209))
+			config->rx_tcpudp_checksum = 0x1;
+
+	/* 82550/1 specific parameters */
+	if(nic->mac >= mac_82550_D102) {
+	
+		/* Add extra bytes for D102 */
+		config->byte_count += ADD_CONFIG_BYTES_D102;
+
+		/* Enable extended RFD. If this is enabled, the 
+		 * immediated receive data buffer starts at offset
+		 * 32 from the RFD base address, instead of 16 */
+		config->rx_extended_rfd = 0x1;
+
+		/* Put the chip in D102 receive mode. Necessary
+		 * for offloading features */
+		config->rx_d102_mode = 0x1;
+
+		if(nic->offload_features & tx_csum_offload) {	
+			nic->netdev->features |= NETIF_F_IP_CSUM;
+			nic->netdev->features |= NETIF_F_SG; 
+		} else {
+			nic->netdev->features &= ~NETIF_F_IP_CSUM;
+		}
+	}
+	
+	if(nic->offload_features & vlan_tagging) {
+		config->rx_vlan_drop = 0x1;
+		nic->netdev->features |= 
+			NETIF_F_HW_VLAN_TX | NETIF_F_HW_VLAN_RX;
+	} else 
+		nic->netdev->features &= ~NETIF_F_VLAN_CHALLENGED;
 
 	DPRINTK(HW, DEBUG, "[00-07]=%02X:%02X:%02X:%02X:%02X:%02X:%02X:%02X\n",
 		c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]);
@@ -1020,6 +1207,43 @@ static void e100_dump(struct nic *nic, struct cb *cb, struct sk_buff *skb)
 	cb->command = cpu_to_le16(cb_dump);
 	cb->u.dump_buffer_addr = cpu_to_le32(nic->dma_addr +
 		offsetof(struct mem, dump_buf));
+}
+
+static void e100_set_fc(struct nic* nic)
+{
+	u16 ad_reg, lp_ad_reg, exp_reg;
+	struct net_device *netdev = nic->netdev;
+
+	/* No flow control for 82557, forced links or half duplex */
+	if(!netif_carrier_ok(nic->netdev) || (nic->mii.full_duplex == 0x0)
+					  || (nic->mii.force_media & 0x1)
+					  || (nic->mac <= mac_82558_D101_A4)) {
+		nic->flags &= ~fc_capable;
+	} else {
+		/* See if link partner is capable of Auto-Negotiation (bit 0, reg 6) */	
+		exp_reg = mdio_read(netdev, nic->mii.phy_id, MII_EXPANSION);
+
+		if(exp_reg & EXPANSION_NWAY) {
+			/* Read our advertisement register */
+			ad_reg = mdio_read(netdev, nic->mii.phy_id, MII_ADVERTISE);
+
+			/* Read our link partner's advertisement register */
+			lp_ad_reg = mdio_read(netdev, nic->mii.phy_id, MII_LPA);
+			ad_reg &= lp_ad_reg;    /* AND the 2 ad registers */
+
+			if(ad_reg & 0x4)	/* Flow control supported */
+				nic->flags |= fc_capable;
+			else
+				/* If link partner is capable of autoneg, but  */
+				/* not capable of flow control, Received PAUSE */
+				/* frames are still honored, i.e.,             */
+				/* transmitted frames would be paused */
+				/* by incoming PAUSE frames           */
+				nic->flags |= fc_tx_only;
+		} else {
+			nic->flags &= ~fc_capable;
+		}
+	}
 }
 
 #define NCONFIG_AUTO_SWITCH	0x0080
@@ -1079,6 +1303,9 @@ static int e100_phy_init(struct nic *nic)
 		/* enable/disable MDI/MDI-X auto-switching */
 		mdio_write(netdev, nic->mii.phy_id, MII_NCONFIG,
 			nic->mii.force_media ? 0 : NCONFIG_AUTO_SWITCH);
+
+	/* Set Flow Control parameters */
+	e100_set_fc(nic);
 
 	return 0;
 }
@@ -1246,6 +1473,7 @@ static void e100_watchdog(unsigned long data)
 			cmd.duplex == DUPLEX_FULL ? "full" : "half");
 	} else if(!mii_link_ok(&nic->mii) && netif_carrier_ok(nic->netdev)) {
 		DPRINTK(LINK, INFO, "link down\n");
+		e100_set_fc(nic);
 	}
 
 	mii_check_link(&nic->mii);
@@ -1279,14 +1507,102 @@ static void e100_watchdog(unsigned long data)
 static inline void e100_xmit_prepare(struct nic *nic, struct cb *cb,
 	struct sk_buff *skb)
 {
+
+	cb->status = 0;
 	cb->command = nic->tx_command;
-	cb->u.tcb.tbd_array = cb->dma_addr + offsetof(struct cb, u.tcb.tbd);
 	cb->u.tcb.tcb_byte_count = 0;
 	cb->u.tcb.threshold = nic->tx_threshold;
-	cb->u.tcb.tbd_count = 1;
-	cb->u.tcb.tbd.buf_addr = cpu_to_le32(pci_map_single(nic->pdev,
-		skb->data, skb->len, PCI_DMA_TODEVICE));
-	cb->u.tcb.tbd.size = cpu_to_le16(skb->len);
+
+#define IPCB (cb->u.tcb.tcbu.ipcb)
+	if(nic->offload_features & use_ipcb) {
+		cb->command |= __constant_cpu_to_le16(cb_ipcbtx);
+
+		IPCB.ip_activation_high = ipcb_ip_activation_default;
+
+		IPCB.ip_activation_low &= ~ipcb_largesend_enable; 
+		IPCB.ip_activation_low &= ~ipcb_tcp_packet;
+		IPCB.ip_activation_low &= ~ipcb_tcpudp_checksum_enable;
+		IPCB.ip_activation_low &= ~ipcb_ip_checksum_enable;
+	} else {
+		cb->command |= __constant_cpu_to_le16(cb_tx);
+	}
+
+	if(nic->vlangrp && vlan_tx_tag_present(skb)) {
+		IPCB.ip_activation_high |= ipcb_insertvlan_enable;
+		IPCB.vlan = cpu_to_be16(vlan_tx_tag_get(skb));
+	}
+
+	cb->command |= __constant_cpu_to_le16(cb_s);
+
+	/* Set I (Interrupt) bit on every (TX_FRAME_CNT)th packet */
+	if(!(++nic->tx_frames % 8))
+		cb->command |= __constant_cpu_to_le16(cb_i);
+	else
+		/* Clear I bit on other packets */
+		cb->command &= ~__constant_cpu_to_le16(cb_i);
+
+	if(skb->ip_summed == CHECKSUM_HW) {                         								
+		const struct iphdr *ip = skb->nh.iph;                           	
+
+		if ((ip->protocol == IPPROTO_TCP) ||                            	
+		    (ip->protocol == IPPROTO_UDP)) {                            	
+			IPCB.ip_activation_high |=                                           
+					ipcb_hardwareparsing_enable;            	
+
+			IPCB.ip_activation_low |=                                           
+					ipcb_tcpudp_checksum_enable;            	
+
+			IPCB.ip_activation_low |=                                           
+					ipcb_ip_checksum_enable;            	
+
+			if (ip->protocol == IPPROTO_TCP) {                              
+				IPCB.ip_activation_low |= ipcb_tcp_packet;                  
+			}                                                       	
+		}                                                                       
+	}
+
+	if(!skb_shinfo(skb)->nr_frags) {
+		cb->u.tcb.tbd_count = 1;
+		(cb->tbd_ptr)->buf_addr = cpu_to_le32(pci_map_single(nic->pdev,
+						      skb->data, skb->len, 
+						      PCI_DMA_TODEVICE));
+		(cb->tbd_ptr)->size = cpu_to_le16(skb->len);
+		cb->u.tcb.tbd_array = cb->tbd_nonseg; 
+	} else {
+		int i; void *addr;
+		struct tbd *tbd_arr_ptr = &(cb->tbd_ptr[1]);
+		skb_frag_t *frag = &skb_shinfo(skb)->frags[0];
+
+		(cb->tbd_ptr)->buf_addr =
+			cpu_to_le32(pci_map_single(nic->pdev, skb->data,
+						skb_headlen(skb),
+						PCI_DMA_TODEVICE));
+
+		(cb->tbd_ptr)->size = cpu_to_le16(skb_headlen(skb));
+
+		for (i = 0; i < skb_shinfo(skb)->nr_frags;
+			i++, tbd_arr_ptr++, frag++) {
+
+			addr = ((void *) page_address(frag->page) +
+				frag->page_offset);
+
+			tbd_arr_ptr->buf_addr =
+				cpu_to_le32(pci_map_single(nic->pdev,
+						addr, frag->size,
+						PCI_DMA_TODEVICE));
+			tbd_arr_ptr->size = cpu_to_le16(frag->size);
+		}
+		cb->u.tcb.tbd_count = skb_shinfo(skb)->nr_frags + 1;
+		cb->u.tcb.tbd_array = cb->tbd_seg;
+	}
+	{
+		int i;
+		u32 *c = (u32 *)cb;
+
+		for(i = 0; i < sizeof(struct cb)/4 + 1; i++, c++) {
+			DPRINTK(TX_ERR, DEBUG, "c[%d]: %08X\n", i, (u32) *c);
+		}
+	}
 }
 
 static int e100_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
@@ -1340,8 +1656,8 @@ static inline int e100_tx_clean(struct nic *nic)
 			nic->net_stats.tx_bytes += cb->skb->len;
 
 			pci_unmap_single(nic->pdev,
-				le32_to_cpu(cb->u.tcb.tbd.buf_addr),
-				le16_to_cpu(cb->u.tcb.tbd.size),
+				le32_to_cpu((cb->tbd_ptr)->buf_addr),
+				le16_to_cpu((cb->tbd_ptr)->size),
 				PCI_DMA_TODEVICE);
 			dev_kfree_skb_any(cb->skb);
 			cb->skb = NULL;
@@ -1367,8 +1683,8 @@ static void e100_clean_cbs(struct nic *nic)
 			struct cb *cb = nic->cb_to_clean;
 			if(cb->skb) {
 				pci_unmap_single(nic->pdev,
-					le32_to_cpu(cb->u.tcb.tbd.buf_addr),
-					le16_to_cpu(cb->u.tcb.tbd.size),
+					le32_to_cpu(cb->tbd_ptr->buf_addr),
+					le16_to_cpu(cb->tbd_ptr->size),
 					PCI_DMA_TODEVICE);
 				dev_kfree_skb(cb->skb);
 			}
@@ -1408,6 +1724,25 @@ static int e100_alloc_cbs(struct nic *nic)
 		cb->link = cpu_to_le32(nic->cbs_dma_addr +
 			((i+1) % count) * sizeof(struct cb));
 		cb->skb = NULL;
+
+		/* 82558 or later */                                                		
+		if(nic->mac >= mac_82558_D101_A4) {
+			cb->u.tcb.tbd_array = __constant_cpu_to_le32(0xFFFFFFFF);
+			cb->tbd_seg = cpu_to_le32(cb->dma_addr + 0x20);
+		} else {
+			cb->u.tcb.tbd_array = cpu_to_le32(cb->dma_addr + 0x10);
+			cb->tbd_seg = cpu_to_le32(cb->dma_addr + 0x10);
+		}
+		cb->tbd_nonseg = cb->u.tcb.tbd_array;
+
+		if (nic->offload_features & use_ipcb) {
+			cb->tbd_ptr = &(cb->u.tcb.tcbu.tbd[1]);
+			cb->u.tcb.tcbu.ipcb.ip_activation_high =
+				ipcb_ip_activation_default;
+			cb->u.tcb.tcbu.ipcb.vlan = 0;
+		} else {
+			cb->tbd_ptr = &(cb->u.tcb.tcbu.tbd[0]);
+		}
 	}
 
 	nic->cb_to_use = nic->cb_to_send = nic->cb_to_clean = nic->cbs;
@@ -1425,7 +1760,7 @@ static inline void e100_start_receiver(struct nic *nic)
 	}
 }
 
-#define RFD_BUF_LEN (sizeof(struct rfd) + VLAN_ETH_FRAME_LEN)
+#define RFD_BUF_LEN (nic->rfd_size + VLAN_ETH_FRAME_LEN)
 static inline int e100_rx_alloc_skb(struct nic *nic, struct rx *rx)
 {
 	if(!(rx->skb = dev_alloc_skb(RFD_BUF_LEN + NET_IP_ALIGN)))
@@ -1434,7 +1769,7 @@ static inline int e100_rx_alloc_skb(struct nic *nic, struct rx *rx)
 	/* Align, init, and map the RFD. */
 	rx->skb->dev = nic->netdev;
 	skb_reserve(rx->skb, NET_IP_ALIGN);
-	memcpy(rx->skb->data, &nic->blank_rfd, sizeof(struct rfd));
+	memcpy(rx->skb->data, &nic->blank_rfd, nic->rfd_size);
 	rx->dma_addr = pci_map_single(nic->pdev, rx->skb->data,
 		RFD_BUF_LEN, PCI_DMA_BIDIRECTIONAL);
 
@@ -1447,10 +1782,52 @@ static inline int e100_rx_alloc_skb(struct nic *nic, struct rx *rx)
 		wmb();
 		prev_rfd->command &= ~cpu_to_le16(cb_el);
 		pci_dma_sync_single_for_device(nic->pdev, rx->prev->dma_addr,
-			sizeof(struct rfd), PCI_DMA_TODEVICE);
+			nic->rfd_size, PCI_DMA_TODEVICE);
 	}
 
 	return 0;
+}
+
+#define RFD_PARSE_BIT			0x08
+#define RFD_TCP_PACKET			0x00
+#define RFD_UDP_PACKET			0x01
+#define TCPUDP_CHECKSUM_BIT_VALID	0x10
+#define TCPUDP_CHECKSUM_VALID		0x20
+#define CHECKSUM_PROTOCOL_MASK		0x03
+
+/* Check the D102 RFD flags to see if the checksum passed */
+static unsigned char e100_D102_check_checksum(struct rfd *rfd)
+{
+	if(((le16_to_cpu(rfd->status)) & RFD_PARSE_BIT)
+	    && (((rfd->rcv_parser_status & CHECKSUM_PROTOCOL_MASK) ==
+		 RFD_TCP_PACKET)
+		|| ((rfd->rcv_parser_status & CHECKSUM_PROTOCOL_MASK) ==
+		    RFD_UDP_PACKET))
+	    && (rfd->csum_status & TCPUDP_CHECKSUM_BIT_VALID)
+	    && (rfd->csum_status & TCPUDP_CHECKSUM_VALID)) {
+		/* TCP/UDP checksum good */
+		return CHECKSUM_UNNECESSARY;
+	}
+	/* Let the stack verify checksum errors */
+	return CHECKSUM_NONE;
+}
+
+/*
+ * Sets the skb->csum value from D101 csum found at the end of the 
+ * Rx frame. The D101M sums all words in frame excluding the ethernet 
+ * II header (14 bytes) so in case the packet is ethernet II and the 
+ * protocol is IP, all is needed is to assign this value to skb->csum.
+ */
+static unsigned char e100_D101M_checksum(struct sk_buff *skb)
+{
+	unsigned short proto = (skb->protocol);
+
+	if(proto == __constant_htons(ETH_P_IP)) {
+		skb->csum = get_unaligned((u16 *) (skb->tail));
+		return CHECKSUM_HW;
+	}
+	/* Let the stack verify checksum errors */
+	return CHECKSUM_NONE;
 }
 
 static inline int e100_rx_indicate(struct nic *nic, struct rx *rx,
@@ -1460,12 +1837,14 @@ static inline int e100_rx_indicate(struct nic *nic, struct rx *rx,
 	struct rfd *rfd = (struct rfd *)skb->data;
 	u16 rfd_status, actual_size;
 
+#ifdef CONFIG_E100_NAPI
 	if(unlikely(work_done && *work_done >= work_to_do))
 		return -EAGAIN;
+#endif
 
 	/* Need to sync before taking a peek at cb_complete bit */
 	pci_dma_sync_single_for_cpu(nic->pdev, rx->dma_addr,
-		sizeof(struct rfd), PCI_DMA_FROMDEVICE);
+		nic->rfd_size, PCI_DMA_FROMDEVICE);
 	rfd_status = le16_to_cpu(rfd->status);
 
 	DPRINTK(RX_STATUS, DEBUG, "status=0x%04X\n", rfd_status);
@@ -1476,17 +1855,37 @@ static inline int e100_rx_indicate(struct nic *nic, struct rx *rx,
 
 	/* Get actual data size */
 	actual_size = le16_to_cpu(rfd->actual_size) & 0x3FFF;
-	if(unlikely(actual_size > RFD_BUF_LEN - sizeof(struct rfd)))
-		actual_size = RFD_BUF_LEN - sizeof(struct rfd);
+	if(unlikely(actual_size > RFD_BUF_LEN - nic->rfd_size))
+		actual_size = RFD_BUF_LEN - nic->rfd_size;
 
 	/* Get data */
 	pci_unmap_single(nic->pdev, rx->dma_addr,
 		RFD_BUF_LEN, PCI_DMA_FROMDEVICE);
 
 	/* Pull off the RFD and put the actual data (minus eth hdr) */
-	skb_reserve(skb, sizeof(struct rfd));
-	skb_put(skb, actual_size);
+	skb_reserve(skb, nic->rfd_size);
+
+	/* 82559/0/1 provides a checksum word in the receive structure.
+	 * The byte count field in the receive memory structure(s) includes
+	 * the checksum word. If this feature is enabled, we must subtract
+	 * 2 bytes from the reported length to determine the actual length */
+	if((nic->offload_features & rx_csum_offload) && (nic->mac < mac_82550_D102))
+			skb_put(skb, actual_size - 2);
+		else
+			skb_put(skb, actual_size);
+	
 	skb->protocol = eth_type_trans(skb, nic->netdev);
+
+	/* set the checksum info */
+	if(nic->offload_features & rx_csum_offload) {
+		if(nic->mac >= mac_82550_D102) {
+			skb->ip_summed = e100_D102_check_checksum(rfd);
+		} else {
+			skb->ip_summed = e100_D101M_checksum(skb);
+		}
+	} else {
+		skb->ip_summed = CHECKSUM_NONE;
+	}
 
 	if(unlikely(!(rfd_status & cb_ok))) {
 		/* Don't indicate if hardware indicates errors */
@@ -1501,9 +1900,22 @@ static inline int e100_rx_indicate(struct nic *nic, struct rx *rx,
 		nic->net_stats.rx_packets++;
 		nic->net_stats.rx_bytes += actual_size;
 		nic->netdev->last_rx = jiffies;
-		netif_receive_skb(skb);
-		if(work_done)
-			(*work_done)++;
+                                                                                                      
+		if(nic->vlangrp && (rfd_status & cb_vlan_detect)) {
+#ifdef CONFIG_E100_NAPI
+			vlan_hwaccel_receive_skb(skb, nic->vlangrp, be16_to_cpu(rfd->vlan_id));
+#else /* softnet */
+			vlan_hwaccel_rx(skb, nic->vlangrp, be16_to_cpu(rfd->vlan_id));
+#endif
+		} else {
+#ifdef CONFIG_E100_NAPI
+			netif_receive_skb(skb);
+#else /* softnet */
+			netif_rx(skb);
+#endif
+			if(work_done)
+				(*work_done)++;
+		}
 	}
 
 	rx->skb = NULL;
@@ -1511,15 +1923,17 @@ static inline int e100_rx_indicate(struct nic *nic, struct rx *rx,
 	return 0;
 }
 
-static inline void e100_rx_clean(struct nic *nic, unsigned int *work_done,
+static inline int e100_rx_clean(struct nic *nic, unsigned int *work_done,
 	unsigned int work_to_do)
 {
 	struct rx *rx;
+	u32 rfd_cnt = 0;
 
 	/* Indicate newly arrived packets */
 	for(rx = nic->rx_to_clean; rx->skb; rx = nic->rx_to_clean = rx->next) {
 		if(e100_rx_indicate(nic, rx, work_done, work_to_do))
 			break; /* No more to clean */
+		rfd_cnt++;
 	}
 
 	/* Alloc new skbs to refill list */
@@ -1529,6 +1943,8 @@ static inline void e100_rx_clean(struct nic *nic, unsigned int *work_done,
 	}
 
 	e100_start_receiver(nic);
+
+	return rfd_cnt;
 }
 
 static void e100_rx_clean_list(struct nic *nic)
@@ -1596,12 +2012,24 @@ static irqreturn_t e100_intr(int irq, void *dev_id, struct pt_regs *regs)
 	if(stat_ack & stat_ack_rnr)
 		nic->ru_running = 0;
 
+#ifdef CONFIG_E100_NAPI
 	e100_disable_irq(nic);
 	netif_rx_schedule(netdev);
+
+#else /* pre-NAPI (softnet) */
+        /* do recv work if any */
+        if(stat_ack & stat_ack_rx)
+                nic->rx_intr_frames += e100_rx_clean(nic, NULL, 0);
+
+        /* clean up after tx'ed packets */
+        if(stat_ack & stat_ack_tx) 
+                e100_tx_clean(nic);
+#endif /* CONFIG_E100_NAPI */ 
 
 	return IRQ_HANDLED;
 }
 
+#ifdef CONFIG_E100_NAPI
 static int e100_poll(struct net_device *netdev, int *budget)
 {
 	struct nic *nic = netdev_priv(netdev);
@@ -1624,6 +2052,7 @@ static int e100_poll(struct net_device *netdev, int *budget)
 
 	return 1;
 }
+#endif /* CONFIG_E100_NAPI*/
 
 #ifdef CONFIG_NET_POLL_CONTROLLER
 static void e100_netpoll(struct net_device *netdev)
@@ -1718,8 +2147,8 @@ static void e100_tx_timeout(struct net_device *netdev)
 
 	DPRINTK(TX_ERR, DEBUG, "scb.status=0x%02X\n",
 		readb(&nic->csr->scb.status));
-	e100_down(netdev_priv(netdev));
-	e100_up(netdev_priv(netdev));
+	e100_down(nic);
+	e100_up(nic);
 }
 
 static int e100_loopback_test(struct nic *nic, enum loopback loopback_mode)
@@ -1762,8 +2191,8 @@ static int e100_loopback_test(struct nic *nic, enum loopback loopback_mode)
 	set_current_state(TASK_UNINTERRUPTIBLE);
 	schedule_timeout(HZ / 100 + 1);
 
-	if(memcmp(nic->rx_to_clean->skb->data + sizeof(struct rfd),
-	   skb->data, ETH_DATA_LEN))
+	if(memcmp(nic->rx_to_clean->skb->data + nic->rfd_size,
+	   		skb->data, ETH_DATA_LEN))
 		err = -EAGAIN;
 
 err_loopback_none:
@@ -2085,6 +2514,104 @@ static void e100_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 	}
 }
 
+static u32 e100_get_tx_csum(struct net_device *netdev)
+{
+	struct nic *nic = netdev_priv(netdev);
+
+	return (nic->offload_features & tx_csum_offload) ? 1 : 0;
+}
+
+static u32 e100_get_rx_csum(struct net_device *netdev)
+{
+	struct nic *nic = netdev_priv(netdev);
+
+	return (nic->offload_features & rx_csum_offload) ? 1 : 0;
+}
+
+int e100_set_tx_csum(struct net_device *netdev, u32 enable)
+{
+	struct nic *nic = netdev_priv(netdev);
+
+	if(nic->mac < mac_82550_D102) {
+		if(!enable) {
+			return -EOPNOTSUPP;
+		}
+		return 0;
+	}
+
+	if(enable == 0x1) {
+		nic->offload_features |= tx_csum_offload;
+	}
+	else {
+		nic->offload_features &= ~tx_csum_offload;
+	}
+		
+	e100_exec_cb(nic, NULL, e100_configure);
+
+	return 0;
+}
+
+int e100_set_rx_csum(struct net_device *netdev, u32 enable)
+{
+	struct nic *nic = netdev_priv(netdev);
+
+	if(nic->mac < mac_82559_D101M) {
+		if(!enable) {
+			return -EOPNOTSUPP;
+		}
+		return 0;
+	}
+
+	if(enable == 0x1) {
+		nic->offload_features |= rx_csum_offload;
+	} else {
+		nic->offload_features &= ~rx_csum_offload;
+	}
+
+	e100_exec_cb(nic, NULL, e100_configure);
+
+	return 0;
+}
+
+void e100_get_pauseparam(struct net_device *netdev, 
+				struct ethtool_pauseparam *epause)
+{
+	struct nic *nic = netdev_priv(netdev);
+
+	if(nic->mac >= mac_82558_D101_A4) {
+		epause->autoneg = 1;
+		if(nic->flags && fc_capable) {
+			epause->rx_pause = 1;
+			epause->tx_pause = 1;
+		}
+		if(nic->flags && fc_tx_only)
+			epause->tx_pause = 1;
+	}
+	else {
+		epause->autoneg = 0;
+		epause->rx_pause = 0;
+		epause->tx_pause = 0;
+	}
+}
+
+int e100_set_pauseparam(struct net_device *netdev, 
+				struct ethtool_pauseparam *epause)
+{
+	struct nic *nic = netdev_priv(netdev);
+
+	if(nic->mac <= mac_82558_D101_A4) 
+		return -EOPNOTSUPP;
+	
+	if(epause->autoneg == 1)
+		nic->flags &= ~fc_disabled;
+	else
+		nic->flags |= fc_disabled;
+
+	e100_exec_cb(nic, NULL, e100_configure);
+
+	return 0;
+}
+
 static struct ethtool_ops e100_ethtool_ops = {
 	.get_settings		= e100_get_settings,
 	.set_settings		= e100_set_settings,
@@ -2108,12 +2635,60 @@ static struct ethtool_ops e100_ethtool_ops = {
 	.phys_id		= e100_phys_id,
 	.get_stats_count	= e100_get_stats_count,
 	.get_ethtool_stats	= e100_get_ethtool_stats,
+ 	.get_tx_csum		= e100_get_tx_csum,
+ 	.set_tx_csum		= e100_set_tx_csum,
+ 	.get_rx_csum		= e100_get_rx_csum,
+ 	.set_rx_csum		= e100_set_rx_csum,
+	.get_sg			= ethtool_op_get_sg,
+	.set_sg			= ethtool_op_set_sg, 
+	.get_tso		= ethtool_op_get_tso,
+	.set_tso		= ethtool_op_set_tso,
+	.get_pauseparam		= e100_get_pauseparam,
+	.set_pauseparam		= e100_set_pauseparam,
 };
 
+static void e100_vlan_rx_add_vid(struct net_device *netdev, u16 vid)
+{
+	/* We don't do VLAN filtering */
+}
+                                                                                                      
+static void e100_vlan_rx_kill_vid(struct net_device *netdev, u16 vid)
+{
+	struct nic *nic = netdev_priv(netdev);
+
+	if(nic->vlangrp)
+		nic->vlangrp->vlan_devices[vid] = NULL;
+
+	/* We don't do VLAN filtering */
+}
+
+static void e100_vlan_rx_register(struct net_device *netdev, struct vlan_group *group)
+{
+	struct nic *nic = netdev_priv(netdev);
+
+	e100_disable_irq(nic);
+	nic->vlangrp = group;
+
+	if(group) {
+		/* enable VLAN tag insert/strip */
+		nic->offload_features |= vlan_tagging;
+	} else {
+		/* disable VLAN tag insert/strip */
+		nic->offload_features &= ~vlan_tagging;
+	}
+
+	e100_exec_cb(nic, NULL, e100_configure);
+	e100_enable_irq(nic);
+}
+                                                                                                      
 static int e100_do_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
 {
 	struct nic *nic = netdev_priv(netdev);
 
+#ifdef ETHTOOL_OPS_COMPAT
+	if(cmd == SIOCETHTOOL)
+		return ethtool_ioctl(ifr);
+#endif
 	return generic_mii_ioctl(&nic->mii, if_mii(ifr), cmd, NULL);
 }
 
@@ -2174,8 +2749,15 @@ static int __devinit e100_probe(struct pci_dev *pdev,
 	SET_ETHTOOL_OPS(netdev, &e100_ethtool_ops);
 	netdev->tx_timeout = e100_tx_timeout;
 	netdev->watchdog_timeo = E100_WATCHDOG_PERIOD;
+	netdev->vlan_rx_register = e100_vlan_rx_register;
+	netdev->vlan_rx_add_vid = e100_vlan_rx_add_vid;
+	netdev->vlan_rx_kill_vid = e100_vlan_rx_kill_vid;
+
+#ifdef CONFIG_E100_NAPI
 	netdev->poll = e100_poll;
 	netdev->weight = E100_NAPI_WEIGHT;
+#endif 
+
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	netdev->poll_controller = e100_netpoll;
 #endif

@@ -506,4 +506,34 @@ asmlinkage long sys_request_key(const char __user *_type,
 asmlinkage long sys_keyctl(int cmd, unsigned long arg2, unsigned long arg3,
 			   unsigned long arg4, unsigned long arg5);
 
+#ifdef CONFIG_NUMA
+asmlinkage long sys_mbind(unsigned long start, unsigned long len,
+			  unsigned long mode,
+			  unsigned long __user *nmask,
+			  unsigned long maxnode,
+			  unsigned flags);
+asmlinkage long sys_set_mempolicy(int mode,
+				  unsigned long __user *nmask,
+				  unsigned long maxnode);
+asmlinkage long sys_get_mempolicy(int __user *policy,
+				  unsigned long __user *nmask,
+				  unsigned long maxnode,
+				  unsigned long addr, unsigned long flags);
+#ifdef CONFIG_COMPAT
+asmlinkage long compat_sys_mbind(compat_ulong_t start, compat_ulong_t len,
+				 compat_ulong_t mode,
+				 compat_ulong_t __user *nmask,
+				 compat_ulong_t maxnode,
+				 compat_ulong_t flags);
+asmlinkage long compat_sys_set_mempolicy(int mode,
+					 compat_ulong_t __user *nmask,
+					 compat_ulong_t maxnode);
+asmlinkage long compat_sys_get_mempolicy(int __user *policy,
+					 compat_ulong_t __user *nmask,
+					 compat_ulong_t maxnode,
+					 compat_ulong_t addr,
+					 compat_ulong_t flags);
+#endif /* COMPAT */
+#endif /* NUMA */
+
 #endif

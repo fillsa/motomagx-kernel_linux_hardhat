@@ -7,7 +7,7 @@
  *
  * This code is covered by the GPL.
  *
- * $Id: cfi_util.c,v 1.5 2004/08/12 06:40:23 eric Exp $
+ * $Id: cfi_util.c,v 1.7 2004/11/05 22:41:05 nico Exp $
  *
  */
 
@@ -22,13 +22,14 @@
 #include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
+#include <linux/mtd/xip.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/map.h>
 #include <linux/mtd/cfi.h>
 #include <linux/mtd/compatmac.h>
 
 struct cfi_extquery *
-cfi_read_pri(struct map_info *map, __u16 adr, __u16 size, const char* name)
+__xipram cfi_read_pri(struct map_info *map, __u16 adr, __u16 size, const char* name)
 {
 	struct cfi_private *cfi = map->fldrv_priv;
 	__u32 base = 0; // cfi->chips[0].start;
@@ -40,37 +41,44 @@ cfi_read_pri(struct map_info *map, __u16 adr, __u16 size, const char* name)
 	if (!adr)
 		goto out;
 
-	/* Switch it into Query Mode */
-	cfi_send_gen_cmd(0x98, 0x55, base, map, cfi, cfi->device_type, NULL);
-
 	extp = kmalloc(size, GFP_KERNEL);
 	if (!extp) {
 		printk(KERN_ERR "Failed to allocate memory\n");
 		goto out;
 	}
-		
+
+#ifdef CONFIG_MTD_XIP
+	local_irq_disable();
+#endif
+
+	/* Switch it into Query Mode.*/
+
+	/* Address 0x555 for Spansion S29WS-N MirrorBit flash chips. */
+
+	if ((cfi->mfr == CFI_MFR_AMD) && (cfi->id == 0x227E))
+		cfi_send_gen_cmd(0x98, 0x555, base, map, cfi, cfi->device_type,
+				 NULL);
+	else
+		cfi_send_gen_cmd(0x98, 0x55, base, map, cfi, cfi->device_type,
+				 NULL);
+
 	/* Read in the Extended Query Table */
 	for (i=0; i<size; i++) {
 		((unsigned char *)extp)[i] = 
 			cfi_read_query(map, base+((adr+i)*ofs_factor));
 	}
 
-	if (extp->MajorVersion != '1' || 
-	    (extp->MinorVersion < '0' || extp->MinorVersion > '3')) {
-		printk(KERN_WARNING "  Unknown %s Extended Query "
-		       "version %c.%c.\n",  name, extp->MajorVersion,
-		       extp->MinorVersion);
-		kfree(extp);
-		extp = NULL;
-		goto out;
-	}
-
-out:
-	/* Make sure it's in read mode */
+	/* Make sure it returns to read mode */
 	cfi_send_gen_cmd(0xf0, 0, base, map, cfi, cfi->device_type, NULL);
 	cfi_send_gen_cmd(0xff, 0, base, map, cfi, cfi->device_type, NULL);
 
-	return extp;
+#ifdef CONFIG_MTD_XIP
+	(void) map_read(map, base);
+	asm volatile (".rep 8; nop; .endr");
+	local_irq_enable();
+#endif
+
+ out:	return extp;
 }
 
 EXPORT_SYMBOL(cfi_read_pri);
@@ -156,7 +164,6 @@ int cfi_varsize_frob(struct mtd_info *mtd, varsize_frob_t frob,
 	i=first;
 
 	while(len) {
-		unsigned long chipmask;
 		int size = regions[i].erasesize;
 
 		ret = (*frob)(map, &cfi->chips[chipnum], adr, size, thunk);
@@ -165,10 +172,10 @@ int cfi_varsize_frob(struct mtd_info *mtd, varsize_frob_t frob,
 			return ret;
 
 		adr += size;
+		ofs += size;
 		len -= size;
 
-		chipmask = (1 << cfi->chipshift) - 1;
-		if ((adr & chipmask) == ((regions[i].offset + size * regions[i].numblocks) & chipmask))
+		if (ofs == regions[i].offset + size * regions[i].numblocks)
 			i++;
 
 		if (adr >> cfi->chipshift) {

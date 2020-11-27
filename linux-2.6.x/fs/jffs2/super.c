@@ -1,15 +1,22 @@
 /*
  * JFFS2 -- Journalling Flash File System, Version 2.
  *
+ * Copyright (C) 2007 Motorola Inc.
  * Copyright (C) 2001-2003 Red Hat, Inc.
  *
- * Created by David Woodhouse <dwmw2@redhat.com>
+ * Created by David Woodhouse <dwmw2@infradead.org>
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: super.c,v 1.102 2004/11/12 02:42:17 tpoynor Exp $
+ * $Id: super.c,v 1.105 2005/02/09 09:23:54 pavlov Exp $
  *
  */
+
+/* ChangeLog:
+ * (mm-dd-yyyy)  Author    Comment
+ * 08-08-2007    Motorola  Fix a bug in jffs2 to prevent a kernel panic.
+ */
+
 
 #include <linux/config.h>
 #include <linux/kernel.h>
@@ -51,7 +58,13 @@ static void jffs2_i_init_once(void * foo, kmem_cache_t * cachep, unsigned long f
 
 	if ((flags & (SLAB_CTOR_VERIFY|SLAB_CTOR_CONSTRUCTOR)) ==
 	    SLAB_CTOR_CONSTRUCTOR) {
-		init_MUTEX_LOCKED(&ei->sem);
+		/* It is a bug that JFFS2 initialize f->sem mutex as "locked" in the slab constructor. 
+		   Objects are freed with unlocked f->sem mutex. So, when they allocate again, 
+		   f->sem is unlocked because the slab cache constructor is called only 
+		   once when memory pages are allocated for objects So, sometimes 
+		   'struct jffs2_inode_info' are allocated with unlocked f->sem, sometimes with
+		   locked.So that initialize f->sem as unlocked in the constructor. */
+		init_MUTEX(&ei->sem);
 		inode_init_once(&ei->vfs_inode);
 	}
 }
@@ -270,14 +283,15 @@ static void jffs2_put_super (struct super_block *sb)
 
 	D2(printk(KERN_DEBUG "jffs2: jffs2_put_super()\n"));
 
-	if (!(sb->s_flags & MS_RDONLY))
-		jffs2_stop_garbage_collect_thread(c);
 	down(&c->alloc_sem);
 	jffs2_flush_wbuf_pad(c);
 	up(&c->alloc_sem);
 	jffs2_free_ino_caches(c);
 	jffs2_free_raw_node_refs(c);
-	kfree(c->blocks);
+	if (c->mtd->flags & MTD_NO_VIRTBLOCKS)
+		vfree(c->blocks);
+	else
+		kfree(c->blocks);
 	jffs2_flash_cleanup(c);
 	kfree(c->inocache_list);
 	if (c->mtd->sync)
@@ -289,6 +303,8 @@ static void jffs2_put_super (struct super_block *sb)
 static void jffs2_kill_sb(struct super_block *sb)
 {
 	struct jffs2_sb_info *c = JFFS2_SB_INFO(sb);
+	if (!(sb->s_flags & MS_RDONLY))
+		jffs2_stop_garbage_collect_thread(c);
 	generic_shutdown_super(sb);
 	put_mtd_device(c->mtd);
 	kfree(c);
@@ -306,7 +322,7 @@ static int __init init_jffs2_fs(void)
 	int ret;
 
 	printk(KERN_INFO "JFFS2 version 2.2."
-#ifdef CONFIG_JFFS2_FS_NAND
+#ifdef CONFIG_JFFS2_FS_WRITEBUFFER
 	       " (NAND)"
 #endif
 	       " (C) 2001-2003 Red Hat, Inc.\n");
@@ -334,6 +350,7 @@ static int __init init_jffs2_fs(void)
 		printk(KERN_ERR "JFFS2 error: Failed to register filesystem\n");
 		goto out_slab;
 	}
+
 	return 0;
 
  out_slab:

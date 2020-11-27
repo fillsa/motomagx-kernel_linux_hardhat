@@ -25,6 +25,16 @@
 #include <asm/arch/pxa-regs.h>
 
 
+
+#if defined(CONFIG_DPM) && defined(CONFIG_MACH_MAINSTONE)
+#include <asm/dpm.h>
+
+static struct constraints pxa_hcd_constraints = {
+	.count =  1,
+	.param = {{DPM_MD_PPLL_ON, 1, 1},},
+};
+#endif /* CONFIG_DPM && CONFIG_MACH_MAINSTONE */
+
 #define PMM_NPS_MODE           1
 #define PMM_GLOBAL_MODE        2
 #define PMM_PERPORT_MODE       3
@@ -231,8 +241,13 @@ int usb_hcd_pxa27x_probe (const struct hc_driver *driver,
 		goto err1;
 	}
 
-	retval = request_irq (hcd->irq, usb_hcd_irq, SA_INTERRUPT,
-			      hcd->description, hcd);
+	retval = request_irq (hcd->irq, usb_hcd_irq, 
+#ifdef CONFIG_PREEMPT_HARDIRQS
+			0,
+#else
+			SA_INTERRUPT,
+#endif
+			hcd->description, hcd);
 	if (retval != 0) {
 		pr_debug("request_irq(%d) failed with retval %d\n",hcd->irq,retval);
 		retval = -EBUSY;
@@ -376,6 +391,7 @@ static const struct hc_driver ohci_pxa27x_hc_driver = {
 	.hub_suspend =		ohci_hub_suspend,
 	.hub_resume =		ohci_hub_resume,
 #endif
+	.start_port_reset =	ohci_start_port_reset,
 };
 
 /*-------------------------------------------------------------------------*/
@@ -396,6 +412,11 @@ static int ohci_hcd_pxa27x_drv_probe(struct device *dev)
 	if (ret == 0)
 		dev_set_drvdata(dev, hcd);
 
+#if defined(CONFIG_DPM) && defined(CONFIG_MACH_MAINSTONE)
+	pdev->dev.constraints=&pxa_hcd_constraints;
+	assert_constraints(pdev->dev.constraints);
+#endif /* CONFIG_DPM && CONFIG_MACH_MAINSTONE */
+
 	return ret;
 }
 
@@ -411,20 +432,59 @@ static int ohci_hcd_pxa27x_drv_remove(struct device *dev)
 
 static int ohci_hcd_pxa27x_drv_suspend(struct device *dev, u32 state, u32 level)
 {
-//	struct platform_device *pdev = to_platform_device(dev);
-//	struct usb_hcd *hcd = dev_get_drvdata(dev);
-	printk("%s: not implemented yet\n", __FUNCTION__);
+	struct platform_device *pdev = to_platform_device(dev);
+	struct ohci_hcd *ohci = hcd_to_ohci(dev_get_drvdata(dev));
+	int status = -EINVAL;
 
-	return 0;
+	if (state <= dev->power.power_state)
+		return 0;
+
+	dev_dbg(dev, "suspend to %d\n", state);
+	down(&ohci->hcd.self.root_hub->serialize);
+	status = ohci_hub_suspend(&ohci->hcd);
+	if (status == 0) {
+		if (state >= 4) {
+			pxa27x_stop_hc(pdev);
+			ohci->hcd.self.root_hub->state = USB_STATE_SUSPENDED;
+			state = 4;
+		}
+		ohci->hcd.state = HCD_STATE_SUSPENDED;
+		dev->power.power_state = state;
+	}
+	up(&ohci->hcd.self.root_hub->serialize);
+	return status;
 }
 
 static int ohci_hcd_pxa27x_drv_resume(struct device *dev, u32 state)
 {
-//	struct platform_device *pdev = to_platform_device(dev);
-//	struct usb_hcd *hcd = dev_get_drvdata(dev);
-	printk("%s: not implemented yet\n", __FUNCTION__);
+	struct platform_device *pdev = to_platform_device(dev);
+	struct ohci_hcd *ohci = hcd_to_ohci(dev_get_drvdata(dev));
+	int status = 0;
 
-	return 0;
+	switch (dev->power.power_state) {
+	case 0:
+		break;
+	case 4:
+		if (time_before(jiffies, ohci->next_statechange))
+			msleep(5);
+		ohci->next_statechange = jiffies;
+		/* FALLTHROUGH */
+	default:
+		dev_dbg(dev, "resume from %d\n", dev->power.power_state);
+		pxa27x_start_hc(pdev);
+#ifdef  CONFIG_USB_SUSPEND
+		/* get extra cleanup even if remote wakeup isn't in use */
+		status = usb_resume_device(ohci->hcd.self.root_hub);
+#else
+		down(&ohci->hcd.self.root_hub->serialize);
+		status = ohci_hub_resume(&ohci->hcd);
+		up(&ohci->hcd.self.root_hub->serialize);
+#endif
+		if (status == 0)
+			dev->power.power_state = 0;
+		break;
+	}
+	return status;
 }
 
 

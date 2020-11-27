@@ -2,6 +2,8 @@
  * kgdb.h: Defines and declarations for serial line source level
  *         remote debugging of the Linux kernel using gdb.
  *
+ * PPC Mods (C) 2004 Tom Rini (trini@mvista.com)
+ * PPC Mods (C) 2003 John Whitney (john.whitney@timesys.com)
  * PPC Mods (C) 1998 Michael Tesch (tesch@cs.wisc.edu)
  *
  * Copyright (C) 1995 David S. Miller (davem@caip.rutgers.edu)
@@ -10,48 +12,35 @@
 #ifndef _PPC_KGDB_H
 #define _PPC_KGDB_H
 
+#include <asm-generic/kgdb.h>
 #ifndef __ASSEMBLY__
 
-/* Things specific to the gen550 backend. */
-struct uart_port;
-
-extern void gen550_progress(char *, unsigned short);
-extern void gen550_kgdb_map_scc(void);
-extern void gen550_init(int, struct uart_port *);
-
-/* Things specific to the pmac backend. */
-extern void zs_kgdb_hook(int tty_num);
-
-/* To init the kgdb engine. (called by serial hook)*/
-extern void set_debug_traps(void);
-
-/* To enter the debugger explicitly. */
-extern void breakpoint(void);
+#define BREAK_INSTR_SIZE	4
+#ifndef CONFIG_E500
+#define MAXREG			(PT_FPSCR+1)
+#else
+/* 32 GPRs (8 bytes), nip, msr, ccr, link, ctr, xer, acc (8 bytes), spefscr*/
+#define MAXREG                 ((32*2)+6+2+1) 
+#endif
+#define NUMREGBYTES		(MAXREG * sizeof(int))
+/* CR/LR, R1, R2, R13-R31 inclusive. */
+#define NUMCRITREGBYTES		(23 * sizeof(int))
+#define BUFMAX			((NUMREGBYTES * 2) + 512)
+#define OUTBUFMAX		((NUMREGBYTES * 2) + 512)
+#define BREAKPOINT()		asm(".long 0x7d821008"); /* twge r2, r2 */
+#define CHECK_EXCEPTION_STACK()	1
+#define CACHE_FLUSH_IS_SAFE	1
 
 /* For taking exceptions
  * these are defined in traps.c
  */
+struct pt_regs;
 extern void (*debugger)(struct pt_regs *regs);
 extern int (*debugger_bpt)(struct pt_regs *regs);
 extern int (*debugger_sstep)(struct pt_regs *regs);
 extern int (*debugger_iabr_match)(struct pt_regs *regs);
 extern int (*debugger_dabr_match)(struct pt_regs *regs);
 extern void (*debugger_fault_handler)(struct pt_regs *regs);
-
-/* What we bring to the party */
-int kgdb_bpt(struct pt_regs *regs);
-int kgdb_sstep(struct pt_regs *regs);
-void kgdb(struct pt_regs *regs);
-int kgdb_iabr_match(struct pt_regs *regs);
-int kgdb_dabr_match(struct pt_regs *regs);
-
-/*
- * external low-level support routines (ie macserial.c)
- */
-extern void kgdb_interruptible(int); /* control interrupts from serial */
-extern void putDebugChar(char);   /* write a single character      */
-extern char getDebugChar(void);   /* read and return a single char */
-
 #endif /* !(__ASSEMBLY__) */
 #endif /* !(_PPC_KGDB_H) */
 #endif /* __KERNEL__ */

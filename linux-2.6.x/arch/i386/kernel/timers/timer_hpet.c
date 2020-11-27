@@ -24,7 +24,7 @@ static unsigned long hpet_last; 	/* hpet counter value at last tick*/
 static unsigned long last_tsc_low;	/* lsb 32 bits of Time Stamp Counter */
 static unsigned long last_tsc_high; 	/* msb 32 bits of Time Stamp Counter */
 static unsigned long long monotonic_base;
-static seqlock_t monotonic_lock = SEQLOCK_UNLOCKED;
+static DECLARE_RAW_SEQLOCK(monotonic_lock);
 
 /* convert from cycles(64bits) => nanoseconds (64bits)
  *  basic equation:

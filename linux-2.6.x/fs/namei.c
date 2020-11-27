@@ -2,7 +2,11 @@
  *  linux/fs/namei.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *  Copyright (C) 2006, 2007 Motorola, Inc.
  */
+
+
+
 
 /*
  * Some corrections by tytso.
@@ -12,7 +16,19 @@
  * lookup logic.
  */
 /* [Feb-Apr 2000, AV] Rewrite to the new namespace architecture.
+ *
+ *  Date     Author    Comment
+ *  12/2006  Motorola  Moved inode_rmdir security hook before 
+ *                     dentry_unhash to maintain correct output of
+ *                     abs_d_path
  */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 31-Oct-2006  Motorola        Added inotify
+ * 28-Mar-2007  Motorola        Add the fifth parameter "is_dir" to function fsnotify_move. 
+ */
+
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -21,13 +37,22 @@
 #include <linux/namei.h>
 #include <linux/quotaops.h>
 #include <linux/pagemap.h>
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+#include <linux/fsnotify.h>
+#else
 #include <linux/dnotify.h>
+#endif
 #include <linux/smp_lock.h>
 #include <linux/personality.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
 #include <linux/mount.h>
 #include <linux/audit.h>
+
+#ifdef CONFIG_MOT_FEAT_ANTIVIRUS_HOOKS
+#include <linux/fshook.h>
+#endif
+
 #include <asm/namei.h>
 #include <asm/uaccess.h>
 
@@ -1241,7 +1266,11 @@ int vfs_create(struct inode *dir, struct dentry *dentry, int mode,
 	DQUOT_INIT(dir);
 	error = dir->i_op->create(dir, dentry, mode, nd);
 	if (!error) {
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+		fsnotify_create(dir, dentry->d_name.name);
+#else
 		inode_dir_notify(dir, DN_CREATE);
+#endif
 		security_inode_post_create(dir, dentry, mode);
 	}
 	return error;
@@ -1555,7 +1584,11 @@ int vfs_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_t dev)
 	DQUOT_INIT(dir);
 	error = dir->i_op->mknod(dir, dentry, mode, dev);
 	if (!error) {
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+		fsnotify_create(dir, dentry->d_name.name);
+#else
 		inode_dir_notify(dir, DN_CREATE);
+#endif
 		security_inode_post_mknod(dir, dentry, mode, dev);
 	}
 	return error;
@@ -1628,7 +1661,11 @@ int vfs_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 	DQUOT_INIT(dir);
 	error = dir->i_op->mkdir(dir, dentry, mode);
 	if (!error) {
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+		fsnotify_mkdir(dir, dentry->d_name.name);
+#else
 		inode_dir_notify(dir, DN_CREATE);
+#endif
 		security_inode_post_mkdir(dir,dentry, mode);
 	}
 	return error;
@@ -1710,11 +1747,16 @@ int vfs_rmdir(struct inode *dir, struct dentry *dentry)
 	DQUOT_INIT(dir);
 
 	down(&dentry->d_inode->i_sem);
+#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+	error = security_inode_rmdir(dir, dentry);
+#endif /* CONFIG_MOT_FEAT_SECURE_DRM */
 	dentry_unhash(dentry);
 	if (d_mountpoint(dentry))
 		error = -EBUSY;
 	else {
+#ifndef CONFIG_MOT_FEAT_SECURE_DRM
 		error = security_inode_rmdir(dir, dentry);
+#endif /* CONFIG_MOT_FEAT_SECURE_DRM */
 		if (!error) {
 			error = dir->i_op->rmdir(dir, dentry);
 			if (!error)
@@ -1723,8 +1765,12 @@ int vfs_rmdir(struct inode *dir, struct dentry *dentry)
 	}
 	up(&dentry->d_inode->i_sem);
 	if (!error) {
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+		fsnotify_rmdir(dentry, dentry->d_inode, dir);
+#else
 		inode_dir_notify(dir, DN_DELETE);
 		d_delete(dentry);
+#endif
 	}
 	dput(dentry);
 
@@ -1796,8 +1842,12 @@ int vfs_unlink(struct inode *dir, struct dentry *dentry)
 
 	/* We don't d_delete() NFS sillyrenamed files--they still exist. */
 	if (!error && !(dentry->d_flags & DCACHE_NFSFS_RENAMED)) {
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+		fsnotify_unlink(dentry->d_inode, dir, dentry);
+#else
 		d_delete(dentry);
 		inode_dir_notify(dir, DN_DELETE);
+#endif
 	}
 	return error;
 }
@@ -1815,6 +1865,11 @@ asmlinkage long sys_unlink(const char __user * pathname)
 	struct dentry *dentry;
 	struct nameidata nd;
 	struct inode *inode = NULL;
+
+#ifdef CONFIG_MOT_FEAT_ANTIVIRUS_HOOKS
+	if ((error = fsh_sys_unlink(pathname)) != 0)
+		return error;
+#endif
 
 	name = getname(pathname);
 	if(IS_ERR(name))
@@ -1872,7 +1927,11 @@ int vfs_symlink(struct inode *dir, struct dentry *dentry, const char *oldname, i
 	DQUOT_INIT(dir);
 	error = dir->i_op->symlink(dir, dentry, oldname);
 	if (!error) {
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+		fsnotify_create(dir, dentry->d_name.name);
+#else
 		inode_dir_notify(dir, DN_CREATE);
+#endif
 		security_inode_post_symlink(dir, dentry, oldname);
 	}
 	return error;
@@ -1945,7 +2004,11 @@ int vfs_link(struct dentry *old_dentry, struct inode *dir, struct dentry *new_de
 	error = dir->i_op->link(old_dentry, dir, new_dentry);
 	up(&old_dentry->d_inode->i_sem);
 	if (!error) {
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+		fsnotify_create(dir, new_dentry->d_name.name);
+#else
 		inode_dir_notify(dir, DN_CREATE);
+#endif
 		security_inode_post_link(old_dentry, dir, new_dentry);
 	}
 	return error;
@@ -2056,7 +2119,7 @@ int vfs_rename_dir(struct inode *old_dir, struct dentry *old_dentry,
 	}
 	if (d_mountpoint(old_dentry)||d_mountpoint(new_dentry))
 		error = -EBUSY;
-	else 
+	else
 		error = old_dir->i_op->rename(old_dir, old_dentry, new_dir, new_dentry);
 	if (target) {
 		if (!error)
@@ -2109,6 +2172,9 @@ int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 {
 	int error;
 	int is_dir = S_ISDIR(old_dentry->d_inode->i_mode);
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+	char *old_name;
+#endif
 
 	if (old_dentry->d_inode == new_dentry->d_inode)
  		return 0;
@@ -2130,11 +2196,21 @@ int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	DQUOT_INIT(old_dir);
 	DQUOT_INIT(new_dir);
 
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+	old_name = fsnotify_oldname_init(old_dentry);
+#endif
+
 	if (is_dir)
 		error = vfs_rename_dir(old_dir,old_dentry,new_dir,new_dentry);
 	else
 		error = vfs_rename_other(old_dir,old_dentry,new_dir,new_dentry);
 	if (!error) {
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+                const char *new_name = old_dentry->d_name.name;
+                fsnotify_move(old_dir, new_dir, old_name, new_name, is_dir);
+	}
+	fsnotify_oldname_free(old_name);
+#else
 		if (old_dir == new_dir)
 			inode_dir_notify(old_dir, DN_RENAME);
 		else {
@@ -2142,6 +2218,7 @@ int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 			inode_dir_notify(new_dir, DN_CREATE);
 		}
 	}
+#endif
 	return error;
 }
 
@@ -2226,6 +2303,11 @@ asmlinkage long sys_rename(const char __user * oldname, const char __user * newn
 	int error;
 	char * from;
 	char * to;
+
+#ifdef CONFIG_MOT_FEAT_ANTIVIRUS_HOOKS
+	if ((error = fsh_sys_rename(oldname, newname)) != 0)
+		return error;
+#endif
 
 	from = getname(oldname);
 	if(IS_ERR(from))

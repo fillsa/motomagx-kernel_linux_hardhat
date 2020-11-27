@@ -3,9 +3,16 @@
  *
  * (C) Copyright 1991-2000 Linus Torvalds
  *
+ *  Copyright 2006 Motorola, Inc.
+
  * We have a per-user structure to keep track of how many
  * processes, files etc the user has claimed, in order to be
  * able to have per-user limits for system resources. 
+ */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 31-Oct-2006  Motorola        Added inotify
  */
 
 #include <linux/init.h>
@@ -26,7 +33,7 @@
 
 static kmem_cache_t *uid_cachep;
 static struct list_head uidhash_table[UIDHASH_SZ];
-static spinlock_t uidhash_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(uidhash_lock);
 
 struct user_struct root_user = {
 	.__count	= ATOMIC_INIT(1),
@@ -119,6 +126,10 @@ struct user_struct * alloc_uid(uid_t uid)
 		atomic_set(&new->processes, 0);
 		atomic_set(&new->files, 0);
 		atomic_set(&new->sigpending, 0);
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+		atomic_set(&new->inotify_watches, 0);
+		atomic_set(&new->inotify_devs, 0);
+#endif
 
 		new->mq_bytes = 0;
 		new->locked_shm = 0;

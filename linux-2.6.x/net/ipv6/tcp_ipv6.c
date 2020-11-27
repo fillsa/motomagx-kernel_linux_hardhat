@@ -664,6 +664,9 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 	ipv6_addr_copy(&fl.fl6_src,
 		       (saddr ? saddr : &np->saddr));
 	fl.oif = sk->sk_bound_dev_if;
+#if 0 
+	fl.iif = loopback_dev.ifindex;
+#endif
 	fl.fl_ip_dport = usin->sin6_port;
 	fl.fl_ip_sport = inet->sport;
 
@@ -681,6 +684,7 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 		ipv6_addr_copy(&fl.fl6_dst, final_p);
 
 	if ((err = xfrm_lookup(&dst, &fl, sk, 0)) < 0) {
+		err = -ENETUNREACH;
 		dst_release(dst);
 		goto failure;
 	}
@@ -694,7 +698,7 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 	ipv6_addr_copy(&np->saddr, saddr);
 	inet->rcv_saddr = LOOPBACK4_IPV6;
 
-	ip6_dst_store(sk, dst, NULL);
+	ip6_dst_store(sk, dst, NULL, NULL);
 	sk->sk_route_caps = dst->dev->features &
 		~(NETIF_F_IP_CSUM | NETIF_F_TSO);
 
@@ -797,6 +801,7 @@ static void tcp_v6_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 			ipv6_addr_copy(&fl.fl6_dst, &np->daddr);
 			ipv6_addr_copy(&fl.fl6_src, &np->saddr);
 			fl.oif = sk->sk_bound_dev_if;
+			fl.iif = loopback_dev.ifindex;
 			fl.fl_ip_dport = inet->dport;
 			fl.fl_ip_sport = inet->sport;
 
@@ -806,7 +811,9 @@ static void tcp_v6_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 			}
 
 			if ((err = xfrm_lookup(&dst, &fl, sk, 0)) < 0) {
+				err = -ENETUNREACH;
 				sk->sk_err_soft = -err;
+				dst_release(dst);
 				goto out;
 			}
 
@@ -890,6 +897,7 @@ static int tcp_v6_send_synack(struct sock *sk, struct open_request *req,
 	ipv6_addr_copy(&fl.fl6_src, &req->af.v6_req.loc_addr);
 	fl.fl6_flowlabel = 0;
 	fl.oif = req->af.v6_req.iif;
+	fl.iif = loopback_dev.ifindex;
 	fl.fl_ip_dport = req->rmt_port;
 	fl.fl_ip_sport = inet_sk(sk)->sport;
 
@@ -916,8 +924,11 @@ static int tcp_v6_send_synack(struct sock *sk, struct open_request *req,
 			goto done;
 		if (final_p)
 			ipv6_addr_copy(&fl.fl6_dst, final_p);
-		if ((err = xfrm_lookup(&dst, &fl, sk, 0)) < 0)
+		if ((err = xfrm_lookup(&dst, &fl, sk, 0)) < 0) {
+			err = -ENETUNREACH;
+			dst_release(dst);
 			goto done;
+		}
 	}
 
 	skb = tcp_make_synack(sk, dst, req);
@@ -934,8 +945,8 @@ static int tcp_v6_send_synack(struct sock *sk, struct open_request *req,
 			err = 0;
 	}
 
-done:
 	dst_release(dst);
+done:
         if (opt && opt != np->opt)
 		sock_kfree_s(sk, opt, opt->tot_len);
 	return err;
@@ -1041,6 +1052,9 @@ static void tcp_v6_send_reset(struct sk_buff *skb)
 
 	fl.proto = IPPROTO_TCP;
 	fl.oif = tcp_v6_iif(skb);
+#if 0
+	fl.iif = loopback_dev.ifindex;
+#endif
 	fl.fl_ip_dport = t1->dest;
 	fl.fl_ip_sport = t1->source;
 
@@ -1110,6 +1124,9 @@ static void tcp_v6_send_ack(struct sk_buff *skb, u32 seq, u32 ack, u32 win, u32 
 
 	fl.proto = IPPROTO_TCP;
 	fl.oif = tcp_v6_iif(skb);
+#if 0
+	fl.iif = loopback_dev.ifindex;
+#endif
 	fl.fl_ip_dport = t1->dest;
 	fl.fl_ip_sport = t1->source;
 
@@ -1363,6 +1380,9 @@ static struct sock * tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 		}
 		ipv6_addr_copy(&fl.fl6_src, &req->af.v6_req.loc_addr);
 		fl.oif = sk->sk_bound_dev_if;
+#if 0
+	fl.iif = loopback_dev.ifindex;
+#endif
 		fl.fl_ip_dport = req->rmt_port;
 		fl.fl_ip_sport = inet_sk(sk)->sport;
 
@@ -1372,8 +1392,10 @@ static struct sock * tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 		if (final_p)
 			ipv6_addr_copy(&fl.fl6_dst, final_p);
 
-		if ((xfrm_lookup(&dst, &fl, sk, 0)) < 0)
+		if ((xfrm_lookup(&dst, &fl, sk, 0)) < 0) {
+			dst_release(dst);
 			goto out;
+		}
 	} 
 
 	newsk = tcp_create_openreq_child(sk, req, skb);
@@ -1385,7 +1407,7 @@ static struct sock * tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 	atomic_inc(&inet6_sock_nr);
 #endif
 
-	ip6_dst_store(newsk, dst, NULL);
+	ip6_dst_store(newsk, dst, NULL, NULL);
 	newsk->sk_route_caps = dst->dev->features &
 		~(NETIF_F_IP_CSUM | NETIF_F_TSO);
 
@@ -1764,6 +1786,9 @@ static int tcp_v6_rebuild_header(struct sock *sk)
 		ipv6_addr_copy(&fl.fl6_src, &np->saddr);
 		fl.fl6_flowlabel = np->flow_label;
 		fl.oif = sk->sk_bound_dev_if;
+#if 0 
+	fl.iif = loopback_dev.ifindex;
+#endif
 		fl.fl_ip_dport = inet->dport;
 		fl.fl_ip_sport = inet->sport;
 
@@ -1783,12 +1808,13 @@ static int tcp_v6_rebuild_header(struct sock *sk)
 			ipv6_addr_copy(&fl.fl6_dst, final_p);
 
 		if ((err = xfrm_lookup(&dst, &fl, sk, 0)) < 0) {
+			err = -ENETUNREACH;
 			sk->sk_err_soft = -err;
 			dst_release(dst);
 			return err;
 		}
 
-		ip6_dst_store(sk, dst, NULL);
+		ip6_dst_store(sk, dst, NULL, NULL);
 		sk->sk_route_caps = dst->dev->features &
 			~(NETIF_F_IP_CSUM | NETIF_F_TSO);
 		tcp_sk(sk)->ext2_header_len = dst->header_len;
@@ -1813,6 +1839,9 @@ static int tcp_v6_xmit(struct sk_buff *skb, int ipfragok)
 	fl.fl6_flowlabel = np->flow_label;
 	IP6_ECN_flow_xmit(sk, fl.fl6_flowlabel);
 	fl.oif = sk->sk_bound_dev_if;
+#if 0
+	fl.iif = loopback_dev.ifindex;
+#endif
 	fl.fl_ip_sport = inet->sport;
 	fl.fl_ip_dport = inet->dport;
 
@@ -1837,12 +1866,13 @@ static int tcp_v6_xmit(struct sk_buff *skb, int ipfragok)
 			ipv6_addr_copy(&fl.fl6_dst, final_p);
 
 		if ((err = xfrm_lookup(&dst, &fl, sk, 0)) < 0) {
+			err = -ENETUNREACH;
 			sk->sk_route_caps = 0;
 			dst_release(dst);
 			return err;
 		}
 
-		ip6_dst_store(sk, dst, NULL);
+		ip6_dst_store(sk, dst, NULL, NULL);
 		sk->sk_route_caps = dst->dev->features &
 			~(NETIF_F_IP_CSUM | NETIF_F_TSO);
 		tcp_sk(sk)->ext2_header_len = dst->header_len;

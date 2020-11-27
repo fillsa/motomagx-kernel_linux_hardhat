@@ -312,6 +312,8 @@ struct ext2_inode {
 #define EXT2_MOUNT_NO_UID32		0x0200  /* Disable 32-bit UIDs */
 #define EXT2_MOUNT_XATTR_USER		0x4000	/* Extended user attributes */
 #define EXT2_MOUNT_POSIX_ACL		0x8000	/* POSIX Access Control Lists */
+#define EXT2_MOUNT_USRQUOTA		0x10000	/* user quota */
+#define EXT2_MOUNT_GRPQUOTA		0x20000	/* group quota */
 
 #define clear_opt(o, opt)		o &= ~EXT2_MOUNT_##opt
 #define set_opt(o, opt)			o |= EXT2_MOUNT_##opt

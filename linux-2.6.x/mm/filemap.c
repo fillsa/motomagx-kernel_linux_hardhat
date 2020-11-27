@@ -2,6 +2,12 @@
  *	linux/mm/filemap.c
  *
  * Copyright (C) 1994-1999  Linus Torvalds
+ * Copyright (C) 2007 Motorola, Inc.
+ */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 13-Nov-2007  Motorola        Fix deadlock problem in JFFS2.
  */
 
 /*
@@ -28,6 +34,7 @@
 #include <linux/blkdev.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
+#include <linux/ltt-events.h>
 /*
  * This is needed for the following functions:
  *  - try_to_release_page
@@ -402,9 +409,11 @@ void fastcall wait_on_page_bit(struct page *page, int bit_nr)
 {
 	DEFINE_WAIT_BIT(wait, &page->flags, bit_nr);
 
+	ltt_ev_memory(LTT_EV_MEMORY_PAGE_WAIT_START, 0);
 	if (test_bit(bit_nr, &page->flags))
 		__wait_on_bit(page_waitqueue(page), &wait, sync_page,
 							TASK_UNINTERRUPTIBLE);
+	ltt_ev_memory(LTT_EV_MEMORY_PAGE_WAIT_END, 0);
 }
 EXPORT_SYMBOL(wait_on_page_bit);
 
@@ -566,7 +575,8 @@ repeat:
 	page = find_lock_page(mapping, index);
 	if (!page) {
 		if (!cached_page) {
-			cached_page = alloc_page(gfp_mask);
+			cached_page = __page_cache_alloc(mapping, index,
+							 gfp_mask);
 			if (!cached_page)
 				return NULL;
 		}
@@ -659,7 +669,7 @@ grab_cache_page_nowait(struct address_space *mapping, unsigned long index)
 		return NULL;
 	}
 	gfp_mask = mapping_gfp_mask(mapping) & ~__GFP_FS;
-	page = alloc_pages(gfp_mask, 0);
+	page = __page_cache_alloc(mapping, index, gfp_mask);
 	if (page && add_to_page_cache_lru(page, mapping, index, gfp_mask)) {
 		page_cache_release(page);
 		page = NULL;
@@ -836,7 +846,7 @@ no_cached_page:
 		 * page..
 		 */
 		if (!cached_page) {
-			cached_page = page_cache_alloc_cold(mapping);
+			cached_page = page_cache_alloc_cold(mapping, index);
 			if (!cached_page) {
 				desc->error = -ENOMEM;
 				goto out;
@@ -1099,7 +1109,7 @@ static int fastcall page_cache_read(struct file * file, unsigned long offset)
 	struct page *page; 
 	int error;
 
-	page = page_cache_alloc_cold(mapping);
+	page = page_cache_alloc_cold(mapping, offset);
 	if (!page)
 		return -ENOMEM;
 
@@ -1209,6 +1219,16 @@ retry_find:
 		page = find_get_page(mapping, pgoff);
 		if (!page)
 			goto no_cached_page;
+#ifdef CONFIG_NUMA
+	} else {
+		if (!page_mapped(page) &&
+		    !mpol_node_valid(page_to_nid(page), area, address)) {
+			printk(KERN_WARNING "%s page %p:%lu "
+			       "violates mempolicy, count=%d\n",
+			       file->f_dentry->d_name.name,
+			       page, pgoff, page_count(page));
+		}
+#endif
 	}
 
 	if (!did_readaround)
@@ -1461,6 +1481,15 @@ repeat:
 	if (!page && !nonblock)
 		return -ENOMEM;
 	if (page) {
+#ifdef CONFIG_NUMA
+		if (!page_mapped(page) &&
+		    !mpol_node_valid(page_to_nid(page), vma, addr)) {
+			printk(KERN_WARNING "%s page %p:%lu "
+			       "violates mempolicy, count=%d\n",
+			       file->f_dentry->d_name.name,
+			       page, pgoff, page_count(page));
+		}
+#endif
 		err = install_page(mm, vma, addr, page, prot);
 		if (err) {
 			page_cache_release(page);
@@ -1481,9 +1510,34 @@ repeat:
 	return 0;
 }
 
+#ifdef CONFIG_NUMA
+int generic_file_set_policy(struct vm_area_struct *vma,
+			    struct mempolicy *new,
+			    unsigned long flags)
+{
+	struct address_space *mapping = vma->vm_file->f_mapping;
+	return mpol_set_shared_policy(&mapping->policy, vma, new, flags);
+}
+
+struct mempolicy *
+generic_file_get_policy(struct vm_area_struct *vma,
+			unsigned long addr)
+{
+	struct address_space *mapping = vma->vm_file->f_mapping;
+	unsigned long idx;
+
+	idx = ((addr - vma->vm_start) >> PAGE_SHIFT) + vma->vm_pgoff;
+	return mpol_shared_policy_lookup(&mapping->policy, idx);
+}
+#endif
+
 struct vm_operations_struct generic_file_vm_ops = {
 	.nopage		= filemap_nopage,
 	.populate	= filemap_populate,
+#ifdef CONFIG_NUMA
+	.set_policy     = generic_file_set_policy,
+	.get_policy     = generic_file_get_policy,
+#endif
 };
 
 /* This is used for a general mmap of a disk file */
@@ -1533,7 +1587,7 @@ repeat:
 	page = find_get_page(mapping, index);
 	if (!page) {
 		if (!cached_page) {
-			cached_page = page_cache_alloc_cold(mapping);
+			cached_page = page_cache_alloc_cold(mapping, index);
 			if (!cached_page)
 				return ERR_PTR(-ENOMEM);
 		}
@@ -1601,6 +1655,50 @@ retry:
 EXPORT_SYMBOL(read_cache_page);
 
 /*
+ * Same as read_cache_page, but abort if the page is locked.
+ */
+struct page *read_cache_page_async_trylock(struct address_space *mapping,
+				unsigned long index,
+				int (*filler)(void *, struct page *),
+				void *data)
+{
+	struct page *page;
+	int err;
+
+retry:
+	page = __read_cache_page(mapping, index, filler, data);
+	if (IS_ERR(page))
+		goto out;
+	mark_page_accessed(page);
+	if (PageUptodate(page))
+		goto out;
+
+	if (TestSetPageLocked(page)) {
+		page_cache_release(page);
+		return ERR_PTR(-EBUSY);
+	}
+
+	if (!page->mapping) {
+		unlock_page(page);
+		page_cache_release(page);
+		goto retry;
+	}
+	if (PageUptodate(page)) {
+		unlock_page(page);
+		goto out;
+	}
+	err = filler(data, page);
+	if (err < 0) {
+		page_cache_release(page);
+		page = ERR_PTR(err);
+	}
+ out:
+	mark_page_accessed(page);
+	return page;
+}
+EXPORT_SYMBOL(read_cache_page_async_trylock);
+
+/*
  * If the page was newly created, increment its refcount and add it to the
  * caller's lru-buffering pagevec.  This function is specifically for
  * generic_file_write().
@@ -1615,7 +1713,7 @@ repeat:
 	page = find_lock_page(mapping, index);
 	if (!page) {
 		if (!*cached_page) {
-			*cached_page = page_cache_alloc(mapping);
+			*cached_page = page_cache_alloc(mapping, index);
 			if (!*cached_page)
 				return NULL;
 		}
@@ -1908,7 +2006,16 @@ generic_file_buffered_write(struct kiocb *iocb, const struct iovec *iov,
 
 	pagevec_init(&lru_pvec, 0);
 
-	buf = iov->iov_base + written;	/* handle partial DIO write */
+	/*
+	 * handle partial DIO write.  Adjust cur_iov if needed.
+	 */
+	if (likely(nr_segs == 1))
+		buf = iov->iov_base + written;
+	else {
+		filemap_set_next_iovec(&cur_iov, &iov_base, written);
+		buf = iov->iov_base + iov_base;
+	}
+
 	do {
 		unsigned long index;
 		unsigned long offset;

@@ -1,6 +1,7 @@
 /*
  *  linux/arch/arm/kernel/time.c
  *
+ *  Copyright (C) 2007 Motorola, Inc.
  *  Copyright (C) 1991, 1992, 1995  Linus Torvalds
  *  Modifications for ARM (C) 1994-2001 Russell King
  *
@@ -15,7 +16,9 @@
  *              fixed set_rtc_mmss, fixed time.year for >= 2000, new mktime
  *  1998-12-20  Updated NTP code according to technical memorandum Jan '96
  *              "A Kernel Model for Precision Timekeeping" by Dave Mills
- */
+ *  2007-11-15  Motorola
+ *              Upmrege from 6.1 ( Add a hook to re-align rtc_fuzz requests to xtime). 
+*/
 #include <linux/config.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -48,7 +51,7 @@ struct sys_timer *system_timer;
 extern unsigned long wall_jiffies;
 
 /* this needs a better home */
-spinlock_t rtc_lock = SPIN_LOCK_UNLOCKED;
+DEFINE_RAW_SPINLOCK(rtc_lock);
 
 #ifdef CONFIG_SA1100_RTC_MODULE
 EXPORT_SYMBOL(rtc_lock);
@@ -63,7 +66,7 @@ unsigned long profile_pc(struct pt_regs *regs)
 	unsigned long fp, pc = instruction_pointer(regs);
 
 	if (in_lock_functions(pc)) {
-		fp = thread_saved_fp(current);
+		fp = regs->ARM_fp;
 		pc = pc_pointer(((unsigned long *)fp)[-1]);
 	}
 
@@ -91,6 +94,30 @@ unsigned long long __attribute__((weak)) sched_clock(void)
 {
 	return (unsigned long long)jiffies * (1000000000 / HZ);
 }
+
+#ifdef CONFIG_PREEMPT_HARDIRQS
+void do_timer_interrupt_hook(struct pt_regs *regs)
+{
+        profile_tick(CPU_PROFILING, regs);
+        do_timer(regs);
+
+#ifndef CONFIG_SMP
+        update_process_times(user_mode(regs));
+#endif
+
+}
+                                                                                               
+/*
+ * If the timer is redirected then this is the minimal
+ * interrupt-context processing we have to do:
+ */
+void direct_timer_interrupt(struct pt_regs *regs)
+{
+        do_timer_interrupt_hook(regs);
+}
+
+#endif
+
 
 static unsigned long next_rtc_update;
 
@@ -268,6 +295,8 @@ void do_gettimeofday(struct timeval *tv)
 
 EXPORT_SYMBOL(do_gettimeofday);
 
+extern void rtc_sw_fuzz_req_realign(void);
+
 int do_settimeofday(struct timespec *tv)
 {
 	time_t wtm_sec, sec = tv->tv_sec;
@@ -291,6 +320,10 @@ int do_settimeofday(struct timespec *tv)
 
 	set_normalized_timespec(&xtime, sec, nsec);
 	set_normalized_timespec(&wall_to_monotonic, wtm_sec, wtm_nsec);
+
+        /* xtime was changed, need to realign rtc_sw fuzz requests */
+        rtc_sw_fuzz_req_realign();
+
 
 	time_adjust = 0;		/* stop active adjtime() */
 	time_status |= STA_UNSYNC;
@@ -341,12 +374,16 @@ EXPORT_SYMBOL(restore_time_delta);
  */
 void timer_tick(struct pt_regs *regs)
 {
+#ifndef CONFIG_PREEMPT_HARDIRQS
 	profile_tick(CPU_PROFILING, regs);
+#endif
 	do_leds();
 	do_set_rtc();
+#ifndef CONFIG_PREEMPT_HARDIRQS
 	do_timer(regs);
 #ifndef CONFIG_SMP
 	update_process_times(user_mode(regs));
+#endif
 #endif
 }
 

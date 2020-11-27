@@ -46,8 +46,6 @@
 #include <net/addrconf.h>
 #include <net/xfrm.h>
 
-
-
 static inline int ip6_rcv_finish( struct sk_buff *skb) 
 {
 	if (skb->dst == NULL)
@@ -59,15 +57,27 @@ static inline int ip6_rcv_finish( struct sk_buff *skb)
 int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt)
 {
 	struct ipv6hdr *hdr;
+#ifdef CONFIG_IPV6_STATISTICS
+	struct inet6_dev *idev = NULL;
+#endif
 	u32 		pkt_len;
 
 	if (skb->pkt_type == PACKET_OTHERHOST)
 		goto drop;
 
+#ifdef CONFIG_IPV6_STATISTICS
+	idev = in6_dev_get(dev);
+	IP6_INC_STATS_BH(idev, IPSTATS_MIB_INRECEIVES);
+#else
 	IP6_INC_STATS_BH(IPSTATS_MIB_INRECEIVES);
+#endif
 
 	if ((skb = skb_share_check(skb, GFP_ATOMIC)) == NULL) {
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS_BH(idev, IPSTATS_MIB_INDISCARDS);
+#else
 		IP6_INC_STATS_BH(IPSTATS_MIB_INDISCARDS);
+#endif
 		goto out;
 	}
 
@@ -79,10 +89,8 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 	if (skb->len < sizeof(struct ipv6hdr))
 		goto err;
 
-	if (!pskb_may_pull(skb, sizeof(struct ipv6hdr))) {
-		IP6_INC_STATS_BH(IPSTATS_MIB_INHDRERRORS);
-		goto drop;
-	}
+	if (!pskb_may_pull(skb, sizeof(struct ipv6hdr)))
+		goto err;
 
 	hdr = skb->nh.ipv6h;
 
@@ -96,10 +104,8 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 		if (pkt_len + sizeof(struct ipv6hdr) > skb->len)
 			goto truncated;
 		if (pkt_len + sizeof(struct ipv6hdr) < skb->len) {
-			if (__pskb_trim(skb, pkt_len + sizeof(struct ipv6hdr))){
-				IP6_INC_STATS_BH(IPSTATS_MIB_INHDRERRORS);
-				goto drop;
-			}
+			if (__pskb_trim(skb, pkt_len + sizeof(struct ipv6hdr)))
+				goto err;
 			hdr = skb->nh.ipv6h;
 			if (skb->ip_summed == CHECKSUM_HW)
 				skb->ip_summed = CHECKSUM_NONE;
@@ -107,22 +113,39 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 	}
 
 	if (hdr->nexthdr == NEXTHDR_HOP) {
+		unsigned int nhoff = offsetof(struct ipv6hdr, nexthdr);
 		skb->h.raw = (u8*)(hdr+1);
-		if (ipv6_parse_hopopts(skb, offsetof(struct ipv6hdr, nexthdr)) < 0) {
-			IP6_INC_STATS_BH(IPSTATS_MIB_INHDRERRORS);
-			return 0;
+		if (ipv6_parse_hopopts(&skb, &nhoff) < 0) {
+			skb = NULL;
+			goto err;
 		}
-		hdr = skb->nh.ipv6h;
 	}
 
+#ifdef CONFIG_IPV6_STATISTICS
+	if (idev)
+		in6_dev_put(idev);
+#endif
 	return NF_HOOK(PF_INET6,NF_IP6_PRE_ROUTING, skb, dev, NULL, ip6_rcv_finish);
 truncated:
+#ifdef CONFIG_IPV6_STATISTICS
+	IP6_INC_STATS_BH(idev, IPSTATS_MIB_INTRUNCATEDPKTS);
+#else
 	IP6_INC_STATS_BH(IPSTATS_MIB_INTRUNCATEDPKTS);
+#endif
 err:
+#ifdef CONFIG_IPV6_STATISTICS
+	IP6_INC_STATS_BH(idev, IPSTATS_MIB_INHDRERRORS);
+#else
 	IP6_INC_STATS_BH(IPSTATS_MIB_INHDRERRORS);
+#endif
 drop:
-	kfree_skb(skb);
+	if (skb)
+		kfree_skb(skb);
 out:
+#ifdef CONFIG_IPV6_STATISTICS
+	if (idev)
+		in6_dev_put(idev);
+#endif
 	return 0;
 }
 
@@ -135,17 +158,16 @@ static inline int ip6_input_finish(struct sk_buff *skb)
 {
 	struct inet6_protocol *ipprot;
 	struct sock *raw_sk;
+#ifdef CONFIG_IPV6_STATISTICS
+	struct dst_entry *dst = skb->dst;
+	struct inet6_dev *idev = ((struct rt6_info *)dst)->rt6i_idev;
+#endif
 	unsigned int nhoff;
 	int nexthdr;
 	u8 hash;
 	int cksum_sub = 0;
 
 	skb->h.raw = skb->nh.raw + sizeof(struct ipv6hdr);
-
-	/*
-	 *	Parse extension headers
-	 */
-
 	nexthdr = skb->nh.ipv6h->nexthdr;
 	nhoff = offsetof(struct ipv6hdr, nexthdr);
 
@@ -193,15 +215,27 @@ resubmit:
 		if (ret > 0)
 			goto resubmit;
 		else if (ret == 0)
+#ifdef CONFIG_IPV6_STATISTICS
+			IP6_INC_STATS_BH(idev, IPSTATS_MIB_INDELIVERS);
+#else
 			IP6_INC_STATS_BH(IPSTATS_MIB_INDELIVERS);
+#endif
 	} else {
 		if (!raw_sk) {
 			if (xfrm6_policy_check(NULL, XFRM_POLICY_IN, skb)) {
+#ifdef CONFIG_IPV6_STATISTICS
+				IP6_INC_STATS_BH(idev, IPSTATS_MIB_INUNKNOWNPROTOS);
+#else
 				IP6_INC_STATS_BH(IPSTATS_MIB_INUNKNOWNPROTOS);
+#endif
 				icmpv6_param_prob(skb, ICMPV6_UNK_NEXTHDR, nhoff);
 			}
 		} else {
+#ifdef CONFIG_IPV6_STATISTICS
+			IP6_INC_STATS_BH(idev, IPSTATS_MIB_INDELIVERS);
+#else
 			IP6_INC_STATS_BH(IPSTATS_MIB_INDELIVERS);
+#endif
 			kfree_skb(skb);
 		}
 	}
@@ -209,7 +243,11 @@ resubmit:
 	return 0;
 
 discard:
+#ifdef CONFIG_IPV6_STATISTICS
+	IIP6_INC_STATS_BH(idev, IPSTATS_MIB_INDISCARDS);
+#else
 	IP6_INC_STATS_BH(IPSTATS_MIB_INDISCARDS);
+#endif
 	rcu_read_unlock();
 	kfree_skb(skb);
 	return 0;
@@ -224,9 +262,17 @@ int ip6_input(struct sk_buff *skb)
 int ip6_mc_input(struct sk_buff *skb)
 {
 	struct ipv6hdr *hdr;
+#ifdef CONFIG_IPV6_STATISTICS
+	struct dst_entry *dst = skb->dst;
+	struct inet6_dev *idev = ((struct rt6_info *)dst)->rt6i_idev;
+#endif
 	int deliver;
 
+#ifdef CONFIG_IPV6_STATISTICS
+	IP6_INC_STATS_BH(idev, IPSTATS_MIB_INMCASTPKTS);
+#else
 	IP6_INC_STATS_BH(IPSTATS_MIB_INMCASTPKTS);
+#endif
 
 	hdr = skb->nh.ipv6h;
 	deliver = likely(!(skb->dev->flags & (IFF_PROMISC|IFF_ALLMULTI))) ||

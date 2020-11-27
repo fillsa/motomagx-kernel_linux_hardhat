@@ -1,6 +1,11 @@
 #
 # Makefile for some libs needed in the kernel.
 #
+ifeq ($(CONFIG_ARM),y)
+ifeq ($(CONFIG_GCOV_ALL),y)
+CFLAGS := $(CFLAGS_NOGCOV)
+endif
+endif
 
 lib-y := errno.o ctype.o string.o vsprintf.o cmdline.o \
 	 bust_spinlocks.o rbtree.o radix-tree.o dump_stack.o \
@@ -12,15 +17,21 @@ CFLAGS_kobject.o += -DDEBUG
 CFLAGS_kobject_uevent.o += -DDEBUG
 endif
 
-lib-$(CONFIG_RWSEM_GENERIC_SPINLOCK) += rwsem-spinlock.o
+obj-$(CONFIG_FRD) += frd.o
+
+obj-$(CONFIG_RWSEM_GENERIC_SPINLOCK) += rwsem-spinlock.o
 lib-$(CONFIG_RWSEM_XCHGADD_ALGORITHM) += rwsem.o
+lib-$(CONFIG_GENERIC_FIND_NEXT_BIT) += find_next_bit.o
 obj-$(CONFIG_LOCK_KERNEL) += kernel_lock.o
 
-ifneq ($(CONFIG_HAVE_DEC_LOCK),y) 
+obj-$(CONFIG_MOT_FEAT_HOTPLUG_FILTER) += mothotplug_sysfs.o
+
+ifneq ($(CONFIG_HAVE_DEC_LOCK),y)
   lib-y += dec_and_lock.o
 endif
 
 obj-$(CONFIG_CRC_CCITT)	+= crc-ccitt.o
+obj-$(CONFIG_CRC16)	+= crc16.o
 obj-$(CONFIG_CRC32)	+= crc32.o
 obj-$(CONFIG_LIBCRC32C)	+= libcrc32c.o
 obj-$(CONFIG_GENERIC_IOMAP) += iomap.o

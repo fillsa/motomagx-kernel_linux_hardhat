@@ -2,6 +2,16 @@
  * linux/fs/inode.c
  *
  * (C) 1997 Linus Torvalds
+ *
+ *  Copyright (C) 2006-2007 Motorola, Inc.
+ *
+ */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 31-Oct-2006  Motorola        Added inotify
+ * 24-Nov-2007  Motorola        Fixed a bug [Linux calls read_inode() again 
+ *                              before clear_inode() has finished though.]        
  */
 
 #include <linux/config.h>
@@ -80,7 +90,7 @@ static struct hlist_head *inode_hashtable;
  * NOTE! You also have to own the lock if you change
  * the i_state of an inode while it is in use..
  */
-spinlock_t inode_lock = SPIN_LOCK_UNLOCKED;
+DEFINE_SPINLOCK(inode_lock);
 
 /*
  * iprune_sem provides exclusion between the kswapd or try_to_free_pages
@@ -130,6 +140,11 @@ static struct inode *alloc_inode(struct super_block *sb)
 #ifdef CONFIG_QUOTA
 		memset(&inode->i_dquot, 0, sizeof(inode->i_dquot));
 #endif
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+#ifdef CONFIG_INOTIFY
+		inode->inotify_data = NULL;
+#endif
+#endif
 		inode->i_pipe = NULL;
 		inode->i_bdev = NULL;
 		inode->i_cdev = NULL;
@@ -150,6 +165,7 @@ static struct inode *alloc_inode(struct super_block *sb)
 		mapping_set_gfp_mask(mapping, GFP_HIGHUSER);
 		mapping->assoc_mapping = NULL;
 		mapping->backing_dev_info = &default_backing_dev_info;
+ 		mpol_shared_policy_init(&mapping->policy);
 
 		/*
 		 * If the block_device provides a backing_dev_info for client
@@ -175,6 +191,7 @@ void destroy_inode(struct inode *inode)
 	if (inode_has_buffers(inode))
 		BUG();
 	security_inode_free(inode);
+	mpol_free_shared_policy(&inode->i_mapping->policy);
 	if (inode->i_sb->s_op->destroy_inode)
 		inode->i_sb->s_op->destroy_inode(inode);
 	else
@@ -284,7 +301,13 @@ static void dispose_list(struct list_head *head)
 
 		if (inode->i_data.nrpages)
 			truncate_inode_pages(&inode->i_data, 0);
-		clear_inode(inode);
+   
+                clear_inode(inode);
+            
+                spin_lock(&inode_lock);
+                hlist_del_init(&inode->i_hash);
+                spin_unlock(&inode_lock);
+
 		destroy_inode(inode);
 		nr_disposed++;
 	}
@@ -306,6 +329,14 @@ static int invalidate_list(struct list_head *head, struct super_block * sb, stru
 		struct list_head * tmp = next;
 		struct inode * inode;
 
+		/*
+		 * We can reschedule here without worrying about the list's
+		 * consistency because the per-sb list of inodes must not
+		 * change during umount anymore, and because iprune_sem keeps
+		 * shrink_icache_memory() away.
+		 */
+		cond_resched_lock(&inode_lock);
+
 		next = next->next;
 		if (tmp == head)
 			break;
@@ -314,7 +345,6 @@ static int invalidate_list(struct list_head *head, struct super_block * sb, stru
 			continue;
 		invalidate_inode_buffers(inode);
 		if (!atomic_read(&inode->i_count)) {
-			hlist_del_init(&inode->i_hash);
 			list_move(&inode->i_list, dispose);
 			inode->i_state |= I_FREEING;
 			count++;
@@ -452,7 +482,6 @@ static void prune_icache(int nr_to_scan)
 			if (!can_unuse(inode))
 				continue;
 		}
-		hlist_del_init(&inode->i_hash);
 		list_move(&inode->i_list, &freeable);
 		inode->i_state |= I_FREEING;
 		nr_pruned++;
@@ -1271,29 +1300,21 @@ int inode_wait(void *word)
 }
 
 /*
- * If we try to find an inode in the inode hash while it is being deleted, we
- * have to wait until the filesystem completes its deletion before reporting
- * that it isn't found.  This is because iget will immediately call
- * ->read_inode, and we want to be sure that evidence of the deletion is found
- * by ->read_inode.
+ * If we try to find an inode in the inode hash while it is being
+ * deleted, we have to wait until the filesystem completes its
+ * deletion before reporting that it isn't found.  This function waits
+ * until the deletion _might_ have completed.  Callers are responsible
+ * to recheck inode state.
+ *
+ * It doesn't matter if I_LOCK is not set initially, a call to
+ * wake_up_inode() after removing from the hash list will DTRT.
+ *
  * This is called with inode_lock held.
  */
 static void __wait_on_freeing_inode(struct inode *inode)
 {
 	wait_queue_head_t *wq;
 	DEFINE_WAIT_BIT(wait, &inode->i_state, __I_LOCK);
-
-	/*
-	 * I_FREEING and I_CLEAR are cleared in process context under
-	 * inode_lock, so we have to give the tasks who would clear them
-	 * a chance to run and acquire inode_lock.
-	 */
-	if (!(inode->i_state & I_LOCK)) {
-		spin_unlock(&inode_lock);
-		yield();
-		spin_lock(&inode_lock);
-		return;
-	}
 	wq = bit_waitqueue(&inode->i_state, __I_LOCK);
 	prepare_to_wait(wq, &wait.wait, TASK_UNINTERRUPTIBLE);
 	spin_unlock(&inode_lock);

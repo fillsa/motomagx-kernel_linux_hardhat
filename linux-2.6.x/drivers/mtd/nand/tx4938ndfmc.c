@@ -10,7 +10,7 @@
  *
  * Based on spia.c by Steven J. Hill
  *
- * $Id: tx4938ndfmc.c,v 1.4 2004/10/05 13:50:20 gleixner Exp $
+ * $Id: tx4938ndfmc.c,v 1.3 2004/09/16 23:27:15 gleixner Exp $
  *
  * Copyright (C) 2000-2001 Toshiba Corporation 
  *

@@ -59,6 +59,9 @@
 #ifdef CONFIG_IPV6_TUNNEL
 #include <net/ip6_tunnel.h>
 #endif
+#ifdef CONFIG_IPV6_MIP6
+#include <net/mip6.h>
+#endif
 
 #include <asm/uaccess.h>
 #include <asm/system.h>
@@ -94,7 +97,7 @@ atomic_t inet6_sock_nr;
  * build a new socket.
  */
 static struct list_head inetsw6[SOCK_MAX];
-static spinlock_t inetsw6_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(inetsw6_lock);
 
 static void inet6_sock_destruct(struct sock *sk)
 {
@@ -781,6 +784,9 @@ static int __init inet6_init(void)
 	if (if6_proc_init())
 		goto proc_if6_fail;
 #endif
+#ifdef CONFIG_IPV6_MULTIPLE_TABLES
+	fib6_rules_init();
+#endif
 	ipv6_packet_init();
 	ip6_route_init();
 	ip6_flowlabel_init();
@@ -792,6 +798,9 @@ static int __init inet6_init(void)
 	ipv6_frag_init();
 	ipv6_nodata_init();
 	ipv6_destopt_init();
+#ifdef CONFIG_IPV6_MIP6
+	mip6_init();
+#endif
 
 	/* Init v6 transport protocols. */
 	udpv6_init();
@@ -845,10 +854,16 @@ static void __exit inet6_exit(void)
  	tcp6_proc_exit();
  	raw6_proc_exit();
 #endif
+#ifdef CONFIG_IPV6_MIP6
+	mip6_fini();
+#endif
 	/* Cleanup code parts. */
 	sit_cleanup();
 	ip6_flowlabel_cleanup();
 	addrconf_cleanup();
+#ifdef CONFIG_IPV6_MULTIPLE_TABLES
+	fib6_rules_exit();
+#endif
 	ip6_route_cleanup();
 	ipv6_packet_cleanup();
 	igmp6_cleanup();

@@ -4,6 +4,9 @@
  * Author:	Nicolas Pitre
  * Copyright:	(C) 2001 MontaVista Software Inc.
  *
+ * 2004-11-29   Modified by Eugeny S. Mints to make Memory Type Based
+ *              Allocation (MTA) working for Mainstone board.
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
@@ -36,18 +39,34 @@
  * 	node 2:  0xa8000000-0xabffffff	-->  0xc8000000-0xcbffffff
  * 	node 3:  0xac000000-0xafffffff	-->  0xcc000000-0xcfffffff
  */
+/* Note: depending on Blob revision Mainstone has 32 or 64 Mb of SDRAM 
+ * initialized. Example with 32 Mb works for both 
+ */
+#define NR_NODES             4
+#define MEM_NODE_SIZE        8	/* Mem node size in Mb */
+#define NODE_MAX_MEM_SHIFT   23
+#define NODE_MAX_MEM_SIZE    (1 << NODE_MAX_MEM_SHIFT)
 
-#define NR_NODES	4
+/* discontig memory node setup */
+#define SET_NODE(mi, nid) { \
+	(mi)->bank[(nid)].start = PHYS_OFFSET + \
+				  (nid) * (MEM_NODE_SIZE * 1024 * 1024); \
+	(mi)->bank[(nid)].size = MEM_NODE_SIZE * 1024 * 1024; \
+	(mi)->bank[(nid)].node = (nid); \
+	node_set_online(nid); \
+}
 
 /*
  * Given a kernel address, find the home node of the underlying memory.
  */
-#define KVADDR_TO_NID(addr) (((unsigned long)(addr) - PAGE_OFFSET) >> 26)
+#define KVADDR_TO_NID(addr) \
+	(((unsigned long)(addr) - PAGE_OFFSET) >> NODE_MAX_MEM_SHIFT)
 
 /*
  * Given a page frame number, convert it to a node id.
  */
-#define PFN_TO_NID(pfn)		(((pfn) - PHYS_PFN_OFFSET) >> (26 - PAGE_SHIFT))
+#define PFN_TO_NID(pfn)	\
+	(((pfn) - PHYS_PFN_OFFSET) >> (NODE_MAX_MEM_SHIFT - PAGE_SHIFT))
 
 /*
  * Given a kaddr, ADDR_TO_MAPBASE finds the owning node of the memory
@@ -67,8 +86,7 @@
  * node's mem_map.
  */
 #define LOCAL_MAP_NR(addr) \
-	(((unsigned long)(addr) & 0x03ffffff) >> PAGE_SHIFT)
-
+	(((unsigned long)(addr) & (NODE_MAX_MEM_SIZE - 1)) >> PAGE_SHIFT)
 #else
 
 #define PFN_TO_NID(addr)	(0)

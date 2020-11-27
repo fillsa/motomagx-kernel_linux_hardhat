@@ -26,6 +26,7 @@
  */
 
 #include <linux/bitops.h>
+#include <linux/device.h>
 #include "pcm.h"
 #include "control.h"
 #include "info.h"
@@ -502,6 +503,7 @@ struct _snd_ac97 {
 		} ad18xx;
 		unsigned int dev_flags;		/* device specific */
 	} spec;
+	struct device dev;
 };
 
 /* conditions */
@@ -572,5 +574,8 @@ int snd_ac97_pcm_open(struct ac97_pcm *pcm, unsigned int rate,
 		      enum ac97_pcm_cfg cfg, unsigned short slots);
 int snd_ac97_pcm_close(struct ac97_pcm *pcm);
 int snd_ac97_pcm_double_rate_rules(snd_pcm_runtime_t *runtime);
+
+/* for ad hoc drivers... */
+extern struct bus_type ac97_bus_type;
 
 #endif /* __SOUND_AC97_CODEC_H */

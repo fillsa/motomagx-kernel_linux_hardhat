@@ -2,6 +2,7 @@
  * Simple NUMA memory policy for the Linux kernel.
  *
  * Copyright 2003,2004 Andi Kleen, SuSE Labs.
+ * Copyright 2004,2005 MontaVista Software.
  * Subject to the GNU Public License, version 2.
  *
  * NUMA policy allows the user to give hints in which node(s) memory should
@@ -47,15 +48,28 @@
  */
 
 /* Notebook:
-   fix mmap readahead to honour policy and enable policy for any page cache
-   object
-   statistics for bigpages
-   global policy for page cache? currently it uses process policy. Requires
-   first item above.
+   Page cache pages can now be policied, by adding a shared_policy tree to
+   inodes (actually located in address_space). One entry in the tree for
+   each mapped region of a file. Generic files now have set_policy and
+   get_policy methods in generic_file_vm_ops [stevel@mvista.com].
+
+   Added a page-migration feature, whereby existing pte-mapped or filemap
+   pagecache pages that are/can be mapped to the given virtual memory
+   region, that do not satisfy the NUMA policy, are moved to a new
+   page that satisfies the policy. Enabled by the new mbind flag
+   MPOL_MF_MOVE [stevel@mvista.com].
+
+   statistics for bigpages.
+
+   global policy for page cache? currently it uses per-file policies in
+   address_space (see first item above).
+
    handle mremap for shared memory (currently ignored for the policy)
    grows down?
+
    make bind policy root only? It can trigger oom much faster and the
    kernel is not always grateful with that.
+
    could replace all the switch()es with a mempolicy_ops structure.
 */
 
@@ -66,6 +80,7 @@
 #include <linux/kernel.h>
 #include <linux/sched.h>
 #include <linux/mm.h>
+#include <linux/pagemap.h>
 #include <linux/nodemask.h>
 #include <linux/gfp.h>
 #include <linux/slab.h>
@@ -75,13 +90,24 @@
 #include <linux/init.h>
 #include <linux/compat.h>
 #include <linux/mempolicy.h>
+#include <linux/rmap.h>
+#include <linux/swap.h>
 #include <asm/tlbflush.h>
+#include <asm/pgalloc.h>
 #include <asm/uaccess.h>
 
 static kmem_cache_t *policy_cache;
 static kmem_cache_t *sn_cache;
 
+#undef DEBUG_SHARED_POLICY
+
 #define PDprintk(fmt...)
+#define PMDprintk(fmt...) printk(KERN_DEBUG fmt)
+
+/* forward references */
+static struct mempolicy * get_vma_policy(struct vm_area_struct *vma,
+					 unsigned long addr);
+static int __mpol_node_valid(int nid, struct mempolicy *pol);
 
 /* Highest zone. An specific allocation for a zone below that is not
    policied. */
@@ -138,6 +164,8 @@ static int get_nodes(unsigned long *nodes, unsigned long __user *nmask,
 	bitmap_zero(nodes, MAX_NUMNODES);
 	if (maxnode == 0 || !nmask)
 		return 0;
+	if (maxnode > PAGE_SIZE)
+		return -EINVAL;
 
 	nlongs = BITS_TO_LONGS(maxnode);
 	if ((maxnode % BITS_PER_LONG) == 0)
@@ -232,45 +260,242 @@ static struct mempolicy *mpol_new(int mode, unsigned long *nodes)
 	return policy;
 }
 
-/* Ensure all existing pages follow the policy. */
+
+/*
+ * The given page doesn't match a file mapped VMA's policy. If the
+ * page is unused, remove it from the page cache, so that a new page
+ * can be later reallocated to the cache using the correct policy.
+ * Returns 0 if the page was removed from the cache, < 0 if failed.
+ *
+ * We use invalidate_mapping_pages(), which doesn't try very hard.
+ * It won't remove pages which are locked (won't wait for a lock),
+ * dirty, under writeback, or mapped by pte's. If the page is currently
+ * being mapped, give up right away (but this is unlikely for ELF files
+ * marked with policies, because mbind is called the very first time the
+ * file is mapped, by the kernel for executables and ld.so, and by libc
+ * for shared libs). If the page is not mapped, wait for locks and
+ * writebacks, and try to free again.
+ */
 static int
-verify_pages(unsigned long addr, unsigned long end, unsigned long *nodes)
+remove_filemap_page(struct page * page,
+		    struct vm_area_struct *vma,
+		    pgoff_t pgoff)
 {
-	while (addr < end) {
+	struct address_space *mapping = vma->vm_file->f_mapping;
+	int release_attempt = 0;
+
+	/*
+	 * the page in the cache is not in any of the nodes this
+	 * VMA's policy wants it to be in. Can we remove it?
+	 */
+	do {
+		unsigned long ret = invalidate_mapping_pages(mapping,
+							     pgoff, pgoff);
+		struct page * p = find_get_page(mapping, pgoff);
+		
+		if (ret && !p) {
+			PMDprintk("%s page %p:%lu released "
+				  "after %d tries\n",
+				  vma->vm_file->f_dentry->d_name.name,
+				  page, pgoff, release_attempt);
+			return 0;
+		}
+
+		if (p) {
+			/*
+			 * the page is being used by other pagetable mappings,
+			 * or is currently locked, dirty, or under writeback.
+			 */
+			PMDprintk("%s page %p:%lu release attempt #%d failed, "
+				  "m:l:d:wb = %d:%d:%d:%d\n",
+				  vma->vm_file->f_dentry->d_name.name,
+				  p, pgoff, release_attempt,
+				  page_mapped(p), PageLocked(p),
+				  PageDirty(p), PageWriteback(p));
+			
+			if (page_mapped(p)) {
+				page_cache_release(p); /* find_get_page above*/
+				break;
+			}
+		
+			wait_on_page_locked(p);
+			wait_on_page_writeback(p);
+			page_cache_release(p);  /* find_get_page above */
+		}
+	} while (++release_attempt < 3);
+
+	PMDprintk("%s page %p:%lu release failed, m:l:d:wb = %d:%d:%d:%d\n",
+		  vma->vm_file->f_dentry->d_name.name,
+		  page, pgoff,
+		  page_mapped(page), PageLocked(page),
+		  PageDirty(page), PageWriteback(page));
+	return -EIO;
+}
+
+/*
+ * The given pte-mapped page doesn't match a VMA's policy. Allocate a new
+ * page using the policy, copy contents from old to new, free
+ * the old page, map in the new page. This is very similar to a COW.
+ */
+static int
+copy_mapped_page(struct page * page, struct mempolicy *pol,
+		 struct vm_area_struct *vma, unsigned long addr,
+		 pmd_t *pmd)
+{
+	struct mm_struct *mm = vma->vm_mm;
+	struct page * new_page;
+	struct vm_area_struct pvma;
+	pte_t *page_table;
+	pte_t entry;
+	
+	if (!PageReserved(page))
+		page_cache_get(page);
+	spin_unlock(&mm->page_table_lock);
+	if (unlikely(anon_vma_prepare(vma)))
+		goto err_no_mem;
+
+	/* Create a pseudo vma that just contains the policy */
+	memset(&pvma, 0, sizeof(struct vm_area_struct));
+	pvma.vm_end = PAGE_SIZE;
+	pvma.vm_pgoff = vma->vm_pgoff;
+	pvma.vm_policy = pol;
+	new_page = alloc_page_vma(GFP_HIGHUSER, &pvma, addr);
+	if (!new_page)
+		goto err_no_mem;
+
+	if (page == ZERO_PAGE(addr))
+		clear_user_highpage(new_page, addr);
+	else
+		copy_user_highpage(new_page, page, addr);
+
+	spin_lock(&mm->page_table_lock);
+	page_table = pte_offset_map(pmd, addr);
+	if (PageAnon(page))
+		mm->anon_rss--;
+	if (PageReserved(page))
+		++mm->rss;
+	else
+		page_remove_rmap(page);
+	
+	flush_cache_page(vma, addr, page_to_pfn(page));
+	entry = pte_mkdirty(mk_pte(new_page, vma->vm_page_prot));
+	if (likely(vma->vm_flags & VM_WRITE))
+		entry = pte_mkwrite(entry);
+	ptep_establish(vma, addr, page_table, entry);
+	update_mmu_cache(vma, addr, entry);
+	lru_cache_add_active(new_page);
+	page_add_anon_rmap(new_page, vma, addr);
+
+	pte_unmap(page_table);
+	page_cache_release(page); /* release our ref on the old page */
+	page_cache_release(page); /* release our pte ref on the old page */
+
+	PMDprintk("%s pte-mapped page %p:%lu copied, addr=%08lx\n",
+		  PageAnon(page) ? "anonymous" :
+		   (char *)vma->vm_file->f_dentry->d_name.name,
+		  page, page_index(page), addr);
+	return 0;
+
+ err_no_mem:
+	spin_lock(&mm->page_table_lock);
+	return -ENOMEM;
+}
+
+/* Ensure all existing pages in a VMA follow the policy. */
+static int
+move_verify_pages(struct vm_area_struct *vma, unsigned long flags)
+{
+	struct mm_struct *mm = vma->vm_mm;
+	unsigned long addr;
+	unsigned long start = vma->vm_start;
+	unsigned long end = vma->vm_end;
+	
+	if (!(flags & (MPOL_MF_MOVE | MPOL_MF_STRICT)))
+		return 0;
+
+	for (addr = start; addr < end; addr += PAGE_SIZE) {
+		struct mempolicy *pol;
 		struct page *p;
 		pte_t *pte;
 		pmd_t *pmd;
-		pgd_t *pgd = pgd_offset_k(addr);
-		if (pgd_none(*pgd)) {
-			addr = (addr + PGDIR_SIZE) & PGDIR_MASK;
-			continue;
-		}
+		pgd_t *pgd;
+		int err;
+		
+		pol = get_vma_policy(vma, addr);
+		
+		/*
+		 * Let's see if there is a pte-mapped page that doesn't
+		 * satisfy the policy. If so, release the old mapping
+		 * and create a new mapping to a new page.
+		 */
+		spin_lock(&mm->page_table_lock);
+
+		pgd = pgd_offset(mm, addr);
+		if (pgd_none(*pgd))
+			goto check_pagecache;
 		pmd = pmd_offset(pgd, addr);
-		if (pmd_none(*pmd)) {
-			addr = (addr + PMD_SIZE) & PMD_MASK;
-			continue;
-		}
+		if (pmd_none(*pmd))
+			goto check_pagecache;
 		p = NULL;
 		pte = pte_offset_map(pmd, addr);
 		if (pte_present(*pte))
 			p = pte_page(*pte);
 		pte_unmap(pte);
 		if (p) {
-			unsigned nid = page_to_nid(p);
-			if (!test_bit(nid, nodes))
-				return -EIO;
+			err = 0;
+			if (!__mpol_node_valid(page_to_nid(p), pol)) {
+				if (!(flags & MPOL_MF_MOVE))
+					err = -EIO;
+				else
+					err = copy_mapped_page(p, pol, vma,
+							       addr, pmd);
+			}
+			if (err && (flags & MPOL_MF_STRICT)) {
+				spin_unlock(&mm->page_table_lock);
+				return err;
+			}
 		}
-		addr += PAGE_SIZE;
+
+	check_pagecache:
+		spin_unlock(&mm->page_table_lock);
+
+		/*
+		 * if this is a file mapping, check for invalid page
+		 * cache pages.
+		 */
+		if (vma->vm_ops && vma->vm_ops->nopage) {
+			struct address_space *mapping =
+				vma->vm_file->f_mapping;
+			unsigned long pgoff =
+				((addr - vma->vm_start) >> PAGE_CACHE_SHIFT) +
+				vma->vm_pgoff;
+			
+			p = find_get_page(mapping, pgoff);
+			if (p) {
+				err = 0;
+				if (!__mpol_node_valid(page_to_nid(p), pol)) {
+					if (!(flags & MPOL_MF_MOVE))
+						err = -EIO;
+					else
+						err = remove_filemap_page(
+							p,vma,pgoff);
+				}
+				page_cache_release(p);  /* find_get_page */
+				if (err && (flags & MPOL_MF_STRICT))
+					return err;
+			}
+		}
+		
 	}
+
 	return 0;
 }
 
 /* Step 1: check the range */
 static struct vm_area_struct *
 check_range(struct mm_struct *mm, unsigned long start, unsigned long end,
-	    unsigned long *nodes, unsigned long flags)
+	    struct mempolicy *policy, unsigned long flags)
 {
-	int err;
 	struct vm_area_struct *first, *vma, *prev;
 
 	first = find_vma(mm, start);
@@ -282,20 +507,14 @@ check_range(struct mm_struct *mm, unsigned long start, unsigned long end,
 			return ERR_PTR(-EFAULT);
 		if (prev && prev->vm_end < vma->vm_start)
 			return ERR_PTR(-EFAULT);
-		if ((flags & MPOL_MF_STRICT) && !is_vm_hugetlb_page(vma)) {
-			err = verify_pages(vma->vm_start, vma->vm_end, nodes);
-			if (err) {
-				first = ERR_PTR(err);
-				break;
-			}
-		}
 		prev = vma;
 	}
 	return first;
 }
 
 /* Apply policy to a single VMA */
-static int policy_vma(struct vm_area_struct *vma, struct mempolicy *new)
+static int policy_vma(struct vm_area_struct *vma, struct mempolicy *new,
+		      unsigned long flags)
 {
 	int err = 0;
 	struct mempolicy *old = vma->vm_policy;
@@ -306,18 +525,21 @@ static int policy_vma(struct vm_area_struct *vma, struct mempolicy *new)
 		 vma->vm_ops ? vma->vm_ops->set_policy : NULL);
 
 	if (vma->vm_ops && vma->vm_ops->set_policy)
-		err = vma->vm_ops->set_policy(vma, new);
+		err = vma->vm_ops->set_policy(vma, new, flags);
 	if (!err) {
 		mpol_get(new);
 		vma->vm_policy = new;
 		mpol_free(old);
+		if (flags & (MPOL_MF_MOVE | MPOL_MF_STRICT))
+			err = move_verify_pages(vma, flags);
 	}
 	return err;
 }
 
 /* Step 2: apply policy to a range and do splits. */
 static int mbind_range(struct vm_area_struct *vma, unsigned long start,
-		       unsigned long end, struct mempolicy *new)
+		       unsigned long end, struct mempolicy *new,
+		       unsigned long flags)
 {
 	struct vm_area_struct *next;
 	int err;
@@ -330,7 +552,7 @@ static int mbind_range(struct vm_area_struct *vma, unsigned long start,
 		if (!err && vma->vm_end > end)
 			err = split_vma(vma->vm_mm, vma, end, 0);
 		if (!err)
-			err = policy_vma(vma, new);
+			err = policy_vma(vma, new, flags);
 		if (err)
 			break;
 	}
@@ -350,12 +572,14 @@ asmlinkage long sys_mbind(unsigned long start, unsigned long len,
 	DECLARE_BITMAP(nodes, MAX_NUMNODES);
 	int err;
 
-	if ((flags & ~(unsigned long)(MPOL_MF_STRICT)) || mode > MPOL_MAX)
+	if ((flags & ~(unsigned long)
+	     (MPOL_MF_STRICT | MPOL_MF_MOVE | MPOL_MF_NOREPLACE)) ||
+	    mode > MPOL_MAX)
 		return -EINVAL;
 	if (start & ~PAGE_MASK)
 		return -EINVAL;
 	if (mode == MPOL_DEFAULT)
-		flags &= ~MPOL_MF_STRICT;
+		flags &= ~(MPOL_MF_STRICT | MPOL_MF_MOVE | MPOL_MF_NOREPLACE);
 	len = (len + PAGE_SIZE - 1) & PAGE_MASK;
 	end = start + len;
 	if (end < start)
@@ -375,10 +599,10 @@ asmlinkage long sys_mbind(unsigned long start, unsigned long len,
 			mode,nodes[0]);
 
 	down_write(&mm->mmap_sem);
-	vma = check_range(mm, start, end, nodes, flags);
+	vma = check_range(mm, start, end, new, flags);
 	err = PTR_ERR(vma);
 	if (!IS_ERR(vma))
-		err = mbind_range(vma, start, end, new);
+		err = mbind_range(vma, start, end, new, flags);
 	up_write(&mm->mmap_sem);
 	mpol_free(new);
 	return err;
@@ -477,7 +701,7 @@ asmlinkage long sys_get_mempolicy(int __user *policy,
 
 	if (flags & ~(unsigned long)(MPOL_F_NODE|MPOL_F_ADDR))
 		return -EINVAL;
-	if (nmask != NULL && maxnode < numnodes)
+	if (nmask != NULL && maxnode < MAX_NUMNODES)
 		return -EINVAL;
 	if (flags & MPOL_F_ADDR) {
 		down_read(&mm->mmap_sem);
@@ -512,9 +736,13 @@ asmlinkage long sys_get_mempolicy(int __user *policy,
 	} else
 		pval = pol->policy;
 
-	err = -EFAULT;
+	if (vma) {
+		up_read(&current->mm->mmap_sem);
+		vma = NULL;
+	}
+
 	if (policy && put_user(pval, policy))
-		goto out;
+		return -EFAULT;
 
 	err = 0;
 	if (nmask) {
@@ -704,6 +932,7 @@ static struct page *alloc_page_interleave(unsigned gfp, unsigned order, unsigned
 	return page;
 }
 
+
 /**
  * 	alloc_page_vma	- Allocate a page for a VMA.
  *
@@ -861,10 +1090,8 @@ int mpol_first_node(struct vm_area_struct *vma, unsigned long addr)
 }
 
 /* Find secondary valid nodes for an allocation */
-int mpol_node_valid(int nid, struct vm_area_struct *vma, unsigned long addr)
+static int __mpol_node_valid(int nid, struct mempolicy *pol)
 {
-	struct mempolicy *pol = get_vma_policy(vma, addr);
-
 	switch (pol->policy) {
 	case MPOL_PREFERRED:
 	case MPOL_DEFAULT:
@@ -881,6 +1108,11 @@ int mpol_node_valid(int nid, struct vm_area_struct *vma, unsigned long addr)
 		BUG();
 		return 0;
 	}
+}
+
+int mpol_node_valid(int nid, struct vm_area_struct *vma, unsigned long addr)
+{
+	return __mpol_node_valid(nid, get_vma_policy(vma, addr));
 }
 
 /*
@@ -901,7 +1133,6 @@ sp_lookup(struct shared_policy *sp, unsigned long start, unsigned long end)
 
 	while (n) {
 		struct sp_node *p = rb_entry(n, struct sp_node, nd);
-
 		if (start >= p->end)
 			n = n->rb_right;
 		else if (end <= p->start)
@@ -989,9 +1220,10 @@ sp_alloc(unsigned long start, unsigned long end, struct mempolicy *pol)
 	return n;
 }
 
-/* Replace a policy range. */
-static int shared_policy_replace(struct shared_policy *sp, unsigned long start,
-				 unsigned long end, struct sp_node *new)
+/* Insert a policy range. */
+static int shared_policy_insert(struct shared_policy *sp, unsigned long start,
+				unsigned long end, struct sp_node *new,
+				unsigned long flags)
 {
 	struct sp_node *n, *new2 = NULL;
 
@@ -1002,13 +1234,42 @@ restart:
 	while (n && n->start < end) {
 		struct rb_node *next = rb_next(&n->nd);
 		if (n->start >= start) {
-			if (n->end <= end)
-				sp_delete(sp, n);
-			else
-				n->start = end;
+			if (n->end <= end) {
+				if (!(flags & MPOL_MF_NOREPLACE))
+					sp_delete(sp, n);
+				else if (start == n->start && end == n->end)
+					goto out; /* drop */
+				else if (start == n->start)
+					start = n->end;
+				else if (end == n->end)
+					end = n->start;
+				else {
+					if (!new2) {
+						spin_unlock(&sp->lock);
+						new2 = sp_alloc(n->end, end,
+								new->policy);
+						if (!new2)
+							return -ENOMEM;
+						goto restart;
+					}
+					end = n->start;
+					sp_insert(sp, new2);
+					new2 = NULL;
+					break;
+				}
+			} else {
+				if (!(flags & MPOL_MF_NOREPLACE))
+					n->start = end;
+				else if (start == n->start)
+					goto out; /* drop */
+				else
+					end = n->start;
+			}
 		} else {
 			/* Old policy spanning whole new range. */
 			if (n->end > end) {
+				if (flags & MPOL_MF_NOREPLACE)
+					goto out; /* drop */
 				if (!new2) {
 					spin_unlock(&sp->lock);
 					new2 = sp_alloc(end, n->end, n->policy);
@@ -1016,20 +1277,32 @@ restart:
 						return -ENOMEM;
 					goto restart;
 				}
-				n->end = end;
+				n->end = start;
 				sp_insert(sp, new2);
 				new2 = NULL;
+				break;
+			} else {
+				if (!(flags & MPOL_MF_NOREPLACE))
+					n->end = start;
+				else if (end == n->end)
+					goto out; /* drop */
+				else
+					start = n->end;
 			}
-			/* Old crossing beginning, but not end (easy) */
-			if (n->start < start && n->end > start)
-				n->end = start;
 		}
 		if (!next)
 			break;
 		n = rb_entry(next, struct sp_node, nd);
 	}
-	if (new)
+	if (new) {
+		if (flags & MPOL_MF_NOREPLACE) {
+			/* start,end may have changed */
+			new->start = start;
+			new->end = end;
+		}
 		sp_insert(sp, new);
+	}
+ out:
 	spin_unlock(&sp->lock);
 	if (new2) {
 		mpol_free(new2->policy);
@@ -1038,8 +1311,36 @@ restart:
 	return 0;
 }
 
+
+#ifdef DEBUG_SHARED_POLICY
+/* useful debug for the shared policy tree */
+static void dump_sp(struct rb_node * node)
+{
+	struct sp_node * sn;
+	
+	if (!node) {
+		printk(KERN_DEBUG "LEAF\n");
+		return;
+	}
+	
+	sn = rb_entry(node, struct sp_node, nd);
+	printk(KERN_DEBUG "%p: start=%ld, end=%ld, pol=%p, color=%s, "
+	       "l=%p, r=%p\n",
+	       node, sn->start, sn->end, sn->policy,
+	       node->rb_color == RB_RED ? "RED" : "BLACK",
+	       node->rb_left, node->rb_right);
+
+	if (node->rb_left)
+		dump_sp(node->rb_left);
+	if (node->rb_right)
+		dump_sp(node->rb_right);
+}
+#endif
+
 int mpol_set_shared_policy(struct shared_policy *info,
-			struct vm_area_struct *vma, struct mempolicy *npol)
+			   struct vm_area_struct *vma,
+			   struct mempolicy *npol,
+			   unsigned long flags)
 {
 	int err;
 	struct sp_node *new = NULL;
@@ -1055,7 +1356,22 @@ int mpol_set_shared_policy(struct shared_policy *info,
 		if (!new)
 			return -ENOMEM;
 	}
-	err = shared_policy_replace(info, vma->vm_pgoff, vma->vm_pgoff+sz, new);
+	
+#ifdef DEBUG_SHARED_POLICY
+	printk(KERN_DEBUG "%s: BEFORE, want %ld-->%ld:\n",
+	       vma->vm_file->f_dentry->d_name.name,
+	       vma->vm_pgoff, vma->vm_pgoff+sz);
+	dump_sp(info->root.rb_node);
+#endif
+	
+	err = shared_policy_insert(info, vma->vm_pgoff, vma->vm_pgoff+sz,
+				   new, flags);
+
+#ifdef DEBUG_SHARED_POLICY
+	printk(KERN_DEBUG "%s: AFTER:\n", vma->vm_file->f_dentry->d_name.name);
+	dump_sp(info->root.rb_node);
+#endif
+	
 	if (err && new)
 		kmem_cache_free(sn_cache, new);
 	return err;
@@ -1074,11 +1390,33 @@ void mpol_free_shared_policy(struct shared_policy *p)
 	while (next) {
 		n = rb_entry(next, struct sp_node, nd);
 		next = rb_next(&n->nd);
-		rb_erase(&n->nd, &p->root);
 		mpol_free(n->policy);
 		kmem_cache_free(sn_cache, n);
 	}
 	spin_unlock(&p->lock);
+	p->root = RB_ROOT;
+}
+
+struct page *
+alloc_page_shared_policy(unsigned gfp, struct shared_policy *sp,
+			 unsigned long idx)
+{
+	struct page *page;
+
+	if (sp->root.rb_node) {
+		struct vm_area_struct pvma;
+		/* Create a pseudo vma that just contains the policy */
+		memset(&pvma, 0, sizeof(struct vm_area_struct));
+		pvma.vm_end = PAGE_SIZE;
+		pvma.vm_pgoff = idx;
+		pvma.vm_policy = mpol_shared_policy_lookup(sp, idx);
+		page = alloc_page_vma(gfp, &pvma, 0);
+		mpol_free(pvma.vm_policy);
+	} else {
+		page = alloc_pages(gfp, 0);
+	}
+
+	return page;
 }
 
 /* assumes fs == KERNEL_DS */

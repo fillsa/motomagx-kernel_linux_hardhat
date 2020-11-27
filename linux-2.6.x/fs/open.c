@@ -2,6 +2,12 @@
  *  linux/fs/open.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *  Copyright (C) 2006 Motorola, Inc.
+ */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 31-Oct-2006  Motorola        Added inotify
  */
 
 #include <linux/string.h>
@@ -10,7 +16,11 @@
 #include <linux/file.h>
 #include <linux/smp_lock.h>
 #include <linux/quotaops.h>
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+#include <linux/fsnotify.h>
+#else
 #include <linux/dnotify.h>
+#endif
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/tty.h>
@@ -19,10 +29,16 @@
 #include <linux/security.h>
 #include <linux/mount.h>
 #include <linux/vfs.h>
+#include <linux/ltt-events.h>
+
 #include <asm/uaccess.h>
 #include <linux/fs.h>
 #include <linux/pagemap.h>
 #include <linux/syscalls.h>
+
+#ifdef CONFIG_MOT_FEAT_ANTIVIRUS_HOOKS
+#include <linux/fshook.h>
+#endif
 
 #include <asm/unistd.h>
 
@@ -948,14 +964,33 @@ asmlinkage long sys_open(const char __user * filename, int flags, int mode)
 	flags |= O_LARGEFILE;
 #endif
 	tmp = getname(filename);
+
+#ifdef CONFIG_MOT_FEAT_ANTIVIRUS_HOOKS
+	if (!IS_ERR(tmp) && (fd = fsh_sys_open(tmp, 1, flags, mode)) != 0)
+		goto out;
+#endif
+
 	fd = PTR_ERR(tmp);
 	if (!IS_ERR(tmp)) {
 		fd = get_unused_fd();
 		if (fd >= 0) {
 			struct file *f = filp_open(tmp, flags, mode);
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+			struct dentry *dentry;
+#endif
 			error = PTR_ERR(f);
 			if (IS_ERR(f))
 				goto out_error;
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+			dentry = f->f_dentry;
+			fsnotify_open(dentry, dentry->d_inode,
+				      dentry->d_name.name);
+#endif
+
+			ltt_ev_file_system(LTT_EV_FILE_SYSTEM_OPEN,
+					  fd,
+					  f->f_dentry->d_name.len,
+					  f->f_dentry->d_name.name); 
 			fd_install(fd, f);
 		}
 out:
@@ -1007,7 +1042,11 @@ int filp_close(struct file *filp, fl_owner_t id)
 			retval = err;
 	}
 
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+	fsnotify_flush(filp, id);
+#else
 	dnotify_flush(filp, id);
+#endif
 	locks_remove_posix(filp, id);
 	fput(filp);
 	return retval;
@@ -1025,12 +1064,20 @@ asmlinkage long sys_close(unsigned int fd)
 	struct file * filp;
 	struct files_struct *files = current->files;
 
+#ifdef CONFIG_MOT_FEAT_ANTIVIRUS_HOOKS
+	fsh_sys_close(fd);
+#endif
+
 	spin_lock(&files->file_lock);
 	if (fd >= files->max_fds)
 		goto out_unlock;
 	filp = files->fd[fd];
 	if (!filp)
 		goto out_unlock;
+	ltt_ev_file_system(LTT_EV_FILE_SYSTEM_CLOSE,
+			  fd,
+			  0,
+			  NULL);
 	files->fd[fd] = NULL;
 	FD_CLR(fd, files->close_on_exec);
 	__put_unused_fd(files, fd);

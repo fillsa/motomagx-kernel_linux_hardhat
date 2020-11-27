@@ -9,8 +9,10 @@
 #include <linux/irq.h>
 #include <linux/module.h>
 #include <linux/random.h>
+#include <linux/kallsyms.h>
 #include <linux/interrupt.h>
 #include <linux/kernel_stat.h>
+#include <linux/ilatency.h>
 
 #include "internals.h"
 
@@ -31,7 +33,7 @@
 irq_desc_t irq_desc[NR_IRQS] __cacheline_aligned = {
 	[0 ... NR_IRQS-1] = {
 		.handler = &no_irq_type,
-		.lock = SPIN_LOCK_UNLOCKED
+		.lock = RAW_SPIN_LOCK_UNLOCKED
 	}
 };
 
@@ -73,14 +75,29 @@ irqreturn_t no_action(int cpl, void *dev_id, struct pt_regs *regs)
 }
 
 /*
- * Exit an interrupt context. Process softirqs if needed and possible:
+ * Hack - used for development only.
  */
-void irq_exit(void)
+int debug_direct_keyboard = 0;
+
+int redirect_hardirq(struct irq_desc *desc)
 {
-	preempt_count() -= IRQ_EXIT_OFFSET;
-	if (!in_interrupt() && local_softirq_pending())
-		do_softirq();
-	preempt_enable_no_resched();
+	/*
+	 * Direct execution:
+	 */
+	if (!hardirq_preemption || (desc->status & IRQ_NODELAY) ||
+							!desc->thread)
+		return 0;
+
+#ifdef __i386__
+	if (debug_direct_keyboard && (desc - irq_desc == 1))
+		return 0;
+#endif
+		 
+	BUG_ON(!irqs_disabled());
+	if (desc->thread && desc->thread->state != TASK_RUNNING)
+		wake_up_process(desc->thread);
+
+	return 1;
 }
 
 /*
@@ -91,22 +108,42 @@ fastcall int handle_IRQ_event(unsigned int irq, struct pt_regs *regs,
 {
 	int ret, retval = 0, status = 0;
 
-	if (!(action->flags & SA_INTERRUPT))
+	/*
+	 * Unconditionally enable interrupts for threaded
+	 * IRQ handlers:
+	 */
+	if (!hardirq_count() || !(action->flags & SA_INTERRUPT))
 		local_irq_enable();
 
 	do {
+		unsigned int preempt_count = preempt_count();
+
 		ret = action->handler(irq, action->dev_id, regs);
+		if (preempt_count() != preempt_count) {
+			stop_trace();
+			print_symbol("BUG: unbalanced irq-handler preempt count in %s!\n", (unsigned long) action->handler);
+			printk("entered with %08x, exited with %08x.\n", preempt_count, preempt_count());
+			dump_stack();
+			preempt_count() = preempt_count;
+		}
 		if (ret == IRQ_HANDLED)
 			status |= action->flags;
 		retval |= ret;
 		action = action->next;
 	} while (action);
 
-	if (status & SA_SAMPLE_RANDOM)
+	if (status & SA_SAMPLE_RANDOM) {
+		local_irq_enable();
 		add_interrupt_randomness(irq);
+	}
 	local_irq_disable();
 
 	return retval;
+}
+
+cycles_t irq_timestamp(unsigned int irq)
+{
+	return irq_desc[irq].timestamp;
 }
 
 /*
@@ -114,7 +151,7 @@ fastcall int handle_IRQ_event(unsigned int irq, struct pt_regs *regs,
  * SMP cross-CPU interrupts have their own specific
  * handlers).
  */
-fastcall unsigned int __do_IRQ(unsigned int irq, struct pt_regs *regs)
+fastcall notrace unsigned int __do_IRQ(unsigned int irq, struct pt_regs *regs)
 {
 	irq_desc_t *desc = irq_desc + irq;
 	struct irqaction * action;
@@ -134,6 +171,7 @@ fastcall unsigned int __do_IRQ(unsigned int irq, struct pt_regs *regs)
 		desc->handler->end(irq);
 		return 1;
 	}
+	desc->timestamp = get_cycles();
 
 	spin_lock(&desc->lock);
 	desc->handler->ack(irq);
@@ -166,6 +204,12 @@ fastcall unsigned int __do_IRQ(unsigned int irq, struct pt_regs *regs)
 		goto out;
 
 	/*
+	 * hardirq redirection to the irqd process context:
+	 */
+	if (redirect_hardirq(desc))
+		goto out_no_end;
+
+	/*
 	 * Edge triggered interrupts need to remember
 	 * pending events.
 	 * This applies to any hw interrupts that allow a second
@@ -175,6 +219,7 @@ fastcall unsigned int __do_IRQ(unsigned int irq, struct pt_regs *regs)
 	 * useful for irq hardware that does not mask cleanly in an
 	 * SMP environment.
 	 */
+	interrupt_overhead_stop();
 	for (;;) {
 		irqreturn_t action_ret;
 
@@ -190,13 +235,13 @@ fastcall unsigned int __do_IRQ(unsigned int irq, struct pt_regs *regs)
 		desc->status &= ~IRQ_PENDING;
 	}
 	desc->status &= ~IRQ_INPROGRESS;
-
 out:
 	/*
 	 * The ->end() handler has to deal with interrupts which got
 	 * disabled while the handler was running.
 	 */
 	desc->handler->end(irq);
+out_no_end:
 	spin_unlock(&desc->lock);
 
 	return 1;

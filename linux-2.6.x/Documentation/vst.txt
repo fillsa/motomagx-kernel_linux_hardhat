@@ -1,0 +1,65 @@
+The Varible Schedule Timeout (VST) sub system is designed to eliminat
+periodic timer ticks when such ticks would do nothing.  Ticks processing
+includes:
+
+a) Updating the time of day clock,
+b) Expiring timers that are due,
+c) Updating cpu usage time for active tasks, and
+d) Making scheduler changes based on task activity.
+
+For VST we a) defer the time of day clock update, b) only "sleep" when
+we find no timers, c) only "sleep" is the active task is the idle task,
+and d) assume that, given that the system is idle, no scheduler changes
+are needed.
+
+VST is entered only when a) the system is in the idle task, and b) there
+are no timers that are to expire in the near future.  When the system
+wakens, the system time is updated and the elapsed time is charged to
+the idle task.
+
+VST is controled an monitored by several /proc items located in
+/proc/sys/kernel/vst.  The following items are found there:
+
+enable			If one VST is enabled, if 0 it is disabled, 
+			can be written.
+			
+threshold 		The number milliseconds the nearest timer must
+	 		be away before entry into VST will suceed.
+
+long_timers		The number of times VST entry found a timer 
+			further out in time than "threshold".
+
+short_timers		The number of times VST entry found a timer 
+			closer in time than "threshold".  These timers 
+			prevent VST entry.
+
+no_timers		The number of times VST entry found an empty 
+			timer list.
+
+external_intr_exit	The number of times VST was exited due to an 
+			interrupt other than the programmed end of VST 
+			interrupt.
+
+successful_vst_exit	The number of times VST was exited due to the 
+			programmed end of VST interrupt.
+
+skipped_interrupts	The number of time base interrupts skipped by VST.
+
+In addition, if you turn on "VST timer info" (CONFIG_VST_STATS) at
+configure time two additional entries appear:
+
+short_timer_fns		This is an array of 5 entries of the form 
+			<timer fn add>(<arg>).  These are the timer 
+			functions and their arguments that were last 
+			found as long timers.  For example 
+			c012b700(c110ea80) indicates that the function 
+			at 0xc012b700 will be called with argument 
+			0xc110ea80 when the timer expires.
+
+long_timer_fns		This is the same as above but for short timers.
+
+Both of these arrays are kept as circular lists and read back such that
+the latest entry is presented to the reader first.  The entries are
+cleared when read.
+
+

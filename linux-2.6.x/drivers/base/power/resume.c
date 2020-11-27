@@ -3,13 +3,43 @@
  *
  * Copyright (c) 2003 Patrick Mochel
  * Copyright (c) 2003 Open Source Development Labs
+ * Copyright 2006 Motorola, Inc.
  *
  * This file is released under the GPLv2
  *
  */
 
+/*
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of the
+ * License, or (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
+ * USA
+ */
+
+/*
+ * Revision History:
+ *
+ * Date        Author    Comment
+ * 10/04/2006  Motorola  Enhanced debugging support for device suspend/resume.
+ */
+
 #include <linux/device.h>
 #include "power.h"
+
+#ifdef CONFIG_MOT_FEAT_PM_DEVICE_SUSPEND_DEBUG
+/* Pointer for tracking serial device during suspend/resume */
+extern struct device *serial_dev;
+#endif
 
 extern int sysdev_resume(void);
 
@@ -22,9 +52,20 @@ extern int sysdev_resume(void);
 
 int resume_device(struct device * dev)
 {
-	if (dev->bus && dev->bus->resume)
-		return dev->bus->resume(dev);
-	return 0;
+	int error = 0;
+
+	if (dev->bus && dev->bus->resume) {
+
+#ifdef CONFIG_MOT_FEAT_PM_DEVICE_SUSPEND_DEBUG
+		dev_dbg(dev, "resuming\n");
+#endif
+		error = dev->bus->resume(dev);
+
+		if (!error)
+			assert_constraints(dev->constraints);
+	}
+
+	return error;
 }
 
 
@@ -32,6 +73,15 @@ int resume_device(struct device * dev)
 void dpm_resume(void)
 {
 	down(&dpm_list_sem);
+
+#ifdef CONFIG_MOT_FEAT_PM_DEVICE_SUSPEND_DEBUG
+        /* If serial was suspended, resume it first */
+        if(serial_dev) {
+                resume_device(serial_dev);
+                serial_dev = NULL;
+        }
+#endif
+
 	while(!list_empty(&dpm_off)) {
 		struct list_head * entry = dpm_off.next;
 		struct device * dev = to_device(entry);

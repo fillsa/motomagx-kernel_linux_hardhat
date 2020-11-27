@@ -130,7 +130,7 @@ typedef int (*page_buf_bdstrat_t)(struct xfs_buf *);
 #define PB_PAGES	4
 
 typedef struct xfs_buf {
-	struct semaphore	pb_sema;	/* semaphore for lockables  */
+	struct compat_semaphore	pb_sema;	/* semaphore for lockables  */
 	unsigned long		pb_queuetime;	/* time buffer was queued   */
 	atomic_t		pb_pin_count;	/* pin count		    */
 	wait_queue_head_t	pb_waiters;	/* unpin waiters	    */
@@ -149,7 +149,7 @@ typedef struct xfs_buf {
 	page_buf_iodone_t	pb_iodone;	/* I/O completion function */
 	page_buf_relse_t	pb_relse;	/* releasing function */
 	page_buf_bdstrat_t	pb_strat;	/* pre-write function */
-	struct semaphore	pb_iodonesema;	/* Semaphore for I/O waiters */
+	struct compat_semaphore	pb_iodonesema;	/* Semaphore for I/O waiters */
 	void			*pb_fspriv;
 	void			*pb_fspriv2;
 	void			*pb_fspriv3;

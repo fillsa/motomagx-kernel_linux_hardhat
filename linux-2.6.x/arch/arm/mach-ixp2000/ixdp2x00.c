@@ -79,6 +79,9 @@ static void ixdp2x00_irq_mask(unsigned int irq)
 	dummy = *board_irq_mask;
 	dummy |=  IXP2000_BOARD_IRQ_MASK(irq);
 	ixp2000_reg_write(board_irq_mask, dummy);
+#ifdef CONFIG_PREEMPT_HARDIRQS
+	ixp2000_reg_write(IXP2000_IRQ_ENABLE_CLR, (1 << IRQ_IXP2000_PCI));
+#endif
 
 #ifdef CONFIG_ARCH_IXDP2400
 	if (machine_is_ixdp2400())
@@ -99,6 +102,9 @@ static void ixdp2x00_irq_unmask(unsigned int irq)
 	dummy = *board_irq_mask;
 	dummy &=  ~IXP2000_BOARD_IRQ_MASK(irq);
 	ixp2000_reg_write(board_irq_mask, dummy);
+#ifdef CONFIG_PREEMPT_HARDIRQS
+	ixp2000_reg_write(IXP2000_IRQ_ENABLE_SET, (1 << IRQ_IXP2000_PCI));
+#endif
 
 	if (machine_is_ixdp2400()) 
 		ixp2000_release_slowport(&old_cfg);

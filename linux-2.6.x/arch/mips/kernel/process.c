@@ -24,6 +24,7 @@
 #include <linux/a.out.h>
 #include <linux/init.h>
 #include <linux/completion.h>
+#include <linux/ltt-events.h>
 
 #include <asm/bootinfo.h>
 #include <asm/cpu.h>
@@ -58,6 +59,7 @@ ATTRIB_NORET void cpu_idle(void)
 		while (!need_resched())
 			if (cpu_wait)
 				(*cpu_wait)();
+		local_irq_enable();
 		schedule();
 	}
 }
@@ -77,7 +79,9 @@ void start_thread(struct pt_regs * regs, unsigned long pc, unsigned long sp)
 	status |= KU_USER;
 	regs->cp0_status = status;
 	current->used_math = 0;
+	preempt_disable();
 	lose_fpu();
+	preempt_enable();
 	regs->cp0_epc = pc;
 	regs->regs[29] = sp;
 	current_thread_info()->addr_limit = USER_DS;
@@ -100,32 +104,24 @@ int copy_thread(int nr, unsigned long clone_flags, unsigned long usp,
 
 	childksp = (unsigned long)ti + THREAD_SIZE - 32;
 
-	preempt_disable();
-
 	if (is_fpu_owner()) {
 		save_fp(p);
 	}
-
-	preempt_enable();
 
 	/* set up new TSS. */
 	childregs = (struct pt_regs *) childksp - 1;
 	*childregs = *regs;
 	childregs->regs[7] = 0;	/* Clear error flag */
 
-#ifdef CONFIG_BINFMT_IRIX
+#if defined(CONFIG_BINFMT_IRIX)
 	if (current->personality != PER_LINUX) {
 		/* Under IRIX things are a little different. */
-		childregs->regs[2] = 0;
 		childregs->regs[3] = 1;
-		regs->regs[2] = p->pid;
 		regs->regs[3] = 0;
-	} else
-#endif
-	{
-		childregs->regs[2] = 0;	/* Child gets zero as return value */
-		regs->regs[2] = p->pid;
 	}
+#endif
+	childregs->regs[2] = 0;	/* Child gets zero as return value */
+	regs->regs[2] = p->pid;
 
 	if (childregs->cp0_status & ST0_CU0) {
 		childregs->regs[28] = (unsigned long) ti;
@@ -144,7 +140,9 @@ int copy_thread(int nr, unsigned long clone_flags, unsigned long usp,
 	 */
 	p->thread.cp0_status = read_c0_status() & ~(ST0_CU2|ST0_CU1);
 	childregs->cp0_status &= ~(ST0_CU2|ST0_CU1);
+	preempt_disable();
 	clear_tsk_thread_flag(p, TIF_USEDFPU);
+	preempt_enable();
 
 	return 0;
 }
@@ -167,6 +165,7 @@ ATTRIB_NORET void kernel_thread_helper(void *arg, int (*fn)(void *))
 long kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 {
 	struct pt_regs regs;
+	long pid;
 
 	memset(&regs, 0, sizeof(regs));
 
@@ -182,7 +181,12 @@ long kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 #endif
 
 	/* Ok, create the new process.. */
-	return do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
+	pid = do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
+#if (CONFIG_LTT)
+	if(pid >= 0)
+		ltt_ev_process(LTT_EV_PROCESS_KTHREAD, pid, (int) fn);
+#endif
+	return pid;
 }
 
 struct mips_frame_info {
@@ -263,7 +267,6 @@ arch_initcall(frame_info_init);
  */
 unsigned long thread_saved_pc(struct task_struct *tsk)
 {
-	extern void ret_from_fork(void);
 	struct thread_struct *t = &tsk->thread;
 
 	/* New born processes are a special case */

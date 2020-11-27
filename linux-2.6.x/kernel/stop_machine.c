@@ -55,7 +55,7 @@ static int stopmachine(void *cpu)
 		/* Yield in first stage: migration threads need to
 		 * help our sisters onto their CPUs. */
 		if (!prepared && !irqs_disabled)
-			yield();
+			__yield();
 		else
 			cpu_relax();
 	}
@@ -95,7 +95,7 @@ static int stop_machine(void)
 	stopmachine_state = STOPMACHINE_WAIT;
 
 	for_each_online_cpu(i) {
-		if (i == smp_processor_id())
+		if (i == _smp_processor_id())
 			continue;
 		ret = kernel_thread(stopmachine, (void *)(long)i,CLONE_KERNEL);
 		if (ret < 0)
@@ -105,7 +105,7 @@ static int stop_machine(void)
 
 	/* Wait for them all to come to life. */
 	while (atomic_read(&stopmachine_thread_ack) != stopmachine_num_threads)
-		yield();
+		__yield();
 
 	/* If some failed, kill them all. */
 	if (ret < 0) {
@@ -177,7 +177,7 @@ struct task_struct *__stop_machine_run(int (*fn)(void *), void *data,
 
 	/* If they don't care which CPU fn runs on, bind to any online one. */
 	if (cpu == NR_CPUS)
-		cpu = smp_processor_id();
+		cpu = _smp_processor_id();
 
 	p = kthread_create(do_stop, &smdata, "kstopmachine");
 	if (!IS_ERR(p)) {

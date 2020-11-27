@@ -27,6 +27,7 @@
 #include <linux/kernel_stat.h>
 #include <linux/sysdev.h>
 
+#include <linux/vst.h>
 #include <asm/atomic.h>
 #include <asm/smp.h>
 #include <asm/mtrr.h>
@@ -34,10 +35,18 @@
 #include <asm/desc.h>
 #include <asm/arch_hooks.h>
 #include <asm/hpet.h>
+#include <linux/hrtime.h>
+#include <asm/i8253.h>
 
 #include <mach_apic.h>
 
 #include "io_ports.h"
+
+#ifndef CONFIG_HIGH_RES_TIMERS
+#define compute_latch(a)
+#else
+extern void apic_timer_ipi_interrupt(struct pt_regs regs);
+#endif
 
 /*
  * Debug level
@@ -69,6 +78,9 @@ void __init apic_intr_init(void)
 {
 #ifdef CONFIG_SMP
 	smp_intr_init();
+#ifdef CONFIG_HIGH_RES_TIMERS
+	set_intr_gate(LOCAL_TIMER_IPI_VECTOR, apic_timer_ipi_interrupt);
+#endif
 #endif
 	/* self generated IPI for local APIC timer */
 	set_intr_gate(LOCAL_TIMER_VECTOR, apic_timer_interrupt);
@@ -88,7 +100,7 @@ int using_apic_timer = 0;
 
 static DEFINE_PER_CPU(int, prof_multiplier) = 1;
 static DEFINE_PER_CPU(int, prof_old_multiplier) = 1;
-static DEFINE_PER_CPU(int, prof_counter) = 1;
+DEFINE_PER_CPU(int, prof_counter) = 1; /* used by high-res-timers thus global*/
 
 static int enabled_via_apicbase;
 
@@ -858,7 +870,6 @@ fake_ioapic_page:
  */
 static unsigned int __init get_8254_timer_count(void)
 {
-	extern spinlock_t i8253_lock;
 	unsigned long flags;
 
 	unsigned int count;
@@ -914,13 +925,23 @@ void (*wait_timer_tick)(void) = wait_8254_wraparound;
  */
 
 #define APIC_DIVISOR 16
-
+/*
+ * For high res timers we want a single shot timer.
+ * This means, for profiling, that we must load it each
+ * interrupt, but it works best for timers as a one shot and
+ * it is little overhead for the profiling which, we hope is
+ * not done that often, nor on production machines.
+ */
 void __setup_APIC_LVTT(unsigned int clocks)
 {
 	unsigned int lvtt_value, tmp_value, ver;
 
 	ver = GET_APIC_VERSION(apic_read(APIC_LVR));
-	lvtt_value = APIC_LVT_TIMER_PERIODIC | LOCAL_TIMER_VECTOR;
+	lvtt_value = 
+#ifndef CONFIG_HIGH_RES_TIMERS
+		APIC_LVT_TIMER_PERIODIC | 
+#endif
+		LOCAL_TIMER_VECTOR;
 	if (!APIC_INTEGRATED(ver))
 		lvtt_value |= SET_APIC_TIMER_BASE(APIC_TIMER_BASE_DIV);
 	apic_write_around(APIC_LVTT, lvtt_value);
@@ -1046,6 +1067,8 @@ void __init setup_boot_APIC_clock(void)
 	 */
 	setup_APIC_timer(calibration_result);
 
+	compute_latch(calibration_result / APIC_DIVISOR);
+
 	local_irq_enable();
 }
 
@@ -1119,8 +1142,13 @@ int setup_profiling_timer(unsigned int multiplier)
 inline void smp_local_timer_interrupt(struct pt_regs * regs)
 {
 	int cpu = smp_processor_id();
+#ifdef CONFIG_HIGH_RES_TIMERS
+	if (! per_cpu(prof_counter, cpu))
+		do_hr_timer_int();
+#endif
 
 	profile_tick(CPU_PROFILING, regs);
+
 	if (--per_cpu(prof_counter, cpu) <= 0) {
 		/*
 		 * The multiplier may have changed since the last time we got
@@ -1138,10 +1166,17 @@ inline void smp_local_timer_interrupt(struct pt_regs * regs)
 					per_cpu(prof_counter, cpu));
 			per_cpu(prof_old_multiplier, cpu) =
 						per_cpu(prof_counter, cpu);
+#ifdef CONFIG_HIGH_RES_TIMERS
+			return;
+#endif
 		}
-
+#ifdef CONFIG_HIGH_RES_TIMERS
+		apic_write_around(APIC_TMICT, calibration_result /
+				  per_cpu(prof_counter, cpu));
+#else
 #ifdef CONFIG_SMP
 		update_process_times(user_mode(regs));
+#endif
 #endif
 	}
 
@@ -1166,7 +1201,38 @@ inline void smp_local_timer_interrupt(struct pt_regs * regs)
  *   interrupt as well. Thus we cannot inline the local irq ... ]
  */
 
-fastcall void smp_apic_timer_interrupt(struct pt_regs *regs)
+fastcall notrace void smp_apic_timer_interrupt(struct pt_regs *regs)
+{
+	int cpu = smp_processor_id();
+
+	/*
+	 * the NMI deadlock-detector uses this.
+	 */
+	irq_stat[cpu].apic_timer_irqs++;
+
+        trace_special(regs->eip, 0, 0);
+
+	/*
+	 * NOTE! We'd better ACK the irq immediately,
+	 * because timer handling can be slow.
+	 */
+	ack_APIC_irq();
+	/*
+	 * update_process_times() expects us to have done irq_enter().
+	 * Besides, if we don't timer interrupts ignore the global
+	 * interrupt lock, which is the WrongThing (tm) to do.
+	 */
+	irq_enter();
+	vst_wakeup(regs, 1);
+	smp_local_timer_interrupt(regs);
+	irq_exit();
+}
+
+#if defined(CONFIG_SMP) && defined(CONFIG_HIGH_RES_TIMERS)
+/*
+ * This code ONLY takes IPI interrupts from the PIT interrupt handler
+ */
+fastcall void smp_apic_timer_ipi_interrupt(struct pt_regs *regs)
 {
 	int cpu = smp_processor_id();
 
@@ -1186,9 +1252,12 @@ fastcall void smp_apic_timer_interrupt(struct pt_regs *regs)
 	 * interrupt lock, which is the WrongThing (tm) to do.
 	 */
 	irq_enter();
-	smp_local_timer_interrupt(regs);
+	vst_wakeup(regs, 0);
+	update_process_times(user_mode(regs));
 	irq_exit();
+	
 }
+#endif
 
 /*
  * This interrupt should _never_ happen with our APIC/SMP architecture

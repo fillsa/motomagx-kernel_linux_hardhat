@@ -31,6 +31,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/prctl.h>
+#include <linux/ltt-events.h>
 
 #include <asm/pgtable.h>
 #include <asm/uaccess.h>
@@ -72,7 +73,7 @@ void (*debugger_fault_handler)(struct pt_regs *regs);
  */
 
 
-spinlock_t die_lock = SPIN_LOCK_UNLOCKED;
+DEFINE_SPINLOCK(die_lock);
 
 void die(const char * str, struct pt_regs * fp, long err)
 {
@@ -199,6 +200,15 @@ static inline int check_io_access(struct pt_regs *regs)
 #define clear_single_step(regs)	((regs)->msr &= ~MSR_SE)
 #endif
 
+/*
+ * This is "fall-back" implementation for configurations
+ * which don't provide platform-specific machine check info
+ */
+void __attribute__ ((weak))
+platform_machine_check(struct pt_regs *regs)
+{
+}
+
 void MachineCheckException(struct pt_regs *regs)
 {
 	unsigned long reason = get_mc_reason(regs);
@@ -322,6 +332,12 @@ void MachineCheckException(struct pt_regs *regs)
 		printk("Unknown values in msr\n");
 	}
 #endif /* CONFIG_4xx */
+
+	/*
+	 * Optional platform-provided routine to print out
+	 * additional info, e.g. bus error registers.
+	 */
+	platform_machine_check(regs);
 
 	debugger(regs);
 	die("machine check", regs, SIGBUS);
@@ -566,7 +582,7 @@ void ProgramCheckException(struct pt_regs *regs)
 
 void SingleStepException(struct pt_regs *regs)
 {
-	regs->msr &= ~MSR_SE;  /* Turn off 'trace' bit */
+	regs->msr &= ~(MSR_SE | MSR_BE);  /* Turn off 'trace' bits */
 	if (debugger_sstep(regs))
 		return;
 	_exception(SIGTRAP, regs, TRAP_TRACE, 0);
@@ -600,6 +616,84 @@ void StackOverflow(struct pt_regs *regs)
 	show_regs(regs);
 	panic("kernel stack overflow");
 }
+
+/* Trace related code */
+#if (CONFIG_LTT)
+asmlinkage void trace_real_syscall_entry(struct pt_regs *regs)
+{
+	int use_depth;
+	int use_bounds;
+	int depth = 0;
+	int seek_depth;
+	unsigned long lower_bound;
+	unsigned long upper_bound;
+	unsigned long addr;
+	unsigned long *stack;
+	ltt_syscall_entry trace_syscall_event;
+
+	/* Set the syscall ID */
+	trace_syscall_event.syscall_id = regs->gpr[0];
+
+	/* Set the address in any case */
+	trace_syscall_event.address = instruction_pointer(regs);
+
+	/* Are we in the kernel (This is a kernel thread)? */
+	if (!user_mode(regs))
+		/* Don't go digining anywhere */
+		goto trace_syscall_end;
+
+	/* Get the trace configuration */
+	if (ltt_get_trace_config(&use_depth,
+				 &use_bounds,
+				 &seek_depth,
+				 (void *) &lower_bound,
+				 (void *) &upper_bound) < 0)
+		goto trace_syscall_end;
+
+	/* Do we have to search for an eip address range */
+	if ((use_depth == 1) || (use_bounds == 1)) {
+		/* Start at the top of the stack (bottom address since stacks grow downward) */
+		stack = (unsigned long *) regs->gpr[1];
+
+		/* Skip over first stack frame as the return address isn't valid */
+		if (get_user(addr, stack))
+			goto trace_syscall_end;
+		stack = (unsigned long *) addr;
+
+		/* Keep on going until we reach the end of the process' stack limit (wherever it may be) */
+		while (!get_user(addr, stack + 1)) {	/* "stack + 1", since this is where the IP is */
+			/* Does this LOOK LIKE an address in the program */
+			if ((addr > current->mm->start_code)
+			    && (addr < current->mm->end_code)) {
+				/* Does this address fit the description */
+				if (((use_depth == 1) && (depth == seek_depth))
+				    || ((use_bounds == 1) && (addr > lower_bound) && (addr < upper_bound))) {
+					/* Set the address */
+					trace_syscall_event.address = addr;
+
+					/* We're done */
+					goto trace_syscall_end;
+				} else
+					/* We're one depth more */
+					depth++;
+			}
+			/* Go on to the next address */
+			if (get_user(addr, stack))
+				goto trace_syscall_end;
+			stack = (unsigned long *) addr;
+		}
+	}
+trace_syscall_end:
+	/* Trace the event */
+	ltt_log_event(LTT_EV_SYSCALL_ENTRY, &trace_syscall_event);
+}
+
+asmlinkage void trace_real_syscall_exit(void)
+{
+	ltt_log_event(LTT_EV_SYSCALL_EXIT, NULL);
+}
+
+#endif /* (CONFIG_LTT) */
 
 void nonrecoverable_exception(struct pt_regs *regs)
 {

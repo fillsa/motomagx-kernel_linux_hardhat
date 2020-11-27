@@ -32,6 +32,7 @@
 #include <linux/sysctl.h>
 #include <linux/cpu.h>
 #include <linux/nodemask.h>
+#include <linux/ltt-events.h>
 
 #include <asm/tlbflush.h>
 
@@ -278,6 +279,8 @@ void __free_pages_ok(struct page *page, unsigned int order)
 	LIST_HEAD(list);
 	int i;
 
+	ltt_ev_memory(LTT_EV_MEMORY_PAGE_FREE, order);
+
 	arch_free_page(page, order);
 
 	mod_page_state(pgfree, 1 << order);
@@ -390,6 +393,7 @@ static struct page *__rmqueue(struct zone *zone, unsigned int order)
 	return NULL;
 }
 
+#if !defined(CONFIG_PREEMPT_RT)
 /* 
  * Obtain a specified number of elements from the buddy allocator, all under
  * a single hold of the lock, for efficiency.  Add them to the supplied list.
@@ -414,6 +418,7 @@ static int rmqueue_bulk(struct zone *zone, unsigned int order,
 	spin_unlock_irqrestore(&zone->lock, flags);
 	return allocated;
 }
+#endif
 
 #if defined(CONFIG_PM) || defined(CONFIG_HOTPLUG_CPU)
 static void __drain_pages(unsigned int cpu)
@@ -498,6 +503,7 @@ static void zone_statistics(struct zonelist *zonelist, struct zone *z)
 #endif
 }
 
+#if !defined(CONFIG_PREEMPT_RT)
 /*
  * Free a 0-order page
  */
@@ -524,15 +530,32 @@ static void fastcall free_hot_cold_page(struct page *page, int cold)
 	local_irq_restore(flags);
 	put_cpu();
 }
+#endif
 
+/*
+ * On PREEMPT_RT we use a simple solution for the time being,
+ * per-CPU allocation is disabled.
+ */
 void fastcall free_hot_page(struct page *page)
 {
+#if defined(CONFIG_PREEMPT_RT)
+	if (PageAnon(page))
+		page->mapping = NULL;
+	__free_pages_ok(page, 0);
+#else
 	free_hot_cold_page(page, 0);
+#endif
 }
 	
 void fastcall free_cold_page(struct page *page)
 {
+#ifdef CONFIG_PREEMPT_RT
+	if (PageAnon(page))
+		page->mapping = NULL;
+	__free_pages_ok(page, 0);
+#else
 	free_hot_cold_page(page, 1);
+#endif
 }
 
 /*
@@ -546,6 +569,7 @@ buffered_rmqueue(struct zone *zone, int order, int gfp_flags)
 {
 	unsigned long flags;
 	struct page *page = NULL;
+#if !defined(CONFIG_PREEMPT_RT)
 	int cold = !!(gfp_flags & __GFP_COLD);
 
 	if (order == 0) {
@@ -564,6 +588,7 @@ buffered_rmqueue(struct zone *zone, int order, int gfp_flags)
 		local_irq_restore(flags);
 		put_cpu();
 	}
+#endif
 
 	if (page == NULL) {
 		spin_lock_irqsave(&zone->lock, flags);
@@ -752,6 +777,7 @@ fastcall unsigned long __get_free_pages(unsigned int gfp_mask, unsigned int orde
 	page = alloc_pages(gfp_mask, order);
 	if (!page)
 		return 0;
+	ltt_ev_memory(LTT_EV_MEMORY_PAGE_ALLOC, order);
 	return (unsigned long) page_address(page);
 }
 
@@ -782,8 +808,15 @@ void __pagevec_free(struct pagevec *pvec)
 {
 	int i = pagevec_count(pvec);
 
-	while (--i >= 0)
+	while (--i >= 0) {
+#if defined(CONFIG_PREEMPT_RT)
+		if (PageAnon(pvec->pages[i]))
+			pvec->pages[i]->mapping = NULL;
+		__free_pages_ok(pvec->pages[i], 0);
+#else
 		free_hot_cold_page(pvec->pages[i], pvec->cold);
+#endif
+	}
 }
 
 fastcall void __free_pages(struct page *page, unsigned int order)

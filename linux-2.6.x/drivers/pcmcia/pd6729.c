@@ -39,7 +39,7 @@ MODULE_AUTHOR("Jun Komuro <komurojun@mbn.nifty.com>");
  */
 #define to_cycles(ns)	((ns)/120)
 
-static spinlock_t port_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(port_lock);
 
 /* basic value read/write functions */
 

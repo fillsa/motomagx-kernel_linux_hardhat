@@ -4,12 +4,6 @@
    but required by, the NAT layer; it can also be used by an iptables
    extension. */
 
-#include <linux/config.h>
-#include <linux/netfilter_ipv4/ip_conntrack_tuple.h>
-#include <linux/bitops.h>
-#include <linux/compiler.h>
-#include <asm/atomic.h>
-
 enum ip_conntrack_info
 {
 	/* Part of an established connection (either direction). */
@@ -49,6 +43,12 @@ enum ip_conntrack_status {
 	IPS_CONFIRMED = (1 << IPS_CONFIRMED_BIT),
 };
 
+#ifdef __KERNEL__
+#include <linux/config.h>
+#include <linux/netfilter_ipv4/ip_conntrack_tuple.h>
+#include <linux/bitops.h>
+#include <linux/compiler.h>
+#include <asm/atomic.h>
 #include <linux/netfilter_ipv4/ip_conntrack_tcp.h>
 #include <linux/netfilter_ipv4/ip_conntrack_icmp.h>
 #include <linux/netfilter_ipv4/ip_conntrack_sctp.h>
@@ -99,8 +99,6 @@ union ip_conntrack_nat_help {
 	/* insert nat helper private data here */
 };
 #endif
-
-#ifdef __KERNEL__
 
 #include <linux/types.h>
 #include <linux/skbuff.h>
@@ -278,10 +276,9 @@ extern void (*ip_conntrack_destroyed)(struct ip_conntrack *conntrack);
 /* Fake conntrack entry for untracked connections */
 extern struct ip_conntrack ip_conntrack_untracked;
 
-extern int ip_ct_no_defrag;
 /* Returns new sk_buff, or NULL */
 struct sk_buff *
-ip_ct_gather_frags(struct sk_buff *skb);
+ip_ct_gather_frags(struct sk_buff *skb, u_int32_t user);
 
 /* Delete all conntracks which match. */
 extern void
@@ -315,7 +312,12 @@ struct ip_conntrack_stat
 	unsigned int expect_delete;
 };
 
-#define CONNTRACK_STAT_INC(count) (__get_cpu_var(ip_conntrack_stat).count++)
+#define CONNTRACK_STAT_INC(count) \
+do { \
+	preempt_disable(); \
+	__get_cpu_var(ip_conntrack_stat).count++; \
+	preempt_enable(); \
+} while (0)
 
 /* eg. PROVIDES_CONNTRACK(ftp); */
 #define PROVIDES_CONNTRACK(name)                        \

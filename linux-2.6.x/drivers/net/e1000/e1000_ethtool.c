@@ -557,6 +557,199 @@ e1000_get_drvinfo(struct net_device *netdev,
 	drvinfo->regdump_len = e1000_get_regs_len(netdev);
 	drvinfo->eedump_len = e1000_get_eeprom_len(netdev);
 }
+/* e1000 has either 2 or five timers which behave as follows:
+
+	if older chips, two timers, rx_int_delay and tx_int_delay,
+		each specify the delay after packet completion for
+		rs and tx respectively, in 1.024us intervals, except that
+		the tx_int_delay cannot be 0.  This readily maps to non-
+		adaptive rx and tx coalesce times, or in the case of rx time
+		equal to 0, coalesce packet count of one.
+	if newer chip, the five timers represent an adaptive strategy that
+		doesn't map at all directly to the coalesce model presented
+		by the ethtool interface.  But we'll take a best effort at it.
+		rx_int_delay and tx_int_delay become idle timers, generating
+		respective interrupts after the rx or tx units become idle
+		for the specified number of 1.024us intervals.
+		rx_abs_int_delay and tx_abs_int_delay specifiy the maximum
+		delay for a respective interrupt after a packet is completed,
+		regardless of the idle timers.
+		itr is a minimum interval between interrupts timer, that overrides
+		the other timers, holding off interrupts until the specified 
+		interval has elapsed.  The hardware wants this in units of
+		256ns, but the driver chooses the work with it in terms of a 
+		maximum number of interupts per second, hence the interrupt
+		throttle rate nomenclature.  Addtionally, the driver plays with
+		dynamic rate setting if itr=1.  That value is not used for 
+		setting up the hardware, however.
+		On the newer chips, to get the non-adaptive coalescing behavior,
+		we can set itr = 0, and {rx,tx}_int_delay = {rs,tx}_abs_int_delay.
+		That gives either a fixed coalescing interval, or in the case of
+		rx = 0, a coalesce packet count of 1 (immediate interrupt).
+		The adaptive case can be approximated by letting the 
+		{rx,tx}_int_delay be the low packet rate coalesce time - it is the
+		delay time when packets are sparse enough to not occur for at
+		least the delay time.  Note, however, that it is not a coalesce
+		time at all, because it only serves to delay the interrupt if
+		there are no other packets to coalesce.  At moderate packet
+		rates, the {rx,tx}_abs_int_delay is used to model the intermediate
+		coalesce time.  This is, in fact, a coalesce time.  At higher
+		packet rates, the itr can be used to enforce a somewhat longer
+		coalesce period in the case where the other timers would cause
+		more than the throttle rate limit interrupts to occur.  In all
+		cases, the "coalescing" and determination of packet rates is
+		related to the nearest past, rather than to any user specified
+		sample interval.  It is not possible to configure the hardware
+		to provide a model where higher packet arrival rates provide
+		shorter coalescing intervals (than lower rates)
+		without using the driver to modify
+		the timer settings dynamically.
+		More complex mappings can be performed by modifying the
+		adaptive software algorithms, or using ring descriptor bits to
+		trigger (transmit) events, but why bother - use NAPI instead.
+
+	Thus these ethtool interfaces are designed to give a best effort response
+	based on the above model. itr is always taken/reported from/in the high
+	rate parameter set, even though it is not strictly a high rate limit.
+	In the case of set_coalesce, the timers are
+	taken directly from the interface, sanity checked and applied rather
+	literally, from the places where those values would be reported by the
+	get interface.
+*/
+
+
+static int
+e1000_get_coalesce(struct net_device *netdev,
+                    struct ethtool_coalesce *coalesce)
+{
+	struct e1000_adapter *adapter = netdev->priv;
+
+	memset(&coalesce->rx_coalesce_usecs, 0, 
+		(sizeof(struct ethtool_coalesce) - sizeof(coalesce->cmd)));
+
+	if ( adapter->hw.mac_type >= e1000_82540 ) {
+		if ( adapter->itr ) {
+			coalesce->pkt_rate_high = (adapter->itr ==1 ? 8000 : adapter->itr);
+			coalesce->tx_coalesce_usecs_high = coalesce->rx_coalesce_usecs_high =
+				1000000/coalesce->pkt_rate_high;
+			coalesce->use_adaptive_rx_coalesce = 1;
+			coalesce->use_adaptive_tx_coalesce = 1;
+		}
+		if ((adapter->rx_abs_int_delay == adapter->rx_int_delay) 
+		    || (adapter->rx_int_delay == 0)) {
+			coalesce->rx_coalesce_usecs = adapter->rx_int_delay;
+			coalesce->rx_max_coalesced_frames = adapter->rx_int_delay ? 0 : 1;
+		}
+		else {
+			/* if rx_abs_int_delay is 0 then this results in illegal return - so be it, it's a 
+			   configuration that should not be allowed by the driver, as non-zero int_delay
+			   requires non-zero abs_int_delay to ensure an interrupt happens eventually */
+			coalesce->rx_coalesce_usecs = adapter->rx_abs_int_delay;
+			coalesce->use_adaptive_rx_coalesce = 1;
+			coalesce->rx_coalesce_usecs_low = adapter->rx_int_delay;
+			coalesce->pkt_rate_low = 1;
+		
+		}
+		if (adapter->tx_abs_int_delay == adapter->tx_int_delay) {
+			coalesce->tx_coalesce_usecs = adapter->tx_int_delay;
+		}
+		else {
+			coalesce->tx_coalesce_usecs = adapter->tx_abs_int_delay;
+			coalesce->use_adaptive_tx_coalesce = 1;
+			coalesce->tx_coalesce_usecs_low = adapter->tx_int_delay;
+			coalesce->pkt_rate_low = 1;
+		
+		}
+	}
+	else {
+		coalesce->rx_coalesce_usecs = adapter->rx_int_delay;
+		coalesce->tx_coalesce_usecs = adapter->tx_int_delay;
+		coalesce->rx_max_coalesced_frames = adapter->rx_int_delay ? 0 : 1;
+	}
+return 0;
+}
+
+static int
+e1000_set_coalesce(struct net_device *netdev,
+                    struct ethtool_coalesce *coalesce)
+{
+	struct e1000_adapter *adapter = netdev->priv;
+
+	if ( adapter->hw.mac_type >= e1000_82540 ) {
+		if ( coalesce->use_adaptive_tx_coalesce || coalesce->use_adaptive_rx_coalesce ) {
+			if ( coalesce->pkt_rate_high) {
+				u32 avg_time = 
+					(coalesce->rx_coalesce_usecs_high + coalesce->tx_coalesce_usecs_high)/2;
+				/* average the times and constrain itr between 100 and 125000 
+				   otherwise do dynamic */
+				if ( (avg_time > 10000) || avg_time < 8) {
+					adapter->itr = 1;
+				}
+				else {
+					adapter->itr = 1000000/avg_time;
+				}
+			}
+			else {
+				adapter->itr = 0;
+			}
+			if ( coalesce->pkt_rate_low ) {
+				if ( coalesce->use_adaptive_rx_coalesce ) {
+					adapter->rx_int_delay = coalesce->rx_coalesce_usecs_low > 0xffff ? 0xffff :
+						coalesce->rx_coalesce_usecs_low;
+					adapter->rx_abs_int_delay = coalesce->rx_coalesce_usecs > 0xffff ? 0xffff :
+						coalesce->rx_coalesce_usecs;
+				}
+				else {
+					adapter->rx_int_delay = coalesce->rx_coalesce_usecs > 0xffff ? 0xffff :
+						coalesce->rx_coalesce_usecs;
+					adapter->rx_abs_int_delay = coalesce->rx_coalesce_usecs;
+				}
+				if ( coalesce->use_adaptive_tx_coalesce ) {
+					adapter->tx_int_delay = coalesce->tx_coalesce_usecs_low > 0xffff ? 0xffff :
+						coalesce->tx_coalesce_usecs_low;
+					adapter->tx_abs_int_delay = coalesce->tx_coalesce_usecs > 0xffff ? 0xffff :
+						coalesce->tx_coalesce_usecs;
+				}
+				else {
+					adapter->tx_int_delay = coalesce->tx_coalesce_usecs > 0xffff ? 0xffff :
+						coalesce->tx_coalesce_usecs;
+					adapter->tx_abs_int_delay = coalesce->tx_coalesce_usecs;
+				}
+			}
+		}
+		else {
+			adapter->itr = 0;
+			adapter->tx_int_delay = coalesce->tx_coalesce_usecs > 0xffff ? 0xffff :
+				coalesce->tx_coalesce_usecs ? coalesce->tx_coalesce_usecs : 1;
+			adapter->tx_abs_int_delay = adapter->tx_int_delay;
+			/* do not try to use packet coalescing - request should have 1 for packet
+				coalescing for 0 timer value, but don't bother with check, just
+				use the timer value directly, subject to register limits
+			*/
+			adapter->rx_int_delay = coalesce->rx_coalesce_usecs > 0xffff ? 0xffff :
+				coalesce->rx_coalesce_usecs;
+			adapter->rx_abs_int_delay = coalesce->rx_coalesce_usecs;
+		}
+		E1000_WRITE_REG(&adapter->hw, TIDV, adapter->tx_int_delay);
+		E1000_WRITE_REG(&adapter->hw, TADV, adapter->tx_abs_int_delay);
+		E1000_WRITE_REG(&adapter->hw, RDTR, adapter->rx_int_delay);
+		E1000_WRITE_REG(&adapter->hw, RADV, adapter->rx_abs_int_delay);
+		if(adapter->itr > 1) {
+			E1000_WRITE_REG(&adapter->hw, ITR, 1000000000 / (adapter->itr * 256));
+		}
+		else if ( adapter->itr == 0 ) {
+			E1000_WRITE_REG(&adapter->hw, ITR, 0);
+		}
+	}
+	else {
+		adapter->rx_int_delay = coalesce->rx_coalesce_usecs > 0xffff ? 0xffff : coalesce->rx_coalesce_usecs;
+		adapter->tx_int_delay = coalesce->tx_coalesce_usecs > 0xffff ? 0xffff : 
+			coalesce->tx_coalesce_usecs ? coalesce->tx_coalesce_usecs : 1;
+		E1000_WRITE_REG(&adapter->hw, RDTR, adapter->rx_int_delay);
+		E1000_WRITE_REG(&adapter->hw, TIDV, adapter->tx_int_delay);
+	}
+return 0;
+}
 
 static void
 e1000_get_ringparam(struct net_device *netdev,
@@ -1632,6 +1825,8 @@ struct ethtool_ops e1000_ethtool_ops = {
 	.get_eeprom_len         = e1000_get_eeprom_len,
 	.get_eeprom             = e1000_get_eeprom,
 	.set_eeprom             = e1000_set_eeprom,
+	.get_coalesce		= e1000_get_coalesce,
+	.set_coalesce		= e1000_set_coalesce,
 	.get_ringparam          = e1000_get_ringparam,
 	.set_ringparam          = e1000_set_ringparam,
 	.get_pauseparam		= e1000_get_pauseparam,

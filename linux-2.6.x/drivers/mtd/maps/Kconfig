@@ -1,5 +1,5 @@
 # drivers/mtd/maps/Kconfig
-# $Id: Kconfig,v 1.37 2004/10/20 22:57:18 dwmw2 Exp $
+# $Id: Kconfig,v 1.55 2005/07/02 01:53:24 tpoynor Exp $
 
 menu "Mapping drivers for chip access"
 	depends on MTD!=n
@@ -60,6 +60,92 @@ config MTD_PHYSMAP_BANKWIDTH
 	  Ignore this option if you use run-time physmap configuration
 	  (i.e., run-time calling physmap_configure()).
 
+config MTD_MULTI_PHYSMAP
+	tristate "multiple CFI Flash devices in physical memory map"
+	depends on MTD_CFI
+	help
+	  Similar to MTD_PHYSMAP, just allows several seperate mappings.
+
+config MTD_MULTI_PHYSMAP_1_NAME
+	string "1st mapping name"
+	depends on MTD_MULTI_PHYSMAP
+	default ""
+
+config MTD_MULTI_PHYSMAP_1_START
+	hex "1st mapping start"
+	depends on MTD_MULTI_PHYSMAP
+	default "0x00000000"
+
+config MTD_MULTI_PHYSMAP_1_LEN
+	hex "1st mapping length"
+	depends on MTD_MULTI_PHYSMAP
+	default "0x00000000"
+
+config MTD_MULTI_PHYSMAP_1_WIDTH
+	int "1st mapping bus width - 0 disables mapping"
+	depends on MTD_MULTI_PHYSMAP
+	default "2"
+
+config MTD_MULTI_PHYSMAP_2_NAME
+	string "2nd mapping name"
+	depends on MTD_MULTI_PHYSMAP
+	default ""
+
+config MTD_MULTI_PHYSMAP_2_START
+	hex "2nd mapping start"
+	depends on MTD_MULTI_PHYSMAP
+	default "0x00000000"
+
+config MTD_MULTI_PHYSMAP_2_LEN
+	hex "2nd mapping length"
+	depends on MTD_MULTI_PHYSMAP
+	default "0x00000000"
+
+config MTD_MULTI_PHYSMAP_2_WIDTH
+	int "2nd mapping bus width - 0 disables mapping"
+	depends on MTD_MULTI_PHYSMAP
+	default "2"
+
+config MTD_MULTI_PHYSMAP_3_NAME
+	string "3rd mapping name"
+	depends on MTD_MULTI_PHYSMAP
+	default ""
+
+config MTD_MULTI_PHYSMAP_3_START
+	hex "3rd mapping start"
+	depends on MTD_MULTI_PHYSMAP
+	default "0x00000000"
+
+config MTD_MULTI_PHYSMAP_3_LEN
+	hex "3rd mapping length"
+	depends on MTD_MULTI_PHYSMAP
+	default "0x00000000"
+
+config MTD_MULTI_PHYSMAP_3_WIDTH
+	int "3rd mapping bus width - 0 disables mapping"
+	depends on MTD_MULTI_PHYSMAP
+	default "2"
+
+config MTD_MULTI_PHYSMAP_4_NAME
+	string "4th mapping name"
+	depends on MTD_MULTI_PHYSMAP
+	default ""
+
+config MTD_MULTI_PHYSMAP_4_START
+	hex "4th mapping start"
+	depends on MTD_MULTI_PHYSMAP
+	default "0x00000000"
+
+config MTD_MULTI_PHYSMAP_4_LEN
+	hex "4th mapping length"
+	depends on MTD_MULTI_PHYSMAP
+	default "0x00000000"
+
+config MTD_MULTI_PHYSMAP_4_WIDTH
+	int "4th mapping bus width - 0 disables mapping"
+	depends on MTD_MULTI_PHYSMAP
+	default "2"
+
 config MTD_SUN_UFLASH
 	tristate "Sun Microsystems userflash support"
 	depends on (SPARC32 || SPARC64) && MTD_CFI
@@ -94,17 +180,17 @@ config MTD_NETSC520
 
 config MTD_TS5500
 	tristate "JEDEC Flash device mapped on Technologic Systems TS-5500"
-	depends on X86 && MTD_JEDECPROBE && MTD_PARTITIONS
+	depends on ELAN
+	select MTD_PARTITIONS
+	select MTD_JEDECPROBE
+	select MTD_CFI_AMDSTD
 	help
 	  This provides a driver for the on-board flash of the Technologic
-	  System's TS-5500 board. The flash is split into 3 partitions
+	  System's TS-5500 board. The 2MB flash is split into 3 partitions
 	  which are accessed as separate MTD devices.
 
-	  mtd0 and mtd2 are the two BIOS drives. Unfortunately the BIOS
-	  uses a proprietary flash translation layer from General Software,
-	  which is not supported (the drives cannot be mounted). You can
-	  create your own file system (jffs for example), but the BIOS
-	  won't be able to boot from it.
+	  mtd0 and mtd2 are the two BIOS drives, which use the resident
+	  flash disk (RFD) flash translation layer.
 
 	  mtd1 allows you to reprogram your BIOS. BE VERY CAREFUL.
 
@@ -139,6 +225,14 @@ config MTD_LUBBOCK
 	  This provides a driver for the on-board flash of the Intel
 	  'Lubbock' XScale evaluation board.
 
+config MTD_MAINSTONE
+	tristate "CFI Flash device mapped on Intel Mainstone XScale eval board"
+	depends on MACH_MAINSTONE && MTD_CFI_INTELEXT
+	select MTD_PARTITIONS
+	help
+	  This provides a driver for the on-board flash of the Intel
+	  'Mainstone PXA27x evaluation board.
+
 config MTD_OCTAGON
 	tristate "JEDEC Flash device mapped on Octagon 5066 SBC"
 	depends on X86 && MTD_JEDEC && MTD_COMPLEX_MAPPINGS
@@ -159,7 +253,7 @@ config MTD_VMAX
 
 config MTD_SCx200_DOCFLASH
 	tristate "Flash device mapped with DOCCS on NatSemi SCx200"
-	depends on X86 && MTD_CFI
+	depends on SCx200 && MTD_CFI && MTD_PARTITIONS
 	help
 	  Enable support for a flash chip mapped using the DOCCS signal on a
 	  National Semiconductor SCx200 processor.
@@ -213,74 +307,11 @@ config MTD_NETtel
 	help
 	  Support for flash chips on NETtel/SecureEdge/SnapGear boards.
 
-config MTD_PB1XXX
-	tristate "Flash devices on Alchemy PB1xxx boards"
-	depends on MIPS && ( MIPS_PB1000 || MIPS_PB1100 || MIPS_PB1500 )
+config MTD_ALCHEMY
+	tristate '  AMD Alchemy Pb1xxx/Db1xxx/RDK MTD support' 
+	depends on MIPS && SOC_AU1X00
 	help
-	  Flash memory access on Alchemy Pb1000/Pb1100/Pb1500 boards
-
-config MTD_PB1XXX_BOOT
-	bool "PB1x00 boot flash device"
-	depends on MTD_PB1XXX && ( MIPS_PB1100 || MIPS_PB1500 )
-	help
-	  Use the first of the two 32MiB flash banks on Pb1100/Pb1500 board.
-	  You can say 'Y' to both this and 'MTD_PB1XXX_USER' below, to use
-	  both banks.
-
-config MTD_PB1XXX_USER
-	bool "PB1x00 user flash device"
-	depends on MTD_PB1XXX && ( MIPS_PB1100 || MIPS_PB1500 )
-	default y if MTD_PB1XX_BOOT = n
-	help
-	  Use the second of the two 32MiB flash banks on Pb1100/Pb1500 board.
-	  You can say 'Y' to both this and 'MTD_PB1XXX_BOOT' above, to use
-	  both banks.
-
-config MTD_PB1550
-	tristate "Flash devices on Alchemy PB1550 board"
-	depends on MIPS && MIPS_PB1550
-	help
-	  Flash memory access on Alchemy Pb1550 board
-
-config MTD_PB1550_BOOT
-	bool "PB1550 boot flash device"
-	depends on MTD_PB1550
-	help
-	  Use the first of the two 64MiB flash banks on Pb1550 board.
-	  You can say 'Y' to both this and 'MTD_PB1550_USER' below, to use
-	  both banks.
-
-config MTD_PB1550_USER
-	bool "PB1550 user flash device"
-	depends on MTD_PB1550
-	default y if MTD_PB1550_BOOT = n
-	help
-	  Use the second of the two 64MiB flash banks on Pb1550 board.
-	  You can say 'Y' to both this and 'MTD_PB1550_BOOT' above, to use
-	  both banks.
-
-config MTD_DB1550
-	tristate "Flash devices on Alchemy DB1550 board"
-	depends on MIPS && MIPS_DB1550
-	help
-	  Flash memory access on Alchemy Db1550 board
-
-config MTD_DB1550_BOOT
-	bool "DB1550 boot flash device"
-	depends on MTD_DB1550
-	help
-	  Use the first of the two 64MiB flash banks on Db1550 board.
-	  You can say 'Y' to both this and 'MTD_DB1550_USER' below, to use
-	  both banks.
-
-config MTD_DB1550_USER
-	bool "DB1550 user flash device"
-	depends on MTD_DB1550
-	default y if MTD_DB1550_BOOT = n
-	help
-	  Use the second of the two 64MiB flash banks on Db1550 board.
-	  You can say 'Y' to both this and 'MTD_DB1550_BOOT' above, to use
-	  both banks.
+	  Flash memory access on AMD Alchemy Pb/Db/RDK Reference Boards
 
 config MTD_DILNETPC
 	tristate "CFI Flash device mapped on DIL/Net PC"
@@ -354,7 +385,7 @@ config MTD_CFI_FLAGADM
 	tristate "CFI Flash device mapping on FlagaDM"
 	depends on PPC32 && 8xx && MTD_CFI
 	help
-	  Mapping for the Flaga digital module. If you don´t have one, ignore
+	  Mapping for the Flaga digital module. If you don't have one, ignore
 	  this setting.
 
 config MTD_BEECH
@@ -373,9 +404,17 @@ config MTD_ARCTIC
 	  Arctic board. If you have one of these boards and would like to
 	  use the flash chips on it, say 'Y'.
 
+config MTD_WALNUT
+	tristate "Flash device mapped on IBM 405GP Walnut"
+	depends on MTD_JEDECPROBE && PPC32 && 40x && WALNUT
+	help
+	  This enables access routines for the flash chips on the IBM 405GP
+	  Walnut board. If you have one of these boards and would like to
+	  use the flash chips on it, say 'Y'.
+
 config MTD_EBONY
 	tristate "Flash devices mapped on IBM 440GP Ebony"
-	depends on MTD_CFI && PPC32 && 44x && EBONY
+	depends on MTD_JEDECPROBE && PPC32 && 44x && EBONY
 	help
 	  This enables access routines for the flash chips on the IBM 440GP
 	  Ebony board. If you have one of these boards and would like to
@@ -401,7 +440,7 @@ config MTD_CSTM_MIPS_IXX
 	tristate "Flash chip mapping on ITE QED-4N-S01B, Globespan IVR or custom board"
 	depends on MIPS && MTD_CFI && MTD_JEDECPROBE && MTD_PARTITIONS
 	help
-	  This provides a mapping driver for the Integrated Tecnology
+	  This provides a mapping driver for the Integrated Technology
 	  Express, Inc (ITE) QED-4N-S01B eval board and the Globespan IVR
 	  Reference Board. It provides the necessary addressing, length,
 	  buswidth, vpp code and addition setup of the flash device for
@@ -580,6 +619,15 @@ config MTD_MPC1211
 	  This enables access to the flash chips on the Interface MPC-1211(CTP/PCI/MPC-SH02).
 	  If you have such a board, say 'Y'.
 
+config MTD_OMAP_NOR
+	tristate "TI OMAP board mappings"
+	depends on MTD_CFI && ARCH_OMAP
+	help
+	  This enables access to the NOR flash chips on TI OMAP-based
+	  boards defining flash platform devices and flash platform data.
+	  These boards include the Innovator, H2, H3, OSK, Perseus2, and
+	  more.  If you have such a board, say 'Y'.
+
 # This needs CFI or JEDEC, depending on the cards found.
 config MTD_PCI
 	tristate "PCI MTD driver"
@@ -598,6 +646,16 @@ config MTD_PCMCIA
 	  Map driver for accessing PCMCIA linear flash memory cards. These
 	  cards are usually around 4-16MiB in size. This does not include
 	  Compact Flash cards which are treated as IDE devices.
+
+config MTD_PCMCIA_ANONYMOUS
+	bool "Use PCMCIA MTD drivers for anonymous PCMCIA cards"
+	depends on MTD_PCMCIA
+	default N
+	help
+	  If this option is enabled, PCMCIA cards which do not report
+	  anything about themselves are assumed to be MTD cards.
+
+	  If unsure, say N.
 
 config MTD_UCLINUX
 	tristate "Generic uClinux RAM/ROM filesystem support"
@@ -629,13 +687,14 @@ config MTD_DMV182
           Map driver for Dy-4 SVME/DMV-182 board.
 
 config MTD_BAST
-	tristate "Map driver for Simtec BAST (EB2410ITX)"
-	depends on ARCH_BAST
+	tristate "Map driver for Simtec BAST (EB2410ITX) or Thorcom VR1000"
+	depends on ARCH_BAST || MACH_VR1000
 	select MTD_PARTITIONS
 	select MTD_MAP_BANK_WIDTH_16
 	select MTD_JEDECPROBE
 	help
-	  Map driver for NOR flash on the Simtec BAST (EB2410ITX).
+	  Map driver for NOR flash on the Simtec BAST (EB2410ITX), or the
+	  Thorcom VR1000
 
 	  Note, this driver *cannot* over-ride the WP link on the
 	  board, or currently detect the state of the link.
@@ -645,5 +704,60 @@ config MTD_BAST_MAXSIZE
 	depends on MTD_BAST
 	default "4"
 
+config MTD_SHARP_SL
+	bool "ROM maped on Sharp SL Series"
+	depends on MTD && ARCH_PXA
+	help
+	  This enables access to the flash chip on the Sharp SL Series of PDAs.
+
+config MTD_PLATRAM
+	tristate "Map driver for platform device RAM (mtd-ram)"
+	depends on MTD
+	select MTD_RAM
+	help
+	  Map driver for RAM areas described via the platform device
+	  system.
+
+	  This selection automatically selects the map_ram driver.
+
+config MTD_MXC
+	bool "Map driver for Freescale MXC boards"
+	depends on MTD && ARCH_MXC
+	default y
+	select MTD_CFI
+	select MTD_PARTITIONS
+	help
+	  This enables access to the flash chips on Freescale MXC based
+	  platforms. If you have such a board, say 'Y'.
+
+config MTD_SCMA11REF
+	bool "CFI Flash device mapped on scma11 ref board"
+	depends on MACH_SCMA11REF
+	default n
+	select MTD_CFI
+	select MTD_PARTITIONS
+	help
+	  This enables access to the flash chips on SCM-A11 REF platform.
+	  If you have such a board, say 'Y'.
+
+config MTD_BUTEBB
+	bool "CFI Flash device mapped on bute bb board"
+	depends on MACH_ARGONPLUSREF
+	default n
+	select MTD_CFI
+	select MTD_PARTITIONS
+	help
+	  This enables access to the flash chips on BUTE BB platform.
+	  If you have such a board, say 'Y'.
+
+config MTD_BUTEREF
+	bool "CFI Flash device mapped on bute ref board"
+	depends on MACH_ARGONLVPHONE
+	default n
+	select MTD_CFI
+	select MTD_PARTITIONS
+	help
+	  This enables access to the flash chips on BUTE REF platform.
+	  If you have such a board, say 'Y'.
 endmenu
 

@@ -169,6 +169,8 @@ do_exception(struct pt_regs *regs, unsigned long error_code, int is_protection)
 	int user_address;
 	const struct exception_table_entry *fixup;
 	int si_code = SEGV_MAPERR;
+	trapid_t ltt_interruption_code;
+	char * ic_ptr = (char *) &ltt_interruption_code;
 
         tsk = current;
         mm = tsk->mm;
@@ -215,6 +217,10 @@ do_exception(struct pt_regs *regs, unsigned long error_code, int is_protection)
 	 * interrupts again and then search the VMAs
 	 */
 	local_irq_enable();
+
+	memset(&ltt_interruption_code,0,sizeof(ltt_interruption_code));
+	memcpy(ic_ptr+4,&error_code,sizeof(error_code));
+	ltt_ev_trap_entry(ltt_interruption_code,(regs->psw.addr & PSW_ADDR_INSN));
 
         down_read(&mm->mmap_sem);
 
@@ -283,6 +289,7 @@ bad_area:
                 tsk->thread.prot_addr = address;
                 tsk->thread.trap_no = error_code;
 		do_sigsegv(regs, error_code, si_code, address);
+		ltt_ev_trap_exit();
                 return;
 	}
 
@@ -338,6 +345,8 @@ do_sigbus:
 	/* Kernel mode? Handle exceptions or die */
 	if (!(regs->psw.mask & PSW_MASK_PSTATE))
 		goto no_context;
+
+	ltt_ev_trap_exit();
 }
 
 void do_protection_exception(struct pt_regs *regs, unsigned long error_code)

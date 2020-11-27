@@ -164,7 +164,13 @@ static int snmp6_seq_show(struct seq_file *seq, void *v)
 
 	if (idev) {
 		seq_printf(seq, "%-32s\t%u\n", "ifIndex", idev->dev->ifindex);
+#ifdef CONFIG_IPV6_STATISTICS
+		snmp6_seq_show_item(seq, (void **)idev->stats.ipv6_statistics, snmp6_ipstats_list);
+#endif
 		snmp6_seq_show_item(seq, (void **)idev->stats.icmpv6, snmp6_icmp6_list);
+#if 0
+		snmp6_seq_show_item(seq, (void **)idev->stats.udp_stats_in6, snmp6_udp6_list);
+#endif
 	} else {
 		snmp6_seq_show_item(seq, (void **)ipv6_statistics, snmp6_ipstats_list);
 		snmp6_seq_show_item(seq, (void **)icmpv6_statistics, snmp6_icmp6_list);
@@ -207,9 +213,21 @@ int snmp6_register_dev(struct inet6_dev *idev)
 	if (!idev || !idev->dev)
 		return -EINVAL;
 
+#ifdef CONFIG_IPV6_STATISTICS
+	if (snmp6_mib_init((void **)idev->stats.ipv6_statistics, sizeof(struct ipstats_mib),
+			   __alignof__(struct ipstats_mib)) < 0)
+		goto err_ip;
+#endif
+
 	if (snmp6_mib_init((void **)idev->stats.icmpv6, sizeof(struct icmpv6_mib),
 			   __alignof__(struct icmpv6_mib)) < 0)
 		goto err_icmp;
+
+#if 0
+	if (snmp6_mib_init((void **)idev->stats.udp_stats_in6, sizeof(struct udp_mib),
+			   __alignof__(struct udp_mib)) < 0)
+		goto err_udp;
+#endif
 
 	if (!proc_net_devsnmp6) {
 		err = -ENOENT;
@@ -225,8 +243,16 @@ int snmp6_register_dev(struct inet6_dev *idev)
 	return 0;
 
 err_proc:
+#if 0
+	snmp6_mib_free((void **)idev->stats.udp_stats_in6);
+err_udp:
+#endif
 	snmp6_mib_free((void **)idev->stats.icmpv6);
 err_icmp:
+#ifdef CONFIG_IPV6_STATISTICS
+	snmp6_mib_free((void **)idev->stats.ipv6_statistics);
+err_ip:
+#endif
 	return err;
 }
 
@@ -238,7 +264,13 @@ int snmp6_unregister_dev(struct inet6_dev *idev)
 		return -EINVAL;
 	remove_proc_entry(idev->stats.proc_dir_entry->name,
 			  proc_net_devsnmp6);
+#ifdef CONFIG_IPV6_STATISTICS
+	snmp6_mib_free((void **)idev->stats.ipv6_statistics);
+#endif
 	snmp6_mib_free((void **)idev->stats.icmpv6);
+#if 0
+	snmp6_mib_free((void **)idev->stats.udp_stats_in6);
+#endif
 
 	return 0;
 }
@@ -285,19 +317,45 @@ int snmp6_register_dev(struct inet6_dev *idev)
 	if (!idev || !idev->dev)
 		return -EINVAL;
 
+#ifdef CONFIG_IPV6_STATISTICS
+	if (snmp6_mib_init((void **)idev->stats.ipv6_statistics, sizeof(struct ipstats_mib),
+			   __alignof__(struct ipstats_mib)) < 0)
+		goto err_ip;
+#endif
+
 	if (snmp6_mib_init((void **)idev->stats.icmpv6, sizeof(struct icmpv6_mib),
 			   __alignof__(struct icmpv6_mib)) < 0)
 		goto err_icmp;
 
+#if 0
+	if (snmp6_mib_init((void **)idev->stats.udp_stats_in6, sizeof(struct udp_mib),
+			   __alignof__(struct udp_mib)) < 0)
+		goto err_udp;
+#endif
+
 	return 0;
 
+#if 0
+err_udp:
+	snmp6_mib_free((void **)idev->stats.icmpv6);
+#endif
 err_icmp:
+#ifdef CONFIG_IPV6_STATISTICS
+	snmp6_mib_free((void **)idev->stats.ipv6_statistics);
+err_ip:
+#endif
 	return err;
 }
 
 int snmp6_unregister_dev(struct inet6_dev *idev)
 {
+#ifdef CONFIG_IPV6_STATISTICS
+	snmp6_mib_free((void **)idev->stats.ipv6_statistics);
+#endif
 	snmp6_mib_free((void **)idev->stats.icmpv6);
+#if 0
+	snmp6_mib_free((void **)idev->stats.udp_stats_in6);
+#endif
 	return 0;
 }
 

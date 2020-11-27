@@ -1,6 +1,6 @@
 /*======================================================================
 
-  $Id: slram.c,v 1.32 2004/11/16 18:29:01 dwmw2 Exp $
+  $Id: slram.c,v 1.34 2005/01/06 21:16:42 jwboyer Exp $
 
   This driver provides a method to access memory not used by the kernel
   itself (i.e. if the kernel commandline mem=xxx is used). To actually
@@ -50,6 +50,7 @@
 #include <linux/mtd/mtd.h>
 
 #define SLRAM_MAX_DEVICES_PARAMS 6		/* 3 parameters / device */
+#define SLRAM_BLK_SZ 0x4000
 
 #define T(fmt, args...) printk(KERN_DEBUG fmt, ## args)
 #define E(fmt, args...) printk(KERN_NOTICE fmt, ## args)
@@ -66,12 +67,12 @@ typedef struct slram_mtd_list {
 
 #ifdef MODULE
 static char *map[SLRAM_MAX_DEVICES_PARAMS];
+
+module_param_array(map, charp, NULL, 0);
+MODULE_PARM_DESC(map, "List of memory regions to map. \"map=<name>, <start>, <length / end>\"");
 #else
 static char *map;
 #endif
-
-MODULE_PARM(map, "3-" __MODULE_STRING(SLRAM_MAX_DEVICES_PARAMS) "s");
-MODULE_PARM_DESC(map, "List of memory regions to map. \"map=<name>, <start>, <length / end>\"");
 
 static slram_mtd_list_t *slram_mtdlist = NULL;
 
@@ -106,7 +107,10 @@ static int slram_erase(struct mtd_info *mtd, struct erase_info *instr)
 static int slram_point(struct mtd_info *mtd, loff_t from, size_t len,
 		size_t *retlen, u_char **mtdbuf)
 {
-	slram_priv_t *priv = (slram_priv_t *)mtd->priv;
+	slram_priv_t *priv = mtd->priv;
+
+	if (from + len > mtd->size)
+		return -EINVAL;
 
 	*mtdbuf = priv->start + from;
 	*retlen = len;
@@ -120,8 +124,14 @@ static void slram_unpoint(struct mtd_info *mtd, u_char *addr, loff_t from, size_
 static int slram_read(struct mtd_info *mtd, loff_t from, size_t len,
 		size_t *retlen, u_char *buf)
 {
-	slram_priv_t *priv = (slram_priv_t *)mtd->priv;
-	
+	slram_priv_t *priv = mtd->priv;
+
+	if (from > mtd->size)
+		return -EINVAL;
+
+	if (from + len > mtd->size)
+		len = mtd->size - from;
+
 	memcpy(buf, priv->start + from, len);
 
 	*retlen = len;
@@ -131,7 +141,10 @@ static int slram_read(struct mtd_info *mtd, loff_t from, size_t len,
 static int slram_write(struct mtd_info *mtd, loff_t to, size_t len,
 		size_t *retlen, const u_char *buf)
 {
-	slram_priv_t *priv = (slram_priv_t *)mtd->priv;
+	slram_priv_t *priv = mtd->priv;
+
+	if (to + len > mtd->size)
+		return -EINVAL;
 
 	memcpy(priv->start + to, buf, len);
 
@@ -161,7 +174,7 @@ static int register_device(char *name, unsigned long start, unsigned long length
 	if ((*curmtd)->mtdinfo)	{
 		memset((char *)(*curmtd)->mtdinfo, 0, sizeof(struct mtd_info));
 		(*curmtd)->mtdinfo->priv =
-			(void *)kmalloc(sizeof(slram_priv_t), GFP_KERNEL);
+			kmalloc(sizeof(slram_priv_t), GFP_KERNEL);
 		
 		if (!(*curmtd)->mtdinfo->priv) {
 			kfree((*curmtd)->mtdinfo);
@@ -188,7 +201,7 @@ static int register_device(char *name, unsigned long start, unsigned long length
 	(*curmtd)->mtdinfo->name = name;
 	(*curmtd)->mtdinfo->size = length;
 	(*curmtd)->mtdinfo->flags = MTD_CLEAR_BITS | MTD_SET_BITS |
-					MTD_WRITEB_WRITEABLE | MTD_VOLATILE;
+					MTD_WRITEB_WRITEABLE | MTD_VOLATILE | MTD_CAP_RAM;
         (*curmtd)->mtdinfo->erase = slram_erase;
 	(*curmtd)->mtdinfo->point = slram_point;
 	(*curmtd)->mtdinfo->unpoint = slram_unpoint;
@@ -196,7 +209,7 @@ static int register_device(char *name, unsigned long start, unsigned long length
 	(*curmtd)->mtdinfo->write = slram_write;
 	(*curmtd)->mtdinfo->owner = THIS_MODULE;
 	(*curmtd)->mtdinfo->type = MTD_RAM;
-	(*curmtd)->mtdinfo->erasesize = 0x0;
+	(*curmtd)->mtdinfo->erasesize = SLRAM_BLK_SZ;
 
 	if (add_mtd_device((*curmtd)->mtdinfo))	{
 		E("slram: Failed to register new device\n");
@@ -261,7 +274,7 @@ static int parse_cmdline(char *devname, char *szstart, char *szlength)
 	}
 	T("slram: devname=%s, devstart=0x%lx, devlength=0x%lx\n",
 			devname, devstart, devlength);
-	if ((devstart < 0) || (devlength < 0)) {
+	if ((devstart < 0) || (devlength < 0) || (devlength % SLRAM_BLK_SZ != 0)) {
 		E("slram: Illegal start / length parameter.\n");
 		return(-EINVAL);
 	}

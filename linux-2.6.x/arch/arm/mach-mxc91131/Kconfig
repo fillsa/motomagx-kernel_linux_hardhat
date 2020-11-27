@@ -1,0 +1,12 @@
+menu "MXC91131 Options"
+	depends on ARCH_MXC91131
+
+config MACH_MXC91131EVB
+	bool "Support MXC91131 EVB platforms"
+	default y
+	help
+	  Include support for MXC91131 EVB platform. This includes specific
+	  configurations for the board and its peripherals.
+
+endmenu
+

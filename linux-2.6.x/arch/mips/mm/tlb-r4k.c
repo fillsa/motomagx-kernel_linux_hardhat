@@ -59,10 +59,15 @@ void local_flush_tlb_all(void)
 
 void local_flush_tlb_mm(struct mm_struct *mm)
 {
-	int cpu = smp_processor_id();
+	int cpu;
+
+	preempt_disable();
+	cpu = smp_processor_id();
 
 	if (cpu_context(cpu, mm) != 0)
 		drop_mmu_context(mm,cpu);
+
+	preempt_enable();
 }
 
 void local_flush_tlb_range(struct vm_area_struct *vma, unsigned long start,

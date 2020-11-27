@@ -119,7 +119,7 @@ void gt64120_irq_setup(void)
 	/* Sets the exception_handler array. */
 	set_except_vector(0, galileo_handle_int);
 
-	cli();
+	local_irq_disable();
 
 	/*
 	 * Enable timer.  Other interrupts will be enabled as they are
@@ -138,7 +138,7 @@ void __init arch_init_irq(void)
 		irq_desc[i].handler = &no_irq_type;
 		irq_desc[i].action = NULL;
 		irq_desc[i].depth = 0;
-		irq_desc[i].lock = SPIN_LOCK_UNLOCKED;
+		spin_lock_init(&irq_desc[i].lock);
 	}
 
 	gt64120_irq_setup();

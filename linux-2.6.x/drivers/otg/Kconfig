@@ -1,0 +1,80 @@
+# @(#) balden@seth2.belcarratech.com|otg/.Makefiles/Kconfig-mxc|20051116204956|34435
+# Copyright (c) 2004 Belcarra Technologies Corp
+#
+#                      Copyright (c) 2006 Motorola, Inc. 
+#
+# Changelog:
+# Date               Author           Comment
+# -----------------------------------------------------------------------------
+# 08/09/2006         Motorola         Initial distribution
+# 10/18/2006         Motorola         Add Open Src Software language
+# 12/12/2006         Motorola         Changes for Open Src compliance.
+#
+# This Program is distributed in the hope that it will
+# be useful, but WITHOUT ANY WARRANTY;
+# without even the implied warranty of
+# MERCHANTIBILITY or FITNESS FOR A
+# PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+
+# This program is free software; you can redistribute it
+# and/or modify it under the terms of the GNU General
+# Public License as published by the Free Software
+# Foundation; either version 2 of the License, or (at
+# your option) any later version.  You should have
+# received a copy of the GNU General Public License
+# along with this program; if not, write to the Free
+# Software Foundation, Inc., 675 Mass Ave,
+# Cambridge, MA 02139, USA
+
+menu "On-The-Go and USB Peripheral Support"
+
+    config OTG
+        tristate "Support for On-The-Go and USB Peripheral Support"
+        ---help---
+            Configure all or part of the Belcarra OTG Stack
+
+    config OTG_HIGH_SPEED
+	bool "Enable HS USB"
+	depends on OTG
+	default n
+	---help---
+		This enables HS USB in the OTG Stack.
+
+    config OTG_NFS
+	bool "Enable NFS"
+	depends on OTG
+	default n
+	---help---
+		This enables NFS in the OTG Stack.
+    comment ""
+
+    menu "On-The-Go Support Platform Selection"
+        depends on OTG 
+
+       # source "drivers/otg/ocd/scma11ref/Kconfig"
+        source "drivers/otg/ocd/brassboard/Kconfig"
+       # source "drivers/otg/ocd/zasevb/Kconfig"
+       # source "drivers/otg/ocd/isp1301/Kconfig"
+
+    endmenu
+
+    source "drivers/otg/Kconfig-otg"
+
+    menu "Targeted Peripherals List (USB Peripheral Function Drivers)"
+        depends on OTG_PLATFORM_OTG || OTG_PLATFORM_USBD
+        #---help---
+        #A list of USB peripheral types that this device
+        #can emulate when it is acting as a peripheral.
+        source "drivers/otg/functions/generic/Kconfig"
+        source "drivers/otg/functions/acm/Kconfig"
+#        source "drivers/otg/functions/mouse/Kconfig"
+        source "drivers/otg/functions/msc/Kconfig"
+        source "drivers/otg/functions/network/Kconfig"
+#        source "drivers/otg/functions/isotest/Kconfig"
+        source "drivers/otg/functions/mtp/Kconfig"
+    endmenu
+
+
+endmenu
+

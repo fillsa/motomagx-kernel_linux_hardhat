@@ -98,7 +98,7 @@ static int udp_v6_get_port(struct sock *sk, unsigned short snum)
 		next:;
 		}
 		result = best;
-		for(;; result += UDP_HTABLE_SIZE) {
+		for(i = 0; i < (1 << 16) / UDP_HTABLE_SIZE; i++, result += UDP_HTABLE_SIZE) {
 			if (result > sysctl_local_port_range[1])
 				result = sysctl_local_port_range[0]
 					+ ((result - sysctl_local_port_range[0]) &
@@ -106,6 +106,8 @@ static int udp_v6_get_port(struct sock *sk, unsigned short snum)
 			if (!udp_lport_inuse(result))
 				break;
 		}
+		if (i >= (1 << 16) / UDP_HTABLE_SIZE)
+			goto fail;
 gotit:
 		udp_port_rover = snum = result;
 	} else {
@@ -620,7 +622,7 @@ out:
 }
 
 static int udpv6_sendmsg(struct kiocb *iocb, struct sock *sk, 
-		  struct msghdr *msg, size_t len)
+			 struct msghdr *msg, size_t len)
 {
 	struct ipv6_txoptions opt_space;
 	struct udp_opt *up = udp_sk(sk);
@@ -791,13 +793,21 @@ do_udp_sendmsg:
 	if (!fl->oif && ipv6_addr_is_multicast(&fl->fl6_dst))
 		fl->oif = np->mcast_oif;
 
-	err = ip6_dst_lookup(sk, &dst, fl);
+#if 0
+	flp->iif = loopback_dev.ifindex;
+#endif
+
+	if (msg->msg_flags & MSG_DONTROUTE)
+		err = ip6_dontroute_dst_alloc(&dst, fl);
+	else
+		err = ip6_dst_lookup(sk, &dst, fl);
 	if (err)
 		goto out;
 	if (final_p)
 		ipv6_addr_copy(&fl->fl6_dst, final_p);
 
 	if ((err = xfrm_lookup(&dst, fl, sk, 0)) < 0) {
+		err = -ENETUNREACH;
 		dst_release(dst);
 		goto out;
 	}
@@ -809,6 +819,8 @@ do_udp_sendmsg:
 			hlimit = np->hop_limit;
 		if (hlimit < 0)
 			hlimit = dst_metric(dst, RTAX_HOPLIMIT);
+		if (hlimit < 0)
+			hlimit = ipv6_get_hoplimit(dst->dev);
 	}
 
 	if (msg->msg_flags&MSG_CONFIRM)
@@ -838,10 +850,17 @@ do_append_data:
 	else if (!corkreq)
 		err = udp_v6_push_pending_frames(sk, up);
 
-	if (dst)
-		ip6_dst_store(sk, dst,
+	if (dst){
+		if (msg->msg_flags & MSG_DONTROUTE)
+			dst_release(dst);
+		else
+			ip6_dst_store(sk, dst,
 			      ipv6_addr_equal(&fl->fl6_dst, &np->daddr) ?
-			      &np->daddr : NULL);
+			      &np->daddr : NULL,
+			      ipv6_addr_equal(&fl->fl6_src,
+					      &np->saddr) ?
+			      &np->saddr : NULL);
+	}
 	if (err > 0)
 		err = np->recverr ? net_xmit_errno(err) : 0;
 	release_sock(sk);

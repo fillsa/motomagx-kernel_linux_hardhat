@@ -2,7 +2,7 @@
 #include <linux/spinlock.h>
 
 static LIST_HEAD(dbe_list);
-static spinlock_t dbe_lock = SPIN_LOCK_UNLOCKED;
+static raw_spinlock_t dbe_lock = RAW_SPIN_LOCK_UNLOCKED;
 
 /* Given an address, look for it in the module exception tables. */
 const struct exception_table_entry *search_module_dbetables(unsigned long addr)

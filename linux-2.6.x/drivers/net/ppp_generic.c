@@ -22,6 +22,16 @@
  * ==FILEVERSION 20041108==
  */
 
+/*
+ * Copyright 2006 Motorola, Inc.
+ */
+
+/*
+ * DATE          AUTHOR         COMMMENT
+ * ----          ------         --------
+ * 10/04/2006    Motorola       Added support for calculating idle time
+ */
+
 #include <linux/config.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -210,7 +220,7 @@ static atomic_t ppp_unit_count = ATOMIC_INIT(0);
  * and the atomicity of find a channel and updating its file.refcnt
  * field.
  */
-static spinlock_t all_channels_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(all_channels_lock);
 static LIST_HEAD(all_channels);
 static LIST_HEAD(new_channels);
 static int last_channel_index;
@@ -2218,7 +2228,7 @@ ppp_ccp_closed(struct ppp *ppp)
 
 /* List of compressors. */
 static LIST_HEAD(compressor_list);
-static spinlock_t compressor_list_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(compressor_list_lock);
 
 struct compressor_entry {
 	struct list_head list;
@@ -2389,6 +2399,13 @@ ppp_create_interface(int unit, int *retp)
 	cardmap_set(&all_ppp_units, unit, ppp);
 	up(&all_ppp_sem);
 	*retp = 0;
+
+#ifdef CONFIG_MOT_FEAT_PPP_EZX_COMPAT
+	/* Initialize the last_xmit and last_recv to calculate idle timer*/
+        ppp->last_xmit = jiffies;
+        ppp->last_recv = jiffies;
+#endif
+
 	return ppp;
 
 out2:
@@ -2727,6 +2744,30 @@ static void cardmap_destroy(struct cardmap **pmap)
 	*pmap = NULL;
 }
 
+#ifdef CONFIG_MOT_FEAT_PPP_EZX_COMPAT
+int ppp_idle_time( struct ppp_channel * chan, struct ppp_idle * idle )
+{
+    struct channel *pch;
+
+    if(  NULL == chan || NULL == idle )
+        return -1;
+    
+    pch = chan->ppp;
+
+    if (pch == 0)
+	return -1;		/* should never happen */
+
+    if (pch->ppp == 0)
+        return -1;              /* did happen */
+
+   printk(KERN_INFO "[ppp_idle_time] jiffies:%d, last_xmit:%d,last_recv%d,HZ:%d \n ", jiffies,pch->ppp->last_xmit,pch->ppp->last_recv, HZ);
+   idle->xmit_idle = (jiffies - pch->ppp->last_xmit) / HZ;
+   idle->recv_idle = (jiffies - pch->ppp->last_recv) / HZ;
+ 
+    return 0;
+}
+#endif
+
 /* Module/initialization stuff */
 
 module_init(ppp_init);
@@ -2741,6 +2782,9 @@ EXPORT_SYMBOL(ppp_input_error);
 EXPORT_SYMBOL(ppp_output_wakeup);
 EXPORT_SYMBOL(ppp_register_compressor);
 EXPORT_SYMBOL(ppp_unregister_compressor);
+#ifdef CONFIG_MOT_FEAT_PPP_EZX_COMPAT
+EXPORT_SYMBOL(ppp_idle_time);
+#endif
 EXPORT_SYMBOL(all_ppp_units); /* for debugging */
 EXPORT_SYMBOL(all_channels); /* for debugging */
 MODULE_LICENSE("GPL");

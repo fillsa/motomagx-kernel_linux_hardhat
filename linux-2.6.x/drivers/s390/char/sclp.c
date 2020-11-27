@@ -32,7 +32,7 @@
 static ext_int_info_t ext_int_info_hwc;
 
 /* spinlock to protect global variables of sclp_core */
-static spinlock_t sclp_lock;
+static DEFINE_SPINLOCK(sclp_lock);
 
 /* Mask of valid sclp events */
 static sccb_mask_t sclp_receive_mask;

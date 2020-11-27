@@ -74,10 +74,19 @@ static void write_msg(struct console *con, const char *msg, unsigned int len)
 		return;
 
 	local_irq_save(flags);
+#ifdef CONFIG_PREEMPT_RT
+	/*
+	 * A bit hairy. Netconsole uses mutexes (indirectly) and
+	 * thus must have interrupts enabled:
+	 */
+	local_irq_enable();
+#endif
 
 	for(left = len; left; ) {
 		frag = min(left, MAX_PRINT_CHUNK);
+		WARN_ON_RT(irqs_disabled());
 		netpoll_send_udp(&np, msg, frag);
+		WARN_ON_RT(irqs_disabled());
 		msg += frag;
 		left -= frag;
 	}

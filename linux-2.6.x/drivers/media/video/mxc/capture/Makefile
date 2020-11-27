@@ -1,0 +1,15 @@
+# obj-$(CONFIG_MXC_IPU) += mxc_v4l2_capture.o
+obj-$(CONFIG_MXC_IPU_PRP_VF_ADC) += ipu_prp_vf_adc.o
+obj-$(CONFIG_MXC_IPU_PRP_VF_SDC) += ipu_prp_vf_sdc.o ipu_prp_vf_sdc_bg.o
+obj-$(CONFIG_MXC_IPU_PRP_ENC) += ipu_prp_enc.o ipu_still.o
+obj-$(CONFIG_MXC_CAMERA_MICRON111) += mt9v111.o sensor_clock.o
+obj-$(CONFIG_MXC_CAMERA_HV7161) += hv7161.o sensor_clock.o
+obj-$(CONFIG_MXC_CAMERA_S5K3AAEX) += s5k3aaex.o sensor_clock.o
+obj-$(CONFIG_MXC_IPU_CAMERA_OV2640) += ov2640.o ov2640_hw.o sensor_clock.o
+obj-$(CONFIG_MXC_IPU_CAMERA_MT9M111) += mt9m111.o mt9m111_hw.o sensor_clock.o
+obj-$(CONFIG_MXC_IPU_CAMERA_MI2010SOC) += mi2010soc.o mi2010soc_hw.o sensor_clock.o
+obj-$(CONFIG_MXC_IPU_CAMERA_MI2020SOC) += mi2020soc.o mi2020soc_hw.o sensor_clock.o
+obj-$(CONFIG_MXC_IPU_CAMERA_LIGHT_SENSOR) += light_sensor_cam.o
+obj-$(CONFIG_MXC_IPU_CAMERA_I2C_INTERFACE) += cam_i2c_if.o
+obj-$(CONFIG_MOT_FEAT_2MP_CAMERA_WRKARND) += capture_2mp_wrkarnd.o
+obj-$(CONFIG_VIDEO_MXC_COMMON_DRIVER) += sensor_clock.o

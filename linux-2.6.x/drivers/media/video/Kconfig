@@ -81,6 +81,29 @@ config VIDEO_W9966
 	  Check out <file:Documentation/video4linux/w9966.txt> for more
 	  information.
 
+config VIDEO_SWARM_7114H
+	tristate "Philips SAA7114H for SiByte BCM91250A"
+	depends on SIBYTE_SWARM && VIDEO_DEV && I2C_ALGO_SIBYTE
+	help
+	  Say Y or M to build the video4linux driver for the Philips
+	  SAA7114H video decoder on Broadcom SWARM board (BCM91250A).
+	  The decoder chip is on the BCM1250's "E2" 8-bit FIFO port.
+
+config VIDEO_MXC_CAMERA
+	tristate "MXC Video For Linux Camera"
+	depends on (VIDEO_DEV)
+        default y
+	---help---
+	  This is the video4linux2 driver for cameras based on IPU.
+source "drivers/media/video/mxc/capture/Kconfig"
+
+config VIDEO_MXC_OUTPUT
+	tristate "MXC Video For Linux Video Output"
+	depends on VIDEO_DEV && MXC_IPU
+        default y
+	---help---
+	  This is the video4linux2 driver for IPU post processing video output.
+
 config VIDEO_CPIA
 	tristate "CPiA Video For Linux"
 	depends on VIDEO_DEV
@@ -145,7 +168,8 @@ config TUNER_3036
 
 config VIDEO_VINO
 	tristate "SGI Vino Video For Linux (EXPERIMENTAL)"
-	depends on EXPERIMENTAL && VIDEO_DEV && SGI
+	depends on VIDEO_DEV && I2C && SGI_IP22 && EXPERIMENTAL
+	select I2C_ALGO_SGI
 	help
 	  Say Y here to build in support for the Vino video input system found
 	  on SGI Indy machines.
@@ -347,5 +371,17 @@ config VIDEO_M32R_AR_M64278
 	---help---
 	  Say Y here to use the Renesas M64278E-800 camera module,
 	  which supports VGA(640x480 pixcels) size of images.
+
+config VIDEO_OMAP_CAMERA
+	tristate "OMAP Video for Linux camera driver"
+	depends on VIDEO_DEV && ARCH_OMAP16XX
+	select VIDEO_BUF
+
+config VIDEO_MAINSTONE_CAMERA
+        tristate "Mainstone camera driver"
+        select VIDEO_BUF 
+	select I2C_PXA
+	select I2C
+        depends on VIDEO_DEV && MACH_MAINSTONE
 
 endmenu

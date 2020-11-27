@@ -127,17 +127,19 @@ static inline char * task_name(struct task_struct *p, char * buf)
  */
 static const char *task_state_array[] = {
 	"R (running)",		/*  0 */
-	"S (sleeping)",		/*  1 */
-	"D (disk sleep)",	/*  2 */
-	"T (stopped)",		/*  4 */
-	"T (tracing stop)",	/*  8 */
-	"Z (zombie)",		/* 16 */
-	"X (dead)"		/* 32 */
+	"M (running-mutex)",	/*  1 */
+	"S (sleeping)",		/*  2 */
+	"D (disk sleep)",	/*  4 */
+	"T (stopped)",		/*  8 */
+	"T (tracing stop)",	/* 16 */
+	"Z (zombie)",		/* 32 */
+	"X (dead)"		/* 64 */
 };
 
 static inline const char * get_task_state(struct task_struct *tsk)
 {
 	unsigned int state = (tsk->state & (TASK_RUNNING |
+					    TASK_RUNNING_MUTEX |
 					    TASK_INTERRUPTIBLE |
 					    TASK_UNINTERRUPTIBLE |
 					    TASK_STOPPED |
@@ -396,7 +398,7 @@ static int do_task_stat(struct task_struct *task, char * buffer, int whole)
 
 	res = sprintf(buffer,"%d (%s) %c %d %d %d %d %d %lu %lu \
 %lu %lu %lu %lu %lu %ld %ld %ld %ld %d %ld %llu %lu %ld %lu %lu %lu %lu %lu \
-%lu %lu %lu %lu %lu %lu %lu %lu %d %d %lu %lu\n",
+%lu %lu %lu %lu %lu %lu %lu %lu %d %d %lu %lu %lx\n",
 		task->pid,
 		tcomm,
 		state,
@@ -441,7 +443,8 @@ static int do_task_stat(struct task_struct *task, char * buffer, int whole)
 		task->exit_signal,
 		task_cpu(task),
 		task->rt_priority,
-		task->policy);
+		task->policy,
+		(unsigned long)task);
 	if(mm)
 		mmput(mm);
 	return res;

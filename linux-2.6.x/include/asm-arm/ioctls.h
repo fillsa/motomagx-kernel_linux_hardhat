@@ -1,3 +1,10 @@
+/*
+ * Copyright 2006 Motorola, Inc.
+ *
+ * Date         Author          Comment
+ * 10/2006      Motorola        Added UART power management constants
+ */
+
 #ifndef __ASM_ARM_IOCTLS_H
 #define __ASM_ARM_IOCTLS_H
 
@@ -49,6 +56,12 @@
 #define TIOCGPTN	_IOR('T',0x30, unsigned int) /* Get Pty Number (of pty-mux device) */
 #define TIOCSPTLCK	_IOW('T',0x31, int)  /* Lock/unlock Pty */
 
+#ifdef  CONFIG_MOT_FEAT_SERIAL
+#define TIOCPMSUSPEND 	_IOR('T',0x32, int) /*To SUSPEND UART Clocks*/
+#define TIOCPMRESUME	_IO('T',0x33) /* To RESUME UART Clocks*/
+#define TIOCPMTXIDLE	_IO('T',0x34) /* To Check if TX is idle*/
+#endif
+
 #define FIONCLEX	0x5450  /* these numbers need to be adjusted. */
 #define FIOCLEX		0x5451
 #define FIOASYNC	0x5452
@@ -76,5 +89,10 @@
 #define TIOCPKT_DOSTOP		32
 
 #define TIOCSER_TEMT	0x01	/* Transmitter physically empty */
+
+#ifdef  CONFIG_MOT_FEAT_SERIAL
+#define TIOC_PMASYNC	1 /* Asyncronous call to suspend UART */ 
+#define TIOC_PMSYNC	2 /* Synchronous call to suspend UART */
+#endif
 
 #endif

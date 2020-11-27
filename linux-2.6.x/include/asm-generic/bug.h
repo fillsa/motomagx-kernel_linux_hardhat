@@ -25,10 +25,16 @@
 #ifndef HAVE_ARCH_WARN_ON
 #define WARN_ON(condition) do { \
 	if (unlikely((condition)!=0)) { \
-		printk("Badness in %s at %s:%d\n", __FUNCTION__, __FILE__, __LINE__); \
+		printk("%s/%d: BUG in %s at %s:%d\n", current->comm, current->pid,__FUNCTION__, __FILE__, __LINE__); \
 		dump_stack(); \
 	} \
 } while (0)
+#endif
+
+#ifdef CONFIG_PREEMPT_RT
+# define WARN_ON_RT(condition) WARN_ON(condition)
+#else
+# define WARN_ON_RT(condition) do { } while (0)
 #endif
 
 #endif

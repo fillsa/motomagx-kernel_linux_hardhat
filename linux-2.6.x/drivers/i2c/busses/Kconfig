@@ -143,8 +143,33 @@ config I2C_IBM_IIC
 	  will be called i2c-ibm_iic.
 
 config I2C_IOP3XX
-	tristate "Intel XScale IOP3xx on-chip I2C interface"
-	depends on ARCH_IOP3XX && I2C
+	tristate "Intel IOP3xx and IXP4xx on-chip I2C interface"
+	depends on (ARCH_IOP3XX || ARCH_IXP4XX) && I2C
+	help
+	  Say Y here if you want to use the IIC bus controller on
+	  the Intel IOP3xx I/O Processors or IXP4xx Network Processors.
+
+	  This driver can also be built as a module.  If so, the module
+	  will be called i2c-iop3xx.
+
+config I2C_PNX
+	tristate "I2C bus support for Philips PNX targets"
+	depends on (ARCH_PNX010X || ARCH_PNX4008) && I2C
+	help
+	  This driver supports the Philips IP3204 I2C IP block master and/or
+	  slave controller
+	  
+	  This driver can also be built as a module.  If so, the module
+	  will be called i2c-pnx.
+
+config I2C_PNX_SLAVE_SUPPORT
+	bool "Slave mode support on I2C Philips PNX bus"
+	depends on I2C_PNX && EXPERIMENTAL
+	default y if ARCH_PNX010X
+	default n if ARCH_PNX4008
+	help
+	  This option enables slave mode support for Philips IP3204 I2C IP 
+	  block							
 
 config I2C_ISA
 	tristate "ISA Bus support"
@@ -202,7 +227,7 @@ config I2C_KEYWEST
 
 config I2C_MPC
 	tristate "MPC107/824x/85xx/52xx"
-	depends on I2C && FSL_OCP
+	depends on I2C && PPC
 	help
 	  If you say yes to this option, support will be included for the
 	  built-in I2C interface on the MPC107/Tsi107/MPC8240/MPC8245 and
@@ -211,6 +236,15 @@ config I2C_MPC
 
 	  This driver can also be built as a module.  If so, the module
 	  will be called i2c-mpc.
+
+config I2C_MXC
+	tristate "MXC I2C support"
+	depends on I2C && ARCH_MXC
+	help
+	  If you say yes to this option, support will be included for Freescale
+	  MXC I2C modules.
+
+	  This driver can also be built as a module.
 
 config I2C_NFORCE2
 	tristate "Nvidia Nforce2"
@@ -268,6 +302,14 @@ config I2C_PARPORT_LIGHT
 	  This support is also available as a module.  If so, the module 
 	  will be called i2c-parport-light.
 
+config I2C_PXA
+	tristate "Intel PXA2XX I2C adapter"
+	depends on I2C && EXPERIMENTAL && ARCH_PXA
+
+config I2C_PXA_SLAVE
+	tristate "Intel PXA2XX I2C Slave comms support"
+	depends on I2C_PXA
+
 config I2C_PIIX4
 	tristate "Intel PIIX4"
 	depends on I2C && PCI && EXPERIMENTAL && !64BIT
@@ -322,6 +364,12 @@ config I2C_SAVAGE4
 
 	  This driver can also be built as a module.  If so, the module
 	  will be called i2c-savage4.
+
+config I2C_SIBYTE
+	tristate "SiByte SMBus interface"
+	depends on SIBYTE_SB1xxx_SOC && I2C
+	help
+	  Supports the SiByte SOC on-chip I2C interfaces (2 channels).
 
 config SCx200_I2C
 	tristate "NatSemi SCx200 I2C using GPIO pins"
@@ -466,4 +514,11 @@ config I2C_PCA_ISA
 	  This driver can also be built as a module.  If so, the module
 	  will be called i2c-pca-isa.
 
+config I2C_OMAP
+	tristate "OMAP I2C adapter"
+	depends on I2C
+	default y if MACH_OMAP_H3 || MACH_OMAP_OSK
+	help
+	  Support for TI OMAP I2C driver. Say yes if you want to use the OMAP
+	  I2C interface.
 endmenu

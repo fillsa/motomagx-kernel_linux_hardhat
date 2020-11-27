@@ -14,7 +14,7 @@
  */
 
 static struct list_head ime_list = LIST_HEAD_INIT(ime_list);
-static spinlock_t ime_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(ime_lock);
 static int kmalloc_failed;
 
 struct inter_module_entry {
@@ -39,7 +39,7 @@ void inter_module_register(const char *im_name, struct module *owner, const void
 	struct list_head *tmp;
 	struct inter_module_entry *ime, *ime_new;
 
-	if (!(ime_new = kmalloc(sizeof(*ime), GFP_KERNEL))) {
+	if (!(ime_new = kzalloc(sizeof(*ime), GFP_KERNEL))) {
 		/* Overloaded kernel, not fatal */
 		printk(KERN_ERR
 			"Aiee, inter_module_register: cannot kmalloc entry for '%s'\n",
@@ -47,7 +47,6 @@ void inter_module_register(const char *im_name, struct module *owner, const void
 		kmalloc_failed = 1;
 		return;
 	}
-	memset(ime_new, 0, sizeof(*ime_new));
 	ime_new->im_name = im_name;
 	ime_new->owner = owner;
 	ime_new->userdata = userdata;

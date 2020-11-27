@@ -32,6 +32,8 @@
 #include <linux/seq_file.h>
 #include <linux/kallsyms.h>
 #include <linux/bitops.h>
+#include <linux/ilatency.h>
+#include <linux/ltt-events.h>
 
 #include <asm/system.h>
 #include <asm/io.h>
@@ -139,6 +141,9 @@ int handle_IRQ_event(unsigned int irq, struct pt_regs * regs, struct irqaction *
 	int status = 1;	/* Force the "do bottom halves" bit */
 	int ret, retval = 0;
 
+	if (irq != TIMER_IRQ) /* avoid double-reporting the timer IRQ */
+		ltt_ev_irq_entry(irq, !(user_mode(regs)));
+
 	if (!(action->flags & SA_INTERRUPT))
 		local_irq_enable();
 
@@ -154,6 +159,10 @@ int handle_IRQ_event(unsigned int irq, struct pt_regs * regs, struct irqaction *
 		add_interrupt_randomness(irq);
 
 	local_irq_disable();
+
+	if (irq != TIMER_IRQ) /* avoid double-reporting the timer IRQ */
+		ltt_ev_irq_exit();
+
 	return retval;
 }
 
@@ -318,6 +327,7 @@ asmlinkage int do_IRQ(unsigned long r4, unsigned long r5,
 	struct irqaction * action;
 	unsigned int status;
 
+	interrupt_overhead_start();
 	irq_enter();
 
 #ifdef CONFIG_PREEMPT
@@ -381,6 +391,7 @@ asmlinkage int do_IRQ(unsigned long r4, unsigned long r5,
 	 * useful for irq hardware that does not mask cleanly in an
 	 * SMP environment.
 	 */
+	interrupt_overhead_stop();
 	for (;;) {
 		irqreturn_t action_ret;
 
@@ -413,7 +424,7 @@ out:
 	 */
 	preempt_enable_no_resched();
 #endif
-
+	latency_check();
 	return 1;
 }
 

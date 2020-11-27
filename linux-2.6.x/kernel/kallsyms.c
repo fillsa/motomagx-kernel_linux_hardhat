@@ -10,6 +10,11 @@
  * (25/Aug/2004) Paulo Marques <pmarques@grupopie.com>
  *      Changed the compression method from stem compression to "table lookup"
  *      compression (see scripts/kallsyms.c for a more complete description)
+ *
+ * Copyright 2006 Motorola Inc.
+ *
+ * Date            Author          Comment
+ * 06/15/2006      Motorola        Added small coredump support
  */
 #include <linux/kallsyms.h>
 #include <linux/module.h>
@@ -18,6 +23,26 @@
 #include <linux/fs.h>
 #include <linux/err.h>
 #include <linux/proc_fs.h>
+#include <linux/mm.h>
+
+#ifdef CONFIG_KALLSYMS_ALL
+#define all_var 1
+#else
+#define all_var 0
+#endif
+
+#ifdef CONFIG_MOT_FEAT_APP_DUMP
+extern int (*core_print)(const char *fmt, ...);
+extern struct rw_semaphore core_print_lock;
+#define CORE_PRINT(...) \
+	if (core_print != NULL) { \
+		down_read(&core_print_lock); \
+		if (core_print != NULL) { \
+			core_print(__VA_ARGS__); \
+		} \
+		up_read(&core_print_lock); \
+	}
+#endif /* CONFIG_MOT_FEAT_APP_DUMP */
 
 /* These will be re-linked against their real values during the second link stage */
 extern unsigned long kallsyms_addresses[] __attribute__((weak));
@@ -30,7 +55,7 @@ extern u16 kallsyms_token_index[] __attribute__((weak));
 extern unsigned long kallsyms_markers[] __attribute__((weak));
 
 /* Defined by the linker script. */
-extern char _stext[], _etext[], _sinittext[], _einittext[];
+extern char _stext[], _etext[], _sinittext[], _einittext[], _end[];
 
 static inline int is_kernel_inittext(unsigned long addr)
 {
@@ -44,7 +69,14 @@ static inline int is_kernel_text(unsigned long addr)
 {
 	if (addr >= (unsigned long)_stext && addr <= (unsigned long)_etext)
 		return 1;
-	return 0;
+	return in_gate_area_no_task(addr);
+}
+
+static inline int is_kernel(unsigned long addr)
+{
+	if (addr >= (unsigned long)_stext && addr <= (unsigned long)_end)
+		return 1;
+	return in_gate_area_no_task(addr);
 }
 
 /* expand a compressed symbol data into the resulting uncompressed string,
@@ -147,7 +179,8 @@ const char *kallsyms_lookup(unsigned long addr,
 	namebuf[KSYM_NAME_LEN] = 0;
 	namebuf[0] = 0;
 
-	if (is_kernel_text(addr) || is_kernel_inittext(addr)) {
+	if ((all_var && is_kernel(addr)) ||
+	    (!all_var && (is_kernel_text(addr) || is_kernel_inittext(addr)))) {
 		unsigned long symbol_end=0;
 
 		/* do a binary search on the sorted kallsyms_addresses array */
@@ -181,7 +214,7 @@ const char *kallsyms_lookup(unsigned long addr,
 			if (is_kernel_inittext(addr))
 				symbol_end = (unsigned long)_einittext;
 			else
-				symbol_end = (unsigned long)_etext;
+				symbol_end = all_var ? (unsigned long)_end : (unsigned long)_etext;
 		}
 
 		*symbolsize = symbol_end - kallsyms_addresses[low];
@@ -215,6 +248,9 @@ void __print_symbol(const char *fmt, unsigned long address)
 			sprintf(buffer, "%s+%#lx/%#lx", name, offset, size);
 	}
 	printk(fmt, buffer);
+#ifdef CONFIG_MOT_FEAT_APP_DUMP
+	CORE_PRINT(fmt, buffer);
+#endif /* CONFIG_MOT_FEAT_APP_DUMP */
 }
 
 /* To avoid using get_symbol_offset for every symbol, we carry prefix along. */

@@ -1,11 +1,12 @@
 /*
  *  linux/include/linux/mtd/nand.h
  *
+ *  Copyright (c) 2005-2007 Motorola, Inc.
  *  Copyright (c) 2000 David Woodhouse <dwmw2@mvhi.com>
  *                     Steven J. Hill <sjhill@realitydiluted.com>
  *		       Thomas Gleixner <tglx@linutronix.de>
  *
- * $Id: nand.h,v 1.66 2004/10/02 10:07:08 gleixner Exp $
+ * $Id: nand.h,v 1.72 2005/05/27 08:31:33 gleixner Exp $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -48,6 +49,23 @@
  *  02-08-2004 tglx 	added option field to nand structure for chip anomalities
  *  05-25-2004 tglx 	added bad block table support, ST-MICRO manufacturer id
  *			update of nand_chip structure description
+ *  01-17-2005 dmarlin	added extended commands for AG-AND device and added option 
+ * 			for BBT_AUTO_REFRESH.
+ *  01-20-2005 dmarlin	added optional pointer to hardware specific callback for 
+ *			extra error status checks.
+ *
+ *  05-06-2005 Motorola	implemented CONFIG_MTD_NAND_BBM feature.  
+ *			added new attributes to nand_chip structure, and added new 
+ *			nand_bbm_descr structure to support bad block management feature.
+ *  
+ *  11-01-2005 vwool	NAND page layouts introduces for HW ECC handling
+ *
+ *  04-10-2006 Motorola	implemented CONFIG_MOT_FEAT_NAND_RDDIST feature.
+ *			added two new functions and modified nand_do_read_ecc() function
+ *			with extra parameter to support NAND read disturb feature.
+ *
+ *  01-09-2007 Motorola added FL_RDDIST_FIXING state into chip states, added struct task
+ *			*owner into nand_chip structure.
  */
 #ifndef __LINUX_MTD_NAND_H
 #define __LINUX_MTD_NAND_H
@@ -69,6 +87,11 @@ extern int nand_read_raw (struct mtd_info *mtd, uint8_t *buf, loff_t from, size_
 
 /* The maximum number of NAND chips in an array */
 #define NAND_MAX_CHIPS		8
+
+#if defined(CONFIG_MTD_NAND_BBM)
+/* The maximum number of BB map blocks per chip in an array */
+#define NAND_MAX_BBMS		2 
+#endif
 
 /* This constant declares the max. oobsize / page, which
  * is supported now. If you add a chip with bigger oobsize/page
@@ -115,6 +138,25 @@ extern int nand_read_raw (struct mtd_info *mtd, uint8_t *buf, loff_t from, size_
 #define NAND_CMD_READSTART	0x30
 #define NAND_CMD_CACHEDPROG	0x15
 
+/* Extended commands for AG-AND device */
+/* 
+ * Note: the command for NAND_CMD_DEPLETE1 is really 0x00 but 
+ *       there is no way to distinguish that from NAND_CMD_READ0
+ *       until the remaining sequence of commands has been completed
+ *       so add a high order bit and mask it off in the command.
+ */
+#define NAND_CMD_DEPLETE1	0x100
+#define NAND_CMD_DEPLETE2	0x38
+#define NAND_CMD_STATUS_MULTI	0x71
+#define NAND_CMD_STATUS_ERROR	0x72
+/* multi-bank error status (banks 0-3) */
+#define NAND_CMD_STATUS_ERROR0	0x73
+#define NAND_CMD_STATUS_ERROR1	0x74
+#define NAND_CMD_STATUS_ERROR2	0x75
+#define NAND_CMD_STATUS_ERROR3	0x76
+#define NAND_CMD_STATUS_RESET	0x7f
+#define NAND_CMD_STATUS_CLEAR	0xff
+
 /* Status bits */
 #define NAND_STATUS_FAIL	0x01
 #define NAND_STATUS_FAIL_N1	0x02
@@ -134,20 +176,38 @@ extern int nand_read_raw (struct mtd_info *mtd, uint8_t *buf, loff_t from, size_
 #define NAND_ECC_HW3_256	2
 /* Hardware ECC 3 byte ECC per 512 Byte data */
 #define NAND_ECC_HW3_512	3
-/* Hardware ECC 3 byte ECC per 512 Byte data */
+/* Hardware ECC 6 byte ECC per 512 Byte data */
 #define NAND_ECC_HW6_512	4
 /* Hardware ECC 8 byte ECC per 512 Byte data */
 #define NAND_ECC_HW8_512	6
+/* Hardware ECC 12 byte ECC per 2048 Byte data */
+#define NAND_ECC_HW12_2048	7
+
+struct page_layout_item {
+	int length;
+	enum {
+		ITEM_TYPE_DATA, 
+		ITEM_TYPE_OOB, 
+		ITEM_TYPE_ECC,
+	} type;
+}; 
 
 /*
  * Constants for Hardware ECC
-*/
+ */
 /* Reset Hardware ECC for read */
 #define NAND_ECC_READ		0
 /* Reset Hardware ECC for write */
 #define NAND_ECC_WRITE		1
 /* Enable Hardware ECC before syndrom is read back from flash */
 #define NAND_ECC_READSYN	2
+#define NAND_ECC_WRITESYN	3
+#define NAND_ECC_READOOB	4
+#define NAND_ECC_WRITEOOB	5
+
+/* Bit mask for flags passed to do_nand_read_ecc */
+#define NAND_GET_DEVICE		0x80
+
 
 /* Option constants for bizarre disfunctionality and real
 *  features
@@ -168,6 +228,10 @@ extern int nand_read_raw (struct mtd_info *mtd, uint8_t *buf, loff_t from, size_
 /* Chip has a array of 4 pages which can be read without
  * additional ready /busy waits */
 #define NAND_4PAGE_ARRAY	0x00000040 
+/* Chip requires that BBT is periodically rewritten to prevent
+ * bits from adjacent blocks from 'leaking' in altering data.
+ * This happens with the Renesas AG-AND chips, possibly others.  */
+#define BBT_AUTO_REFRESH	0x00000080
 
 /* Options valid for Samsung large page devices */
 #define NAND_SAMSUNG_LP_OPTIONS \
@@ -190,7 +254,12 @@ extern int nand_read_raw (struct mtd_info *mtd, uint8_t *buf, loff_t from, size_
  * This can only work if we have the ecc bytes directly behind the 
  * data bytes. Applies for DOC and AG-AND Renesas HW Reed Solomon generators */
 #define NAND_HWECC_SYNDROME	0x00020000
-
+/* This option skips the bbt scan during initialization. */
+#define NAND_SKIP_BBTSCAN	0x00040000
+/* This option specifies that a whole NAND page is to be written in
+ * nand_write_oob. This is needed for some HW ECC generators that need a
+ * whole page to be written to generate ECC properly */
+#define NAND_COMPLEX_OOB_WRITE	0x00080000
 
 /* Options set by nand scan */
 /* Nand scan has allocated oob_buf */
@@ -210,6 +279,10 @@ typedef enum {
 	FL_ERASING,
 	FL_SYNCING,
 	FL_CACHEDPRG,
+	FL_PM_SUSPENDED,
+#ifdef CONFIG_MOT_FEAT_NAND_RDDIST
+	FL_RDDIST_FIXING,
+#endif
 } nand_state_t;
 
 /* Keep gcc happy */
@@ -219,10 +292,13 @@ struct nand_chip;
  * struct nand_hw_control - Control structure for hardware controller (e.g ECC generator) shared among independend devices
  * @lock:               protection lock  
  * @active:		the mtd device which holds the controller currently
+ * @wq:			wait queue to sleep on if a NAND operation is in progress
+ *                      used instead of the per chip wait queue when a hw controller is available
  */
 struct nand_hw_control {
 	spinlock_t	 lock;
 	struct nand_chip *active;
+	wait_queue_head_t wq;
 };
 
 /**
@@ -253,6 +329,7 @@ struct nand_hw_control {
  * @scan_bbt:		[REPLACEABLE] function to scan bad block table
  * @eccmode:		[BOARDSPECIFIC] mode of ecc, see defines 
  * @eccsize: 		[INTERN] databytes used per ecc-calculation
+ * @eccbytes: 		[INTERN] number of ecc bytes per ecc-calculation step
  * @eccsteps:		[INTERN] number of ecc calculation steps per page
  * @chip_delay:		[BOARDSPECIFIC] chip dependent delay for transfering data from array to read regs (tR)
  * @chip_lock:		[INTERN] spinlock used to protect access to this structure and the chip
@@ -277,8 +354,15 @@ struct nand_hw_control {
  * @bbt:		[INTERN] bad block table pointer
  * @bbt_td:		[REPLACEABLE] bad block table descriptor for flash lookup
  * @bbt_md:		[REPLACEABLE] bad block table mirror descriptor
+ * @bbm:                [INTERN] bad block map pointer
+ * @bbm_td:		[REPLACEABLE] bad block map descriptor for flash lookup
+ * @bbm_md:		[REPLACEABLE] bad block map mirror descriptor
+ * @badblock_pattern:	[REPLACEABLE] bad block scan pattern used for initial bad block scan 
  * @controller:		[OPTIONAL] a pointer to a hardware controller structure which is shared among multiple independend devices
  * @priv:		[OPTIONAL] pointer to private chip date
+ * @owner:		[INTERN] pointer to struct task for current task owner
+ * @errstat:		[OPTIONAL] hardware specific function to perform additional error status checks 
+ *			(determine if errors are correctable)
  */
  
 struct nand_chip {
@@ -307,6 +391,7 @@ struct nand_chip {
 	int		(*scan_bbt)(struct mtd_info *mtd);
 	int		eccmode;
 	int		eccsize;
+	int		eccbytes;
 	int		eccsteps;
 	int 		chip_delay;
 	spinlock_t	chip_lock;
@@ -327,11 +412,23 @@ struct nand_chip {
 	int		pagemask;
 	int		pagebuf;
 	struct nand_oobinfo	*autooob;
+	struct page_layout_item *layout;
+	int		layout_allocated;
 	uint8_t		*bbt;
 	struct nand_bbt_descr	*bbt_td;
 	struct nand_bbt_descr	*bbt_md;
+#ifdef CONFIG_MTD_NAND_BBM
+	uint16_t	*bbm;
+	struct nand_bbm_descr	*bbm_td;
+	struct nand_bbm_descr	*bbm_md;
+#endif
+	struct nand_bbt_descr	*badblock_pattern;
 	struct nand_hw_control  *controller;
 	void		*priv;
+#ifdef CONFIG_MOT_FEAT_NAND_RDDIST
+	struct task 	*owner;
+#endif
+	int		(*errstat)(struct mtd_info *mtd, struct nand_chip *this, int state, int status, int page);
 };
 
 /*
@@ -343,6 +440,8 @@ struct nand_chip {
 #define NAND_MFR_NATIONAL	0x8f
 #define NAND_MFR_RENESAS	0x07
 #define NAND_MFR_STMICRO	0x20
+#define NAND_MFR_MICRON		0x2c
+#define NAND_MFR_HYNIX          0xad
 
 /**
  * struct nand_flash_dev - NAND Flash Device ID Structure
@@ -414,6 +513,43 @@ struct nand_bbt_descr {
 	uint8_t	*pattern;
 };
 
+#ifdef CONFIG_MTD_NAND_BBM
+/** 
+ * struct nand_bbm_descr - bad block map descriptor
+ * @options:	options for this descriptor
+ * @pages:	the page(s) where we find the bbm, used with option BBT_ABSPAGE
+ *		when bbm is searched, then we store the found bbms pages here.
+ *		Its a two dimensions array and supports up 2 bbm blocks for each chip
+ 		and up to 8 chips now
+ * @offs:	offset of the pattern in the oob area of the page
+ * @veroffs:	offset of the bbm version counter in the oob are of the page
+ * @version:	version read from the bbt page during scan
+ * @len:	length of the pattern, if 0 no pattern check is performed
+ * @maxblocks:	maximum number of blocks to search for a bbm. This number of
+ *		blocks is reserved at the end of the device where the tables are 
+ *		written.
+ * @reserved_block_code: if non-0, this pattern denotes a reserved (rather than
+ *              bad) block in the stored bbt
+ * @pattern:	pattern to identify bad block map.
+ *
+ * Descriptor for the bad block map marker and the descriptor for the 
+ * pattern which identifies bad blocks map. The assumption is made
+ * that the pattern and the version count are always located in the oob area
+ * of the first block.
+ */
+struct nand_bbm_descr {
+	int	options;
+	int	pages[NAND_MAX_CHIPS][NAND_MAX_BBMS];
+	int	offs;
+	int	veroffs;
+	uint8_t	version[NAND_MAX_CHIPS];
+	int	len;
+	int 	maxblocks;
+	int	reserved_block_code;
+	uint8_t	*pattern;
+};
+#endif
+
 /* Options for the bad block table descriptors */
 
 /* The number of bits used per block in the bbt on the device */
@@ -448,11 +584,22 @@ struct nand_bbt_descr {
 /* The maximum number of blocks to scan for a bbt */
 #define NAND_BBT_SCAN_MAXBLOCKS	4
 
+#ifdef CONFIG_MOT_FEAT_NAND_RDDIST
+extern int get_bbm_index(struct mtd_info *mtd, uint16_t* bbm);
+extern int update_bbm (struct mtd_info *mtd, uint8_t *bbm, int chipsel);
+#endif
 extern int nand_scan_bbt (struct mtd_info *mtd, struct nand_bbt_descr *bd);
 extern int nand_update_bbt (struct mtd_info *mtd, loff_t offs);
 extern int nand_default_bbt (struct mtd_info *mtd);
 extern int nand_isbad_bbt (struct mtd_info *mtd, loff_t offs, int allowbbt);
 extern int nand_erase_nand (struct mtd_info *mtd, struct erase_info *instr, int allowbbt);
+extern int nand_do_read_ecc (struct mtd_info *mtd, loff_t from, size_t len,
+                             size_t * retlen, u_char * buf, u_char * oob_buf,
+#ifdef CONFIG_MOT_FEAT_NAND_RDDIST
+			     struct nand_oobinfo *oobsel, int flags, int *rddist_block);
+#else
+                             struct nand_oobinfo *oobsel, int flags);
+#endif
 
 /*
 * Constants for oob configuration

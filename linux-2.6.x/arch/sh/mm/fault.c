@@ -21,6 +21,7 @@
 #include <linux/smp_lock.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
+#include <linux/ltt-events.h>
 
 #include <asm/system.h>
 #include <asm/io.h>
@@ -28,7 +29,6 @@
 #include <asm/pgalloc.h>
 #include <asm/mmu_context.h>
 #include <asm/cacheflush.h>
-#include <asm/kgdb.h>
 
 extern void die(const char *,struct pt_regs *,long);
 
@@ -45,13 +45,16 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long writeaccess,
 	struct vm_area_struct * vma;
 	unsigned long page;
 
-#ifdef CONFIG_SH_KGDB
-	if (kgdb_nofault && kgdb_bus_err_hook)
-		kgdb_bus_err_hook();
-#endif
-
 	tsk = current;
 	mm = tsk->mm;
+
+#if (CONFIG_LTT)
+	{
+		unsigned long trapnr;
+		asm volatile("stc       r2_bank,%0": "=r" (trapnr));
+		ltt_ev_trap_entry(trapnr >> 5, regs->pc);  /* trap 4,5 or 6 */
+	}
+#endif
 
 	/*
 	 * If we're in an interrupt or have no user
@@ -106,6 +109,7 @@ survive:
 	}
 
 	up_read(&mm->mmap_sem);
+	ltt_ev_trap_exit();
 	return;
 
 /*
@@ -119,6 +123,7 @@ bad_area:
 		tsk->thread.address = address;
 		tsk->thread.error_code = writeaccess;
 		force_sig(SIGSEGV, tsk);
+		ltt_ev_trap_exit();
 		return;
 	}
 
@@ -153,6 +158,7 @@ no_context:
 	}
 	die("Oops", regs, writeaccess);
 	do_exit(SIGKILL);
+	dump_stack();
 
 /*
  * We ran out of memory, or some other thing happened to us that made
@@ -185,6 +191,8 @@ do_sigbus:
 	/* Kernel mode? Handle exceptions or die */
 	if (!user_mode(regs))
 		goto no_context;
+
+	ltt_ev_trap_exit();
 }
 
 /*
@@ -198,11 +206,6 @@ asmlinkage int __do_page_fault(struct pt_regs *regs, unsigned long writeaccess,
 	pmd_t *pmd;
 	pte_t *pte;
 	pte_t entry;
-
-#ifdef CONFIG_SH_KGDB
-	if (kgdb_nofault && kgdb_bus_err_hook)
-		kgdb_bus_err_hook();
-#endif
 
 #ifdef CONFIG_SH_STORE_QUEUES
 	addrmax = P4SEG_STORE_QUE + 0x04000000;

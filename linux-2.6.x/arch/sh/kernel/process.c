@@ -20,6 +20,7 @@
 #include <linux/ptrace.h>
 #include <linux/platform.h>
 #include <linux/kallsyms.h>
+#include <linux/ltt-events.h>
 
 #include <asm/io.h>
 #include <asm/uaccess.h>
@@ -174,6 +175,7 @@ __asm__(".align 5\n"
 int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 {	/* Don't use this in BL=1(cli).  Or else, CPU resets! */
 	struct pt_regs regs;
+	long pid;
 
 	memset(&regs, 0, sizeof(regs));
 	regs.regs[4] = (unsigned long) arg;
@@ -183,7 +185,10 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	regs.sr = (1 << 30);
 
 	/* Ok, create the new process.. */
-	return do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
+	pid = do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
+	if(pid >= 0)
+		ltt_ev_process(LTT_EV_PROCESS_KTHREAD, pid, (int) fn);
+	return pid;
 }
 
 /*

@@ -40,7 +40,7 @@ struct in6_addr
 #define s6_addr32		in6_u.u6_addr32
 };
 
-/* IPv6 Wildcard Address (::) and Loopback Address (::1) defined in RFC2553
+/* IPv6 Wildcard Address (::) and Loopback Address (::1) defined in RFC3493
  * NOTE: Be aware the IN6ADDR_* constants and in6addr_* externals are defined
  * in network byte order, not in host byte order as are the IPv4 equivalents
  */
@@ -54,7 +54,7 @@ struct sockaddr_in6 {
 	__u16			sin6_port;      /* Transport layer port # */
 	__u32			sin6_flowinfo;  /* IPv6 flow information */
 	struct in6_addr		sin6_addr;      /* IPv6 address */
-	__u32			sin6_scope_id;  /* scope id (new in RFC2553) */
+	__u32			sin6_scope_id;  /* scope id */
 };
 
 struct ipv6_mreq {
@@ -132,6 +132,7 @@ struct in6_flowlabel_req
 #define IPPROTO_ICMPV6		58	/* ICMPv6			*/
 #define IPPROTO_NONE		59	/* IPv6 no next header		*/
 #define IPPROTO_DSTOPTS		60	/* IPv6 destination options	*/
+#define IPPROTO_MH		135	/* IPv6 mobility header		*/
 
 /*
  *	IPv6 TLV options.
@@ -140,6 +141,7 @@ struct in6_flowlabel_req
 #define IPV6_TLV_PADN		1
 #define IPV6_TLV_ROUTERALERT	5
 #define IPV6_TLV_JUMBO		194
+#define IPV6_TLV_HAO		201	/* home address option */
 
 /*
  *	IPV6 socket options
@@ -195,5 +197,8 @@ struct in6_flowlabel_req
  * MCAST_LEAVE_SOURCE_GROUP	47
  * MCAST_MSFILTER		48
  */
+
+/* Netfilter */
+#define IPV6_NF_ORIGINAL_DST 80
 
 #endif

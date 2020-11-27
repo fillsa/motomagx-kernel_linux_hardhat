@@ -17,6 +17,15 @@ config IPV6_PRIVACY
 
 	  See <file:Documentation/networking/ip-sysctl.txt> for details.
 
+config IPV6_ROUTER_PREF
+	bool "IPv6: default router preference"
+	depends on IPV6
+
+config IPV6_NEW_ROUNDROBIN
+	bool
+	depends on IPV6_ROUTER_PREF
+	default y
+
 config INET6_AH
 	tristate "IPv6: AH transformation"
 	depends on IPV6
@@ -75,5 +84,53 @@ config IPV6_TUNNEL
 	---help---
 	  Support for IPv6-in-IPv6 tunnels described in RFC 2473.
 
+	  If unsure, say N.
+
+config IPV6_STATISTICS
+	bool "IPv6: per-interface statistics for SNMP"
+	depends on IPv6
+
+config IPV6_ADVANCED_ROUTER
+	bool "IPv6: advanced router"
+	depends on IPV6
+	---help---
+	  Support for advaced routing...
+
+	  If unsure, say N.
+config IPV6_SUBTREES
+	bool "IPv6: source address routing"
+	depends on IPV6_ADVANCED_ROUTER 
+	---help---
+	  Support for advanced routing by both source and destination address.
+
+config IPV6_MULTIPLE_TABLES
+	bool "IPv6: policy routing"
+	depends on IPV6_ADVANCED_ROUTER 
+	---help---
+	  ...
+
+	  If unsure, say N.
+
+config IPV6_MIP6
+	bool "IPv6: Mobility (EXPERIMENTAL)"
+	depends on IPV6 && EXPERIMENTAL
+	select XFRM
+	select XFRM_USER
+	select XFRM_ENHANCEMENT
+	select IPV6_ADVANCED_ROUTER
+	select IPV6_SUBTREES
+	select IPV6_MULTIPLE_TABLES
+	select INET6_TUNNEL
+	---help---
+	  Support for IPv6 Mobility.
+
+	  If unsure, say N.
+
+config IPV6_MIP6_DEBUG
+	bool "IPv6: Moblity Debug Message"
+	depends on IPV6_MIP6
+	---help---
+	  Be sure to say Y and record debug messages when submitting a
+	  bug report.
 	  If unsure, say N.
 

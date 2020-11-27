@@ -35,12 +35,14 @@
 #include <asm/system.h>
 #include <asm/tlbflush.h>
 #include <asm/pgtable.h>
+#include <asm/kgdb.h>
+#include <asm/hrtime.h>
 
 #include <asm/mach/map.h>
 #include <asm/mach/time.h>
 #include <asm/mach/irq.h>
 
-static spinlock_t ixp2000_slowport_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_RAW_SPINLOCK(ixp2000_slowport_lock);
 static unsigned long ixp2000_slowport_irq_flags;
 
 /*************************************************************************
@@ -152,7 +154,8 @@ static struct uart_port ixp2000_serial_port = {
 	.uartclk	= 50000000,
 	.line		= 0,
 	.type		= PORT_XSCALE,
-	.fifosize	= 16
+	.fifosize	= 16,
+	.lock		= SPIN_LOCK_UNLOCKED
 };
 
 void __init ixp2000_map_io(void)
@@ -160,22 +163,25 @@ void __init ixp2000_map_io(void)
 	iotable_init(ixp2000_small_io_desc, ARRAY_SIZE(ixp2000_small_io_desc));
 	iotable_init(ixp2000_large_io_desc, ARRAY_SIZE(ixp2000_large_io_desc));
 	early_serial_setup(&ixp2000_serial_port);
+#ifdef CONFIG_KGDB_8250
+	kgdb8250_add_port(0, &ixp2000_serial_port);
+#endif
 }
 
 /*************************************************************************
  * Timer-tick functions for IXP2000
  *************************************************************************/
 static unsigned ticks_per_jiffy;
-static unsigned ticks_per_usec;
+static unsigned ixp2000_ticks_per_usec;
+static unsigned next_jiffy_time;
 
 unsigned long ixp2000_gettimeoffset (void)
 {
-	unsigned long elapsed;
+ 	unsigned long offset;
 
-	/* Get ticks since last perfect jiffy */
-	elapsed = ticks_per_jiffy - *IXP2000_T1_CSR;
+	offset = next_jiffy_time - *IXP2000_T4_CSR;
 
-	return elapsed / ticks_per_usec;
+	return offset / ixp2000_ticks_per_usec;
 }
 
 static int ixp2000_timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
@@ -185,7 +191,10 @@ static int ixp2000_timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 	/* clear timer 1 */
 	ixp2000_reg_write(IXP2000_T1_CLR, 1);
 	
-	timer_tick(regs);
+	while ((next_jiffy_time - *IXP2000_T4_CSR) > ticks_per_jiffy) {
+		timer_tick(regs);
+		next_jiffy_time -= ticks_per_jiffy;
+	}
 
 	write_sequnlock(&xtime_lock);
 
@@ -198,19 +207,44 @@ static struct irqaction ixp2000_timer_irq = {
 	.handler	= ixp2000_timer_interrupt
 };
 
+unsigned long ixp2000_tick_rate;
+
 void __init ixp2000_init_time(unsigned long tick_rate)
 {
+	ixp2000_tick_rate = tick_rate;
+
 	ixp2000_reg_write(IXP2000_T1_CLR, 0);
-	ixp2000_reg_write(IXP2000_T2_CLR, 0);
+	ixp2000_reg_write(IXP2000_T4_CLR, 0);
 
 	ticks_per_jiffy = (tick_rate + HZ/2) / HZ;
-	ticks_per_usec = tick_rate / 1000000;
+	ixp2000_ticks_per_usec = tick_rate / 1000000;
 
 	ixp2000_reg_write(IXP2000_T1_CLD, ticks_per_jiffy);
 	ixp2000_reg_write(IXP2000_T1_CTL, (1 << 7));
 
+	/*
+	 * We use T4 as a monotonic counter to track missed jiffies
+	 */
+	ixp2000_reg_write(IXP2000_T4_CLD, -1);
+	ixp2000_reg_write(IXP2000_T4_CTL, (1 << 7));
+ 	next_jiffy_time = 0xffffffff - ticks_per_jiffy;
+
 	/* register for interrupt */
 	setup_irq(IRQ_IXP2000_TIMER1, &ixp2000_timer_irq);
+
+	/*
+	 * Start PMU for preempt-timing purposes
+	 */
+	do {					
+		unsigned int pmnc = 3; /* PMU_ENABLE | PMU_RESET */
+		__asm__ __volatile__("mcr    p14, 0, %0, c0, c1, 0"
+			: : "r" (pmnc)); 
+	} while (0);
+
+	/*
+	 * Initialize HRT 
+	 */
+	hr_time_init();
 }
 
 /*************************************************************************

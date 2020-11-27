@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
-# Linux kernel version: 2.6.10-rc2
-# Sun Nov 21 14:12:08 2004
+# Linux kernel version: 2.6.10
+# Mon Dec 27 19:11:05 2004
 #
 CONFIG_MIPS=y
 # CONFIG_MIPS64 is not set
@@ -58,6 +58,7 @@ CONFIG_KMOD=y
 #
 # CONFIG_MACH_JAZZ is not set
 CONFIG_MACH_VR41XX=y
+# CONFIG_NEC_CMBVR4133 is not set
 # CONFIG_CASIO_E55 is not set
 CONFIG_IBM_WORKPAD=y
 # CONFIG_TANBAC_TB0226 is not set
@@ -97,7 +98,6 @@ CONFIG_DMA_NONCOHERENT=y
 CONFIG_CPU_LITTLE_ENDIAN=y
 CONFIG_IRQ_CPU=y
 CONFIG_MIPS_L1_CACHE_SHIFT=5
-# CONFIG_FB is not set
 
 #
 # CPU selection
@@ -173,6 +173,7 @@ CONFIG_PREVENT_FIRMWARE_BUILD=y
 # CONFIG_BLK_DEV_LOOP is not set
 # CONFIG_BLK_DEV_NBD is not set
 # CONFIG_BLK_DEV_RAM is not set
+CONFIG_BLK_DEV_RAM_COUNT=16
 CONFIG_INITRAMFS_SOURCE=""
 # CONFIG_LBD is not set
 CONFIG_CDROM_PKTCDVD=m
@@ -463,7 +464,6 @@ CONFIG_WATCHDOG=y
 #
 # Ftape, the floppy tape device driver
 #
-# CONFIG_AGP is not set
 # CONFIG_DRM is not set
 # CONFIG_RAW_DRIVER is not set
 
@@ -494,6 +494,7 @@ CONFIG_WATCHDOG=y
 #
 # Graphics support
 #
+# CONFIG_FB is not set
 
 #
 # Console display driver support
@@ -514,9 +515,18 @@ CONFIG_DUMMY_CONSOLE=y
 # CONFIG_USB_ARCH_HAS_OHCI is not set
 
 #
+# NOTE: USB_STORAGE enables SCSI, and 'SCSI disk support' may also be needed; see USB_STORAGE Help for more information
+#
+
+#
 # USB Gadget Support
 #
 # CONFIG_USB_GADGET is not set
+
+#
+# MMC/SD Card support
+#
+# CONFIG_MMC is not set
 
 #
 # File systems
@@ -613,6 +623,11 @@ CONFIG_MSDOS_PARTITION=y
 # Native Language Support
 #
 # CONFIG_NLS is not set
+
+#
+# Profiling support
+#
+# CONFIG_PROFILING is not set
 
 #
 # Kernel hacking

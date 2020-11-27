@@ -47,8 +47,8 @@ static int configure_new_function( struct controller *ctrl, struct pci_func *fun
 	u8 behind_bridge, struct resource_lists *resources, u8 bridge_bus, u8 bridge_dev);
 static void interrupt_event_handler(struct controller *ctrl);
 
-static struct semaphore event_semaphore;	/* mutex for process loop (up if something to process) */
-static struct semaphore event_exit;		/* guard ensure thread has exited before calling it quits */
+static struct compat_semaphore event_semaphore;	/* mutex for process loop (up if something to process) */
+static struct compat_semaphore event_exit;	/* guard ensure thread has exited before calling it quits */
 static int event_finished;
 static unsigned long pushbutton_pending;	/* = 0 */
 

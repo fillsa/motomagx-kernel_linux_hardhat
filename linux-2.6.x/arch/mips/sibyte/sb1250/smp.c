@@ -27,6 +27,7 @@
 #include <asm/sibyte/sb1250.h>
 #include <asm/sibyte/sb1250_regs.h>
 #include <asm/sibyte/sb1250_int.h>
+#include <asm/time.h>
 
 static void *mailbox_set_regs[] = {
 	(void *)IOADDR(A_IMR_CPU0_BASE + R_IMR_MAILBOX_SET_CPU),
@@ -57,8 +58,10 @@ void sb1250_smp_init(void)
 
 void sb1250_smp_finish(void)
 {
+#ifndef CONFIG_CPU_TIMER
 	extern void sb1250_time_init(void);
 	sb1250_time_init();
+#endif
 	local_irq_enable();
 }
 
@@ -73,7 +76,7 @@ void sb1250_smp_finish(void)
  */
 void core_send_ipi(int cpu, unsigned int action)
 {
-	__raw_writeq((((u64)action)<< 48), mailbox_set_regs[cpu]);
+	bus_writeq((((u64)action) << 48), mailbox_set_regs[cpu]);
 }
 
 void sb1250_mailbox_interrupt(struct pt_regs *regs)
@@ -83,10 +86,10 @@ void sb1250_mailbox_interrupt(struct pt_regs *regs)
 
 	kstat_this_cpu.irqs[K_INT_MBOX_0]++;
 	/* Load the mailbox register to figure out what we're supposed to do */
-	action = (____raw_readq(mailbox_regs[cpu]) >> 48) & 0xffff;
+	action = (__bus_readq(mailbox_regs[cpu]) >> 48) & 0xffff;
 
 	/* Clear the mailbox to clear the interrupt */
-	____raw_writeq(((u64)action)<<48, mailbox_clear_regs[cpu]);
+	__bus_writeq(((u64)action) << 48, mailbox_clear_regs[cpu]);
 
 	/*
 	 * Nothing to do for SMP_RESCHEDULE_YOURSELF; returning from the
@@ -95,4 +98,10 @@ void sb1250_mailbox_interrupt(struct pt_regs *regs)
 
 	if (action & SMP_CALL_FUNCTION)
 		smp_call_function_interrupt();
+
+	if (action & SMP_LOCAL_TIMER) {
+		irq_enter();
+		local_timer_interrupt(0, NULL, regs);
+		irq_exit();
+	}
 }

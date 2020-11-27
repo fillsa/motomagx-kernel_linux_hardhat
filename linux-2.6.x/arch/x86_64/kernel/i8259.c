@@ -130,7 +130,7 @@ void (*interrupt[NR_IRQS])(void) = {
  * moves to arch independent land
  */
 
-spinlock_t i8259A_lock = SPIN_LOCK_UNLOCKED;
+DEFINE_RAW_SPINLOCK(i8259A_lock);
 
 static void end_8259A_irq (unsigned int irq)
 {
@@ -440,7 +440,7 @@ device_initcall(i8259A_init_sysfs);
  * IRQ2 is cascade interrupt to second interrupt controller
  */
 
-static struct irqaction irq2 = { no_action, 0, CPU_MASK_NONE, "cascade", NULL, NULL};
+static struct irqaction irq2 = { no_action, SA_NODELAY, CPU_MASK_NONE, "cascade", NULL, NULL};
 
 void __init init_ISA_irqs (void)
 {

@@ -3,7 +3,16 @@
 
 /*
  * Copyright 1995 Linus Torvalds
+ * Copyright (C) 2007, Motorola, Inc.
  */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 31-Jan-2007  Motorola        Fix the bug about st_ctime, and st_mtime field 
+ *                              of a mapped region, and msync()
+ * 13-Nov-2007  Motorola        Fix deadlock problem in JFFS2.
+ */
+
 #include <linux/mm.h>
 #include <linux/fs.h>
 #include <linux/list.h>
@@ -18,6 +27,10 @@
  */
 #define	AS_EIO		(__GFP_BITS_SHIFT + 0)	/* IO error on async write */
 #define AS_ENOSPC	(__GFP_BITS_SHIFT + 1)	/* ENOSPC on async write */
+
+#ifdef CONFIG_MOT_WFN484
+#define AS_MCTIME	(__GFP_BITS_SHIFT + 2)  /* need m/ctime change */
+#endif
 
 static inline int mapping_gfp_mask(struct address_space * mapping)
 {
@@ -50,14 +63,24 @@ static inline void mapping_set_gfp_mask(struct address_space *m, int mask)
 #define page_cache_release(page)	put_page(page)
 void release_pages(struct page **pages, int nr, int cold);
 
-static inline struct page *page_cache_alloc(struct address_space *x)
+
+static inline struct page *__page_cache_alloc(struct address_space *x,
+					      unsigned long idx,
+					      unsigned int gfp_mask)
 {
-	return alloc_pages(mapping_gfp_mask(x), 0);
+	return alloc_page_shared_policy(gfp_mask, &x->policy, idx);
 }
 
-static inline struct page *page_cache_alloc_cold(struct address_space *x)
+static inline struct page *page_cache_alloc(struct address_space *x,
+					    unsigned long idx)
 {
-	return alloc_pages(mapping_gfp_mask(x)|__GFP_COLD, 0);
+	return __page_cache_alloc(x, idx, mapping_gfp_mask(x));
+}
+
+static inline struct page *page_cache_alloc_cold(struct address_space *x,
+						 unsigned long idx)
+{
+	return __page_cache_alloc(x, idx, mapping_gfp_mask(x)|__GFP_COLD);
 }
 
 typedef int filler_t(void *, struct page *);
@@ -85,6 +108,11 @@ static inline struct page *grab_cache_page(struct address_space *mapping, unsign
 
 extern struct page * grab_cache_page_nowait(struct address_space *mapping,
 				unsigned long index);
+extern struct page * read_cache_page_async_trylock(
+				struct address_space *mapping,
+				unsigned long index, filler_t *filler,
+				void *data);
+
 extern struct page * read_cache_page(struct address_space *mapping,
 				unsigned long index, filler_t *filler,
 				void *data);
@@ -111,20 +139,19 @@ DECLARE_PER_CPU(long, nr_pagecache_local);
  * an offset in their per-cpu arena and will spill that into the
  * global count whenever the absolute value of the local count
  * exceeds the counter's threshold.
- *
- * MUST be protected from preemption.
- * current protection is mapping->page_lock.
  */
 static inline void pagecache_acct(int count)
 {
 	long *local;
 
+	preempt_disable();
 	local = &__get_cpu_var(nr_pagecache_local);
 	*local += count;
 	if (*local > PAGECACHE_ACCT_THRESHOLD || *local < -PAGECACHE_ACCT_THRESHOLD) {
 		atomic_add(*local, &nr_pagecache);
 		*local = 0;
 	}
+	preempt_enable();
 }
 
 #else

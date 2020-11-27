@@ -37,6 +37,7 @@
 #include <linux/kallsyms.h>
 #include <linux/mqueue.h>
 #include <linux/hardirq.h>
+#include <linux/ltt-events.h>
 
 #include <asm/pgtable.h>
 #include <asm/uaccess.h>
@@ -325,17 +326,6 @@ void show_regs(struct pt_regs * regs)
 	       current, current->pid, current->comm, current->thread_info);
 	printk("Last syscall: %ld ", current->thread.last_syscall);
 
-#if defined(CONFIG_4xx) && defined(DCRN_PLB0_BEAR)
-	printk("\nPLB0: bear= 0x%8.8x acr=   0x%8.8x besr=  0x%8.8x\n",
-	    mfdcr(DCRN_PLB0_BEAR), mfdcr(DCRN_PLB0_ACR),
-	    mfdcr(DCRN_PLB0_BESR));
-#endif
-#if defined(CONFIG_4xx) && defined(DCRN_POB0_BEAR)
-	printk("PLB0 to OPB: bear= 0x%8.8x besr0= 0x%8.8x besr1= 0x%8.8x\n",
-	    mfdcr(DCRN_POB0_BEAR), mfdcr(DCRN_POB0_BESR0),
-	    mfdcr(DCRN_POB0_BESR1));
-#endif
-
 #ifdef CONFIG_SMP
 	printk(" CPU: %d", smp_processor_id());
 #endif /* CONFIG_SMP */
@@ -363,6 +353,19 @@ void show_regs(struct pt_regs * regs)
 #endif
 	show_stack(current, (unsigned long *) regs->gpr[1]);
 }
+
+#if (CONFIG_LTT)
+long original_kernel_thread(int (*fn) (void *), void* arg, unsigned long flags);
+long kernel_thread(int (*fn) (void *), void* arg, unsigned long flags)
+{
+        long   retval;
+
+	retval = original_kernel_thread(fn, arg, flags);
+	if (retval > 0)
+		ltt_ev_process(LTT_EV_PROCESS_KTHREAD, retval, (int) fn);
+	return retval;
+}
+#endif /* (CONFIG_LTT) */
 
 void exit_thread(void)
 {

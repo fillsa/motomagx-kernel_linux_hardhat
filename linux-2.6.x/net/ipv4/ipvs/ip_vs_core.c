@@ -545,9 +545,9 @@ u16 ip_vs_checksum_complete(struct sk_buff *skb, int offset)
 }
 
 static inline struct sk_buff *
-ip_vs_gather_frags(struct sk_buff *skb)
+ip_vs_gather_frags(struct sk_buff *skb, u_int32_t user)
 {
-	skb = ip_defrag(skb);
+	skb = ip_defrag(skb, user);
 	if (skb)
 		ip_send_check(skb->nh.iph);
 	return skb;
@@ -621,7 +621,7 @@ static int ip_vs_out_icmp(struct sk_buff **pskb, int *related)
 
 	/* reassemble IP fragments */
 	if (skb->nh.iph->frag_off & __constant_htons(IP_MF|IP_OFFSET)) {
-		skb = ip_vs_gather_frags(skb);
+		skb = ip_vs_gather_frags(skb, IP_DEFRAG_VS_OUT);
 		if (!skb)
 			return NF_STOLEN;
 		*pskb = skb;
@@ -760,7 +760,7 @@ ip_vs_out(unsigned int hooknum, struct sk_buff **pskb,
 	/* reassemble IP fragments */
 	if (unlikely(iph->frag_off & __constant_htons(IP_MF|IP_OFFSET) &&
 		     !pp->dont_defrag)) {
-		skb = ip_vs_gather_frags(skb);
+		skb = ip_vs_gather_frags(skb, IP_DEFRAG_VS_OUT);
 		if (!skb)
 			return NF_STOLEN;
 		iph = skb->nh.iph;
@@ -865,7 +865,8 @@ check_for_ip_vs_out(struct sk_buff **pskb, int (*okfn)(struct sk_buff *))
  *	forward to the right destination host if relevant.
  *	Currently handles error types - unreachable, quench, ttl exceeded.
  */
-static int ip_vs_in_icmp(struct sk_buff **pskb, int *related)
+static int 
+ip_vs_in_icmp(struct sk_buff **pskb, int *related, unsigned int hooknum)
 {
 	struct sk_buff *skb = *pskb;
 	struct iphdr *iph;
@@ -879,7 +880,9 @@ static int ip_vs_in_icmp(struct sk_buff **pskb, int *related)
 
 	/* reassemble IP fragments */
 	if (skb->nh.iph->frag_off & __constant_htons(IP_MF|IP_OFFSET)) {
-		skb = ip_vs_gather_frags(skb);
+		skb = ip_vs_gather_frags(skb,
+		                         hooknum == NF_IP_LOCAL_IN ?
+					 IP_DEFRAG_VS_IN : IP_DEFRAG_VS_FWD);
 		if (!skb)
 			return NF_STOLEN;
 		*pskb = skb;
@@ -988,7 +991,7 @@ ip_vs_in(unsigned int hooknum, struct sk_buff **pskb,
 
 	iph = skb->nh.iph;
 	if (unlikely(iph->protocol == IPPROTO_ICMP)) {
-		int related, verdict = ip_vs_in_icmp(pskb, &related);
+		int related, verdict = ip_vs_in_icmp(pskb, &related, hooknum);
 
 		if (related)
 			return verdict;
@@ -1083,7 +1086,7 @@ ip_vs_forward_icmp(unsigned int hooknum, struct sk_buff **pskb,
 	if ((*pskb)->nh.iph->protocol != IPPROTO_ICMP)
 		return NF_ACCEPT;
 
-	return ip_vs_in_icmp(pskb, &r);
+	return ip_vs_in_icmp(pskb, &r, hooknum);
 }
 
 

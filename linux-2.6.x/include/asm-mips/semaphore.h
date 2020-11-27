@@ -24,10 +24,17 @@
 
 #ifdef __KERNEL__
 
-#include <asm/atomic.h>
-#include <asm/system.h>
 #include <linux/wait.h>
 #include <linux/rwsem.h>
+
+#ifdef CONFIG_PREEMPT_RT
+
+#include <linux/rt_lock.h>
+
+#else
+
+#include <asm/atomic.h>
+#include <asm/system.h>
 
 struct semaphore {
 	/*
@@ -106,6 +113,8 @@ static inline void up(struct semaphore * sem)
 	if (unlikely(atomic_inc_return(&sem->count) <= 0))
 		__up(sem);
 }
+
+#endif /* CONFIG_PREEMPT_RT */
 
 #endif /* __KERNEL__ */
 

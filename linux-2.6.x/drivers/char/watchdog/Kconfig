@@ -93,6 +93,11 @@ config IXP4XX_WATCHDOG
 	  be built as a module by choosing M. The module will
 	  be called ixp4xx_wdt.
 
+	  Note: The internal IXP4xx watchdog does a soft CPU reset
+	  which doesn't reset any peripherals. There are circumstances
+	  where the watchdog will fail to reset the board correctly
+	  (e.g., if the boot ROM is in an unreadable state).
+
 	  Say N if you are unsure.
 
 config IXP2000_WATCHDOG
@@ -103,6 +108,17 @@ config IXP2000_WATCHDOG
 	  in the Intel IXP2000(2400, 2800, 2850) network processors.
 	  This driver can be built as a module by choosing M. The module
 	  will be called ixp2000_wdt.
+
+	  Say N if you are unsure.
+
+config PNX4008_WATCHDOG
+	tristate "PNX4008 Watchdog"
+	depends on WATCHDOG && ARCH_PNX4008
+	help
+	  Say Y here if to include support for the watchdog timer
+	  in the PNX4008 processor.
+	  This driver can be built as a module by choosing M. The module
+	  will be called pnx4008_wdt.
 
 	  Say N if you are unsure.
 
@@ -133,6 +149,19 @@ config SA1100_WATCHDOG
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called sa1100_wdt.
+
+config MXC_WATCHDOG
+	tristate "MXC watchdog"
+	depends on WATCHDOG && WATCHDOG_NOWAYOUT
+	depends on ARCH_MXC
+	help
+	  Watchdog timer embedded into MXC chips. This will
+	  reboot your system when timeout is reached.
+
+	  NOTE: once enabled, this timer cannot be disabled.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called mxc_wdt.
 
 # X86 (i386 + ia64 + x86_64) Architecture
 
@@ -540,5 +569,12 @@ config USBPCWATCHDOG
 	  module will be called pcwd_usb.
 
 	  Most people will say N.
+
+config OMAP16XX_WATCHDOG
+	tristate "OMAP1610/OMAP1710 Watchdog"
+	depends on WATCHDOG && ARCH_OMAP16XX
+	help
+	  Support for TI OMAP1610/OMAP1710 watchdog. Say 'Y' here to enable the
+	  OMAP1610/OMAP1710 watchdog timer.
 
 endmenu

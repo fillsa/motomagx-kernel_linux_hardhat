@@ -44,6 +44,11 @@ struct mmu_gather {
 	struct page *		pages[FREE_PTE_NR];
 };
 
+/*
+ * Some architectures might want to store mm in the tlb pointer itself.
+ */
+#define tlb_mm(tlb) ((tlb)->mm)
+
 /* Users of the generic TLB shootdown code must declare this storage space. */
 DECLARE_PER_CPU(struct mmu_gather, mmu_gathers);
 
@@ -53,7 +58,7 @@ DECLARE_PER_CPU(struct mmu_gather, mmu_gathers);
 static inline struct mmu_gather *
 tlb_gather_mmu(struct mm_struct *mm, unsigned int full_mm_flush)
 {
-	struct mmu_gather *tlb = &per_cpu(mmu_gathers, smp_processor_id());
+	struct mmu_gather *tlb = &get_cpu_var(mmu_gathers);
 
 	tlb->mm = mm;
 
@@ -94,6 +99,7 @@ tlb_finish_mmu(struct mmu_gather *tlb, unsigned long start, unsigned long end)
 		freed = rss;
 	mm->rss = rss - freed;
 	tlb_flush_mmu(tlb, start, end);
+	put_cpu_var(mmu_gathers);
 
 	/* keep the page table cache within bounds */
 	check_pgt_cache();
@@ -103,6 +109,15 @@ static inline unsigned int
 tlb_is_full_mm(struct mmu_gather *tlb)
 {
 	return tlb->fullmm;
+}
+
+/* tlb_free
+ *	this counts the number of pages we have to take off the RSS
+ *	at flush time.
+ */
+static inline void tlb_free(struct mmu_gather *tlb)
+{
+	tlb->freed++;
 }
 
 /* tlb_remove_page

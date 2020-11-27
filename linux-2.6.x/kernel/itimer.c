@@ -11,6 +11,7 @@
 #include <linux/interrupt.h>
 #include <linux/syscalls.h>
 #include <linux/time.h>
+#include <linux/ltt-events.h>
 
 #include <asm/uaccess.h>
 
@@ -69,6 +70,7 @@ void it_real_fn(unsigned long __data)
 	struct task_struct * p = (struct task_struct *) __data;
 	unsigned long interval;
 
+	ltt_ev_timer(LTT_EV_TIMER_EXPIRED, 0, 0, 0);
 	send_group_sig_info(SIGALRM, SEND_SIG_PRIV, p);
 	interval = p->it_real_incr;
 	if (interval) {
@@ -88,6 +90,7 @@ int do_setitimer(int which, struct itimerval *value, struct itimerval *ovalue)
 	j = timeval_to_jiffies(&value->it_value);
 	if (ovalue && (k = do_getitimer(which, ovalue)) < 0)
 		return k;
+	ltt_ev_timer(LTT_EV_TIMER_SETITIMER, which, i, j);
 	switch (which) {
 		case ITIMER_REAL:
 			del_timer_sync(&current->real_timer);

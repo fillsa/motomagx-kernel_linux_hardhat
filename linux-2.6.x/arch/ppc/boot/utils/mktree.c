@@ -15,9 +15,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <netinet/in.h>
-#ifdef __sun__
+#if defined(__sun__)
 #include <inttypes.h>
-#else
+#elif !defined(__CYGWIN__)
 #include <stdint.h>
 #endif
 

@@ -21,9 +21,9 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <fcntl.h>
-#ifdef __sun__
+#if defined(__sun__)
 #include <inttypes.h>
-#else
+#elif !defined(__CYGWIN__)
 #include <stdint.h>
 #endif
 

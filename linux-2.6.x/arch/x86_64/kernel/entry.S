@@ -42,6 +42,7 @@
 #include <asm/thread_info.h>
 #include <asm/hw_irq.h>
 #include <asm/errno.h>
+#include <asm/kgdb.h>
 
 	.code64
 
@@ -746,6 +747,7 @@ ENTRY(kernel_thread)
 	UNFAKE_STACK_FRAME
 	ret
 	CFI_ENDPROC
+	CFI_END_FRAME(kernel_thread)
 
 	
 child_rip:
@@ -920,4 +922,41 @@ ENTRY(machine_check)
 
 ENTRY(call_debug)
        zeroentry do_call_debug
+
+#ifdef CONFIG_LATENCY_TRACE
+
+ENTRY(mcount)
+	cmpq $0, trace_enabled
+	jz out
+
+	push %rbp
+	mov %rsp,%rbp
+
+	push %r9
+	push %r8
+	push %rdi
+	push %rsi
+	push %rdx
+	push %rcx
+	push %rax
+
+	mov 0x0(%rbp),%rax
+	mov 0x8(%rbp),%rdi
+	mov 0x8(%rax),%rsi
+	
+	call   __trace
+
+	pop %rax
+	pop %rcx
+	pop %rdx
+	pop %rsi
+	pop %rdi
+	pop %r8
+	pop %r9
+
+	leaveq
+out:
+	ret
+
+#endif
 

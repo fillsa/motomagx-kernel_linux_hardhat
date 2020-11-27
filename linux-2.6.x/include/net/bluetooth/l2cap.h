@@ -1,5 +1,5 @@
 /* 
-   BlueZ - Bluetooth protocol stack for Linux
+   BlueZ - Bluetooth(R) protocol stack for Linux
    Copyright (C) 2000-2001 Qualcomm Incorporated
 
    Written 2000,2001 by Maxim Krasnyansky <maxk@qualcomm.com>
@@ -20,7 +20,33 @@
    ALL LIABILITY, INCLUDING LIABILITY FOR INFRINGEMENT OF ANY PATENTS, 
    COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS 
    SOFTWARE IS DISCLAIMED.
+
+
+   Copyright (C) 2005-2006 - Motorola
+
+   Date         Author           Comment
+   -----------  --------------   --------------------------------
+   2005-Jun-16	Motorola	 Adding fix for packing one of the socket structure since its size is 
+				 different between user space/kernel space
+   2005-Oct-26	Motorola         changes structs to __attribute__((packed)) to work around ABI issues
+   2006-Feb-12  Motorola         Changes done to accomodate the l2cap device driver functionality *
+	1. Define L2CAPCREATEDEV
+	2. Define L2CAPRELASEDEV
+	3. Define l2cap_dev_ioctl()
+	4. Define l2cap_dev_init()
+	5. Define l2cap_dev_exit()
+
+   2006-Aug-15  Motorola         Added 'dir' field to l2cap_pinfo to support outgoing security
+
+   2006-Aug-28  Motorola         Add support for l2cap QoS and unknown options
+
+   2006-Sep-09  Motorola         Add functionality for l2cap to support l2cap echo request and handle 
+                                 l2cap echo response
+        1. l2cap_echo_req_ioctl()  Function to support l2cap echo request
+        2. l2cap_echo_rsp()        Function that handles l2cap echo response
+   2006-Dec-14  Motorola         Added L2CAPECHO ioctl
 */
+
 
 #ifndef __L2CAP_H
 #define __L2CAP_H
@@ -28,6 +54,7 @@
 /* L2CAP defaults */
 #define L2CAP_DEFAULT_MTU	672
 #define L2CAP_DEFAULT_FLUSH_TO	0xFFFF
+#define L2CAP_DEFAULT_QOS	0x01
 
 #define L2CAP_CONN_TIMEOUT	(HZ * 40)
 
@@ -36,7 +63,7 @@ struct sockaddr_l2 {
 	sa_family_t	l2_family;
 	unsigned short	l2_psm;
 	bdaddr_t	l2_bdaddr;
-};
+} __attribute__ ((packed));
 
 /* Socket options */
 #define L2CAP_OPTIONS	0x01
@@ -44,12 +71,12 @@ struct l2cap_options {
 	__u16 omtu;
 	__u16 imtu;
 	__u16 flush_to;
-};
+} __attribute__ ((packed));
 
 #define L2CAP_CONNINFO  0x02
 struct l2cap_conninfo {
 	__u16 hci_handle;
-};
+} __attribute__ ((packed));
 
 #define L2CAP_LM	0x03
 #define L2CAP_LM_MASTER		0x0001
@@ -143,6 +170,8 @@ struct l2cap_conf_rsp {
 
 #define L2CAP_CONF_SUCCESS	0x00
 #define L2CAP_CONF_UNACCEPT	0x01
+#define L2CAP_CONF_REJECT	0x02
+#define L2CAP_CONF_UNKNOWN	0x03
 
 struct l2cap_conf_opt {
 	__u8       type;
@@ -209,6 +238,8 @@ struct l2cap_conn {
 	__u8		tx_ident;
 
 	struct l2cap_chan_list chan_list;
+	wait_queue_head_t      req_wait_q;
+	struct l2cap_echo_data *ersp_data;
 };
 
 /* ----- L2CAP channel and socket info ----- */
@@ -228,15 +259,24 @@ struct l2cap_pinfo {
 	__u8		conf_state;
 	__u8		conf_retry;
 	__u16		conf_mtu;
-
+	__u8		conf_qos;
+	__u8		conf_result;
+	__u8		conf_type;
+	__u8		conf_len;
+	unsigned long	conf_val;
 	__u8		ident;
 
 	__u16		sport;
+
+	__u8		dir;
 
 	struct l2cap_conn	*conn;
 	struct sock		*next_c;
 	struct sock		*prev_c;
 };
+
+#define L2CAP_OUTGOING_CONNECTION 1
+#define L2CAP_INCOMING_CONNECTION 2
 
 #define L2CAP_CONF_REQ_SENT    0x01
 #define L2CAP_CONF_INPUT_DONE  0x02
@@ -244,5 +284,20 @@ struct l2cap_pinfo {
 #define L2CAP_CONF_MAX_RETRIES 2
 
 void l2cap_load(void);
+
+/*  ----- L2cap device driver support ------*/
+#define L2CAPCREATEDEV 	_IOW('R',300,int)
+#define L2CAPRELEASEDEV	_IOW('R',301,int)
+#define L2CAPECHO		_IOW('R',302,int)
+int l2cap_char_dev_ioctl(struct sock *sk, unsigned int cmd, int *arg);
+int l2cap_char_dev_init(void);
+void l2cap_char_dev_exit(void);
+
+#define L2CAP_ECHO_REQ_TIMEOUT	(HZ * 30)
+
+struct l2cap_echo_data {
+	__u16		dlen;
+	__u8		data[0];
+} __attribute__ ((packed));
 
 #endif /* __L2CAP_H */

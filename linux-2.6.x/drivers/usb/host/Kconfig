@@ -14,6 +14,7 @@ config USB_ARCH_HAS_OHCI
 	default y if ARCH_OMAP
 	default y if ARCH_LH7A404
 	default y if PXA27x
+	default y if ARCH_PNX4008
 	default PCI
 
 #
@@ -24,7 +25,7 @@ comment "USB Host Controller Drivers"
 
 config USB_EHCI_HCD
 	tristate "EHCI HCD (USB 2.0) support"
-	depends on USB && PCI
+	depends on USB
 	---help---
 	  The Enhanced Host Controller Interface (EHCI) is standard for USB 2.0
 	  "high speed" (480 Mbit/sec, 60 Mbyte/sec) host controller hardware.
@@ -46,6 +47,42 @@ config USB_EHCI_HCD
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called ehci-hcd.
+
+config USB_EHCI_ARC
+	bool "Support for ARC controller"
+	depends on USB_EHCI_HCD && ARCH_MXC
+	depends on !ARCH_MXC91131
+	depends on !ARCH_MXC91231
+	depends on !ARCH_MXC91331
+	depends on !ARCH_MXC91321
+	---help---
+	   Some Freescale processors have an ARC High Speed
+	   USBOTG controller, which supports EHCI host mode.
+
+	   This driver supports the controller in the i.MX31,
+	   and should work with controllers in other Freescale
+	   processors too, given minor tweaks.
+
+	   Say "y" here to add support for this controller
+	   to the EHCI HCD driver.
+
+config USB_EHCI_ARC_H1
+	bool "Support for Host1 port on ARC controller"
+	depends on USB_EHCI_ARC
+	---help---
+	  Enable support for the USB Host1 port.
+
+config USB_EHCI_ARC_H2
+	bool "Support for Host2 port on ARC controller"
+	depends on USB_EHCI_ARC
+	---help---
+	  Enable support for the USB Host2 port.
+
+config USB_EHCI_ARC_OTGHS
+	bool "Support for OTG HS Host port on ARC controller"
+	depends on USB_EHCI_ARC
+	---help---
+	  Enable support for the USB OTG port in HS Host mode.
 
 config USB_EHCI_SPLIT_ISO
 	bool "Full speed ISO transactions (EXPERIMENTAL)"
@@ -71,6 +108,8 @@ config USB_OHCI_HCD
 	tristate "OHCI HCD support"
 	depends on USB && USB_ARCH_HAS_OHCI
 	select ISP1301_OMAP if MACH_OMAP_H2 || MACH_OMAP_H3
+	select I2C if ARCH_PNX4008
+	select I2C_PNX if ARCH_PNX4008
 	---help---
 	  The Open Host Controller Interface (OHCI) is a standard for accessing
 	  USB 1.1 host controller hardware.  It does more in hardware than Intel's
@@ -107,7 +146,7 @@ config USB_SL811_HCD
 	help
 	  The SL811HS is a single-port USB controller that supports either
 	  host side or peripheral side roles.  Enable this option if your
-	  board has this chip, and you want to use it as a host controller. 
+	  board has this chip, and you want to use it as a host controller.
 	  If unsure, say N.
 
 	  To compile this driver as a module, choose M here: the

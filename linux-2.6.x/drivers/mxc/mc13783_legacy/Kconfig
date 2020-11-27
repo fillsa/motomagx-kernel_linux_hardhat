@@ -1,0 +1,5 @@
+#
+# Character device configuration
+#
+
+source drivers/mxc/mc13783_legacy/core/Kconfig

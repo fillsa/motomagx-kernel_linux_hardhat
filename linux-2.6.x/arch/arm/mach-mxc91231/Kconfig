@@ -1,0 +1,72 @@
+menu "MXC91231 Options"
+	depends on ARCH_MXC91231
+
+config MACH_MXC27530EVB
+	bool "Support MXC275-30 EVB platforms"
+	default n
+	help
+	  Include support for MXC275-30 EVB platform. This includes specific
+	  configurations for the board and its peripherals.
+
+config MACH_SCMA11PHONE
+        bool "Support Motorola SCM-A11-based Phones"
+        default n
+        help
+          Include support for Motorola products based on the SCM-A11 SOC.
+
+menu "Motorola SCM-A11 Products"
+        depends on MACH_SCMA11PHONE
+
+config MACH_SCMA11REF
+	bool "Support the SCM-A11 Reference platform"
+	help
+	  Include support for the SCM-A11 Reference platform. This includes 
+	  specific configurations for the board and its peripherals.
+
+config MACH_ASCENSION
+	bool "Support Motorola Product: ascension"
+	help
+	  Include support for Motorola Product: ascension. This includes 
+	  specific configurations for the board and its peripherals.
+
+config MACH_LIDO
+	bool "Support Motorola Product: lido"
+	help
+	  Include support for Motorola Product: lido. This includes 
+	  specific configurations for the board and its peripherals.
+
+config MACH_SAIPAN
+	bool "Support Motorola Product: saipan"
+	help
+	  Include support for Motorola Product: saipan. This includes 
+	  specific configurations for the board and its peripherals.
+
+config MACH_ELBA
+	bool "Support Motorola Product: elba"
+	help
+	  Include support for Motorola Product: elba. This includes 
+	  specific configurations for the board and its peripherals.
+
+config MACH_PICO
+	bool "Support Motorola Product: pico"
+	help
+	  Include support for Motorola Product: pico. This includes 
+	  specific configurations for the board and its peripherals.
+
+config MACH_MARCO
+	bool "Support Motorola Product: marco"
+	help
+	  Include support for Motorola Product: marco. This includes 
+	  specific configurations for the board and its peripherals.
+
+config MACH_NEVIS
+	bool "Support Motorola Product: nevis"
+	help
+	  Include support for Motorola Product: nevis. This includes 
+	  specific configurations for the board and its peripherals.
+
+comment 'End of Motorola SCM-A11 Products'
+
+endmenu
+
+endmenu

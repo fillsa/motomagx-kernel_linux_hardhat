@@ -191,7 +191,9 @@ ipv4_connected:
 
 	ip6_dst_store(sk, dst,
 		      ipv6_addr_equal(&fl.fl6_dst, &np->daddr) ?
-		      &np->daddr : NULL);
+		      &np->daddr : NULL,
+		      ipv6_addr_equal(&fl.fl6_src, &np->saddr) ?
+		      &np->saddr : NULL);
 
 	sk->sk_state = TCP_ESTABLISHED;
 out:
@@ -405,6 +407,18 @@ int datagram_recv_ctl(struct sock *sk, struct msghdr *msg, struct sk_buff *skb)
 		struct ipv6_rt_hdr *rthdr = (struct ipv6_rt_hdr *)(skb->nh.raw + opt->srcrt);
 		put_cmsg(msg, SOL_IPV6, IPV6_RTHDR, (rthdr->hdrlen+1) << 3, rthdr);
 	}
+
+#ifdef CONFIG_IPV6_MIP6
+	if (np->rxopt.bits.srcrt && opt->srcrt2) {
+		struct ipv6_rt_hdr *rthdr = (struct ipv6_rt_hdr *)(skb->nh.raw + opt->srcrt2);
+		put_cmsg(msg, SOL_IPV6, IPV6_RTHDR, (rthdr->hdrlen+1) << 3, rthdr);
+	}
+	if (np->rxopt.bits.dstopts && opt->dsthao) {
+		u8 *ptr = skb->nh.raw + opt->dsthao;
+		put_cmsg(msg, SOL_IPV6, IPV6_DSTOPTS, (ptr[1]+1)<<3, ptr);
+	}
+#endif
+
 	if (np->rxopt.bits.dstopts && opt->dst1) {
 		u8 *ptr = skb->nh.raw + opt->dst1;
 		put_cmsg(msg, SOL_IPV6, IPV6_DSTOPTS, (ptr[1]+1)<<3, ptr);
@@ -543,10 +557,17 @@ int datagram_send_ctl(struct msghdr *msg, struct flowi *fl,
 
 			rthdr = (struct ipv6_rt_hdr *)CMSG_DATA(cmsg);
 
+#ifdef CONFIG_IPV6_MIP6
+			/*
+			 *	TYPE 0 or 2
+			 */
+			if (rthdr->type != 0 && rthdr->type != 2) {
+#else
 			/*
 			 *	TYPE 0
 			 */
 			if (rthdr->type) {
+#endif
 				err = -EINVAL;
 				goto exit_f;
 			}

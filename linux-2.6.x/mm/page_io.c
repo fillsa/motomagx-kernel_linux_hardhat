@@ -17,6 +17,7 @@
 #include <linux/bio.h>
 #include <linux/swapops.h>
 #include <linux/writeback.h>
+#include <linux/ltt-events.h>
 #include <asm/pgtable.h>
 
 static struct bio *get_swap_bio(int gfp_flags, pgoff_t index,
@@ -103,6 +104,7 @@ int swap_writepage(struct page *page, struct writeback_control *wbc)
 	inc_page_state(pswpout);
 	set_page_writeback(page);
 	unlock_page(page);
+	ltt_ev_memory(LTT_EV_MEMORY_SWAP_OUT, (unsigned long) page);
 	submit_bio(rw, bio);
 out:
 	return ret;

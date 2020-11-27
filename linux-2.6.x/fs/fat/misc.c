@@ -1,14 +1,34 @@
 /*
  *  linux/fs/fat/misc.c
  *
+ *  Copyright (C) 2007 Motorola Inc.
+ *
+ *
  *  Written 1992,1993 by Werner Almesberger
  *  22/11/2000 - Fixed fat_date_unix2dos for dates earlier than 01/01/1980
  *		 and date_dos2unix for date==0 by Igor Zhbanov(bsg@uniyar.ac.ru)
  */
 
+/*
+ * Copyright (C) 2007 Motorola, Inc.
+ *
+ * Date         Author            Comment
+ * ===========  ==========  ====================================
+ * 11/01/2007   Motorola    Fix for TF write protected issue.
+ * 11-15-2007   Motorola    Upmerge from 6.1 (Added conditional sync dirt mark for loop device)
+ */
+
+
+
+#include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/msdos_fs.h>
 #include <linux/buffer_head.h>
+#ifdef CONFIG_MOT_FEAT_FAT_SYNC
+#include <linux/loop.h>
+#endif
+
+
 
 /*
  * fat_fs_panic reports a severe file system problem and sets the file system
@@ -16,6 +36,19 @@
  */
 
 static char panic_msg[512];
+static void (*repairfat_callback)(struct super_block *sb) = NULL;
+void register_repairfat_callback(void (*callback_fun)(struct super_block *sb))
+{
+	repairfat_callback = callback_fun;	
+}
+
+void unregister_repairfat_callback(void)
+{
+	repairfat_callback = NULL;
+}
+
+EXPORT_SYMBOL(register_repairfat_callback);
+EXPORT_SYMBOL(unregister_repairfat_callback);
 
 void fat_fs_panic(struct super_block *s, const char *fmt, ...)
 {
@@ -34,6 +67,11 @@ void fat_fs_panic(struct super_block *s, const char *fmt, ...)
 	       "    %s\n", s->s_id, panic_msg);
 	if (not_ro)
 		printk(KERN_ERR "    File system has been set read-only\n");
+
+	if (repairfat_callback) {
+		printk(KERN_INFO "FAT: mxclay call back\n");
+		repairfat_callback(s);
+	}
 }
 
 void lock_fat(struct super_block *sb)
@@ -53,6 +91,12 @@ void fat_clusters_flush(struct super_block *sb)
 	struct msdos_sb_info *sbi = MSDOS_SB(sb);
 	struct buffer_head *bh;
 	struct fat_boot_fsinfo *fsinfo;
+#ifdef CONFIG_MOT_FEAT_FAT_SYNC
+        struct loop_device *lo;
+        struct file *file;
+#endif
+
+
 
 	if (sbi->fat_bits != 32)
 		return;
@@ -80,6 +124,19 @@ void fat_clusters_flush(struct super_block *sb)
 		mark_buffer_dirty(bh);
 	}
 	brelse(bh);
+
+#ifdef CONFIG_MOT_FEAT_FAT_SYNC
+        /* Check if the fat was mounted on a loop block device.
+         * If so, we mark the mapped file system as dirty
+         */
+        if (MAJOR(sb->s_dev) == LOOP_MAJOR) {
+                lo = sb->s_bdev->bd_disk->private_data;
+                file = lo->lo_backing_file;
+                file->f_dentry->d_sb->s_dirt = 1;
+        }
+#endif
+
+
 }
 
 /*

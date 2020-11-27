@@ -16,6 +16,10 @@
 #include <net/ip.h>
 #include <net/ipv6.h>
 #include <net/ip6_route.h>
+#include <net/addrconf.h>
+#ifdef CONFIG_IPV6_MIP6
+#include <net/mip6.h>
+#endif
 
 static struct dst_ops xfrm6_dst_ops;
 static struct xfrm_policy_afinfo xfrm6_policy_afinfo;
@@ -25,8 +29,8 @@ static struct xfrm_type_map xfrm6_type_map = { .lock = RW_LOCK_UNLOCKED };
 static int xfrm6_dst_lookup(struct xfrm_dst **dst, struct flowi *fl)
 {
 	int err = 0;
-	*dst = (struct xfrm_dst*)ip6_route_output(NULL, fl);
-	if (!*dst)
+	err = ip6_dst_lookup(NULL, (struct dst_entry **)dst, fl);
+	if (err)
 		err = -ENETUNREACH;
 	return err;
 }
@@ -56,7 +60,6 @@ __xfrm6_find_bundle(struct flowi *fl, struct xfrm_policy *policy)
 {
 	struct dst_entry *dst;
 
-	/* Still not clear if we should set fl->fl6_{src,dst}... */
 	read_lock_bh(&policy->lock);
 	for (dst = policy->bundles; dst; dst = dst->next) {
 		struct xfrm_dst *xdst = (struct xfrm_dst*)dst;
@@ -118,18 +121,35 @@ __xfrm6_bundle_create(struct xfrm_policy *policy, struct xfrm_state **xfrm, int 
 		if (xfrm[i]->props.mode) {
 			remote = (struct in6_addr*)&xfrm[i]->id.daddr;
 			local  = (struct in6_addr*)&xfrm[i]->props.saddr;
+#ifdef CONFIG_IPV6_MIP6
+		} else if (xfrm[i]->id.proto == IPPROTO_ROUTING) {
+			remote = (struct in6_addr*)xfrm[i]->coaddr;
+		} else if (xfrm[i]->id.proto == IPPROTO_DSTOPTS) {
+			local = (struct in6_addr*)xfrm[i]->coaddr;
+#endif
 		}
 		header_len += xfrm[i]->props.header_len;
 		trailer_len += xfrm[i]->props.trailer_len;
 	}
 
+#ifdef CONFIG_IPV6_MIP6
+	if (!ipv6_addr_equal(remote, &fl->fl6_dst) ||
+	    !ipv6_addr_equal(local, &fl->fl6_src)) {
+#else
 	if (!ipv6_addr_equal(remote, &fl->fl6_dst)) {
+#endif
 		struct flowi fl_tunnel;
+		struct inet6_ifaddr *ifa;
 
 		memset(&fl_tunnel, 0, sizeof(fl_tunnel));
 		ipv6_addr_copy(&fl_tunnel.fl6_dst, remote);
 		ipv6_addr_copy(&fl_tunnel.fl6_src, local);
 
+		ifa = ipv6_get_ifaddr(local, NULL, 0);
+		if (ifa) {
+			fl_tunnel.oif = ifa->idev->dev->ifindex;
+			in6_ifa_put(ifa);
+		}
 		err = xfrm_dst_lookup((struct xfrm_dst **) &rt,
 				      &fl_tunnel, AF_INET6);
 		if (err)
@@ -170,6 +190,19 @@ __xfrm6_bundle_create(struct xfrm_policy *policy, struct xfrm_state **xfrm, int 
 		header_len -= x->u.dst.xfrm->props.header_len;
 		trailer_len -= x->u.dst.xfrm->props.trailer_len;
 	}
+#if XFRM_DEBUG >= 4
+	printk(KERN_DEBUG "%s: new bundle (policy index=%u) ", __FUNCTION__,
+	       ((policy) ? policy->index : 0));
+	for (dst_prev = dst; dst_prev; dst_prev = dst_prev->child) {
+		if (dst_prev->xfrm)
+			printk("+[%d]", dst_prev->xfrm->id.proto);
+		else
+			printk("+[-]");
+		printk("%s", ((dst_prev == &rt0->u.dst) ? "(orig0)" :
+			      (dst_prev == &rt->u.dst) ? "(orig)" : ""));
+	}
+	printk("\n");
+#endif
 	*dst_p = dst;
 	return 0;
 
@@ -191,7 +224,14 @@ _decode_session6(struct sk_buff *skb, struct flowi *fl)
 	ipv6_addr_copy(&fl->fl6_dst, &hdr->daddr);
 	ipv6_addr_copy(&fl->fl6_src, &hdr->saddr);
 
+#ifdef CONFIG_IPV6_MIP6
+	/*
+	 * XXX: required to check like pskb_may_pull!!
+	 */
+	while (offset + 1 <= (skb->tail - skb->nh.raw)) {
+#else
 	while (pskb_may_pull(skb, skb->nh.raw + offset + 1 - skb->data)) {
+#endif
 		switch (nexthdr) {
 		case NEXTHDR_ROUTING:
 		case NEXTHDR_HOP:
@@ -211,17 +251,39 @@ _decode_session6(struct sk_buff *skb, struct flowi *fl)
 				fl->fl_ip_dport = ports[1];
 			}
 			fl->proto = nexthdr;
+			fl->oif = skb->dev->ifindex;
 			return;
 
 		case IPPROTO_ICMPV6:
 			if (pskb_may_pull(skb, skb->nh.raw + offset + 2 - skb->data)) {
-				u8 *icmp = (u8 *)exthdr;
+				struct icmp6hdr *icmp;
+				icmp = (struct icmp6hdr *)exthdr;
 
-				fl->fl_icmp_type = icmp[0];
-				fl->fl_icmp_code = icmp[1];
+				fl->fl_icmp_type = icmp->icmp6_type;
+				fl->fl_icmp_code = icmp->icmp6_code;
 			}
 			fl->proto = nexthdr;
+			fl->oif = skb->dev->ifindex;
 			return;
+
+#ifdef CONFIG_IPV6_MIP6
+		case IPPROTO_MH:
+			if (pskb_may_pull(skb, skb->nh.raw + offset + 3 - skb->data)) {
+				struct ip6_mh *mh;
+				mh = (struct ip6_mh *)exthdr;
+
+				fl->fl_mh_type = mh->ip6mh_type;
+				if (fl->fl_mh_type == IP6_MH_TYPE_BU &&
+				    pskb_may_pull(skb, skb->nh.raw + offset + 10 - skb->data)) {
+					struct ip6_mh_binding_update *bu;
+					bu = (struct ip6_mh_binding_update *)exthdr;
+					fl->fl_mh_bu_flags = bu->ip6mhbu_flags;
+				}
+			}
+			fl->proto = nexthdr;
+			fl->oif = skb->dev->ifindex;
+			return;
+#endif
 
 		/* XXX Why are there these headers? */
 		case IPPROTO_AH:
@@ -230,6 +292,7 @@ _decode_session6(struct sk_buff *skb, struct flowi *fl)
 		default:
 			fl->fl_ipsec_spi = 0;
 			fl->proto = nexthdr;
+			fl->oif = skb->dev->ifindex;
 			return;
 		};
 	}
@@ -278,7 +341,7 @@ static void __init xfrm6_policy_init(void)
 	xfrm_policy_register_afinfo(&xfrm6_policy_afinfo);
 }
 
-static void __exit xfrm6_policy_fini(void)
+static void xfrm6_policy_fini(void)
 {
 	xfrm_policy_unregister_afinfo(&xfrm6_policy_afinfo);
 }
@@ -289,7 +352,7 @@ void __init xfrm6_init(void)
 	xfrm6_state_init();
 }
 
-void __exit xfrm6_fini(void)
+void xfrm6_fini(void)
 {
 	//xfrm6_input_fini();
 	xfrm6_policy_fini();

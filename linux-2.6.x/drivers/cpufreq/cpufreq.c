@@ -33,7 +33,7 @@
  */
 static struct cpufreq_driver   	*cpufreq_driver;
 static struct cpufreq_policy	*cpufreq_cpu_data[NR_CPUS];
-static spinlock_t		cpufreq_driver_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(cpufreq_driver_lock);
 
 
 /* we keep a copy of all ->add'ed CPU's struct sys_device here;
@@ -128,7 +128,7 @@ static unsigned int debug_ratelimit = 1;
  * is set, and disabled upon cpufreq driver removal
  */
 static unsigned int disable_ratelimit = 1;
-static spinlock_t disable_ratelimit_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(disable_ratelimit_lock);
 
 static inline void cpufreq_debug_enable_ratelimit(void)
 {
@@ -603,7 +603,8 @@ static int cpufreq_add_dev (struct sys_device * sys_dev)
 	policy->cpu = cpu;
 	policy->cpus = cpumask_of_cpu(cpu);
 
-	init_MUTEX_LOCKED(&policy->lock);
+	init_MUTEX(&policy->lock);
+	down(&policy->lock);
 	init_completion(&policy->kobj_unregister);
 	INIT_WORK(&policy->update, handle_update, (void *)(long)cpu);
 
@@ -612,6 +613,7 @@ static int cpufreq_add_dev (struct sys_device * sys_dev)
 	 */
 	ret = cpufreq_driver->init(policy);
 	if (ret) {
+		up(&policy->lock);
 		dprintk("initialization failed\n");
 		goto err_out;
 	}
@@ -624,8 +626,10 @@ static int cpufreq_add_dev (struct sys_device * sys_dev)
 	strlcpy(policy->kobj.name, "cpufreq", KOBJ_NAME_LEN);
 
 	ret = kobject_register(&policy->kobj);
-	if (ret)
+	if (ret) {
+		up(&policy->lock);
 		goto err_out;
+	}
 
 	/* set up files for this cpu device */
 	drv_attr = cpufreq_driver->attr;

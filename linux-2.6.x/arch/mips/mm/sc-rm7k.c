@@ -96,13 +96,13 @@ static void rm7k_sc_inv(unsigned long addr, unsigned long size)
 }
 
 /*
- * This function is executed in the uncached segment KSEG1.
+ * This function is executed in the uncached segment CKSEG1.
  * It must not touch the stack, because the stack pointer still points
- * into KSEG0.
+ * into CKSEG0.
  *
  * Three options:
  *	- Write it in assembly and guarantee that we don't use the stack.
- *	- Disable caching for KSEG0 before calling it.
+ *	- Disable caching for CKSEG0 before calling it.
  *	- Pray that GCC doesn't randomly start using the stack.
  *
  * This being Linux, we obviously take the least sane of those options -
@@ -127,13 +127,13 @@ static __init void __rm7k_sc_enable(void)
 		      ".set mips0\n\t"
 		      ".set reorder"
 		      :
-		      : "r" (KSEG0ADDR(i)), "i" (Index_Store_Tag_SD));
+		      : "r" (CKSEG0ADDR(i)), "i" (Index_Store_Tag_SD));
 	}
 }
 
 static __init void rm7k_sc_enable(void)
 {
-	void (*func)(void) = (void *) KSEG1ADDR(&__rm7k_sc_enable);
+	void (*func)(void) = (void *) CKSEG1ADDR(&__rm7k_sc_enable);
 
 	if (read_c0_config() & 0x08)			/* CONF_SE */
 		return;

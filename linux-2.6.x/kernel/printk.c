@@ -2,6 +2,7 @@
  *  linux/kernel/printk.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *  Copyright 2006 Motorola Inc.
  *
  * Modified to make sys_syslog() more flexible: added commands to
  * return the last 4k of kernel messages, regardless of whether
@@ -14,6 +15,9 @@
  *     manfreds@colorfullife.com
  * Rewrote bits to get rid of console_lock
  *	01Mar01 Andrew Morton <andrewm@uow.edu.au>
+ *
+ * Date         Author          Comment
+ * 10/2006      Motorola        Added kernel panic block dumping support
  */
 
 #include <linux/kernel.h>
@@ -35,6 +39,14 @@
 #include <asm/uaccess.h>
 
 #define __LOG_BUF_LEN	(1 << CONFIG_LOG_BUF_SHIFT)
+
+#ifdef        CONFIG_DEBUG_LL
+extern void printascii(char *);
+#endif
+
+#ifdef CONFIG_MOT_FEAT_PRINTK_TIMES
+extern unsigned long long get_curr_ns_time(void);
+#endif /* CONFIG_MOT_FEAT_PRINTK_TIMES */
 
 /* printk's without a loglevel use this.. */
 #define DEFAULT_MESSAGE_LOGLEVEL 4 /* KERN_WARNING */
@@ -78,11 +90,16 @@ static int console_locked;
  * It is also used in interesting ways to provide interlocking in
  * release_console_sem().
  */
-static spinlock_t logbuf_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_RAW_SPINLOCK(logbuf_lock);
 
 static char __log_buf[__LOG_BUF_LEN];
+#ifdef CONFIG_MOT_FEAT_KPANIC
+char *log_buf = __log_buf;
+int log_buf_len = __LOG_BUF_LEN;
+#else
 static char *log_buf = __log_buf;
 static int log_buf_len = __LOG_BUF_LEN;
+#endif /* CONFIG_MOT_FEAT_KPANIC */
 
 #define LOG_BUF_MASK	(log_buf_len-1)
 #define LOG_BUF(idx) (log_buf[(idx) & LOG_BUF_MASK])
@@ -93,8 +110,13 @@ static int log_buf_len = __LOG_BUF_LEN;
  */
 static unsigned long log_start;	/* Index into log_buf: next char to be read by syslog() */
 static unsigned long con_start;	/* Index into log_buf: next char to be sent to consoles */
-static unsigned long log_end;	/* Index into log_buf: most-recently-written-char + 1 */
+#ifdef CONFIG_MOT_FEAT_KPANIC
+unsigned long log_end;	/* Index into log_buf: most-recently-written-char + 1 */
+unsigned long logged_chars; /* Number of chars produced since last read+clear operation */
+#else
+static unsigned long log_end;  /* Index into log_buf: most-recently-written-char + 1 */
 static unsigned long logged_chars; /* Number of chars produced since last read+clear operation */
+#endif /* CONFIG_MOT_FEAT_KPANIC */
 
 /*
  *	Array of consoles built from command line options (console=)
@@ -284,6 +306,7 @@ int do_syslog(int type, char __user * buf, int len)
 			error = __put_user(c,buf);
 			buf++;
 			i++;
+			cond_resched();
 			spin_lock_irq(&logbuf_lock);
 		}
 		spin_unlock_irq(&logbuf_lock);
@@ -325,6 +348,7 @@ int do_syslog(int type, char __user * buf, int len)
 			c = LOG_BUF(j);
 			spin_unlock_irq(&logbuf_lock);
 			error = __put_user(c,&buf[count-1-i]);
+			cond_resched();
 			spin_lock_irq(&logbuf_lock);
 		}
 		spin_unlock_irq(&logbuf_lock);
@@ -340,6 +364,7 @@ int do_syslog(int type, char __user * buf, int len)
 					error = -EFAULT;
 					break;
 				}
+				cond_resched();
 			}
 		}
 		break;
@@ -387,10 +412,12 @@ static void __call_console_drivers(unsigned long start, unsigned long end)
 {
 	struct console *con;
 
+	touch_critical_timing();
 	for (con = console_drivers; con; con = con->next) {
 		if ((con->flags & CON_ENABLED) && con->write)
 			con->write(con, &LOG_BUF(start), end - start);
 	}
+	touch_critical_timing();
 }
 
 /*
@@ -494,7 +521,32 @@ static void zap_locks(void)
 	spin_lock_init(&logbuf_lock);
 	/* And make sure that we print immediately */
 	init_MUTEX(&console_sem);
+	zap_rt_locks();
 }
+
+#ifdef CONFIG_MOT_FEAT_PRINTK_TIMES
+
+#if defined(CONFIG_PRINTK_TIME)
+static int printk_time = 1;
+#else
+static int printk_time = 0;
+#endif
+
+/*
+ * Runs when a command-line argument was passed to the kernel, that
+ * is prefixed with 'time' string.
+ */
+static int __init printk_time_setup(char *str)
+{
+	if (*str)
+		return 0;
+	printk_time = 1;
+	return 1;
+}
+/* Binds the string 'time' to the printk_time_setup function pointer */
+__setup("time", printk_time_setup);
+
+#endif /* CONFIG_MOT_FEAT_PRINTK_TIMES */
 
 /*
  * This is printk.  It can be called from any context.  We want it to work.
@@ -538,17 +590,63 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 	/* Emit the output into the temporary buffer */
 	printed_len = vscnprintf(printk_buf, sizeof(printk_buf), fmt, args);
 
+#ifdef	CONFIG_DEBUG_LL
+	printascii(printk_buf);
+#endif
+
 	/*
 	 * Copy the output into log_buf.  If the caller didn't provide
 	 * appropriate log level tags, we insert them here
 	 */
 	for (p = printk_buf; *p; p++) {
 		if (log_level_unknown) {
+#ifndef CONFIG_MOT_FEAT_PRINTK_TIMES
 			if (p[0] != '<' || p[1] < '0' || p[1] > '7' || p[2] != '>') {
 				emit_log_char('<');
-				emit_log_char(default_message_loglevel + '0');
-				emit_log_char('>');
+                                emit_log_char(default_message_loglevel + '0');
+                                emit_log_char('>');
 			}
+#else
+                        /* log_level_unknown signals the start of a new line */
+			if (printk_time) {
+				#define TBUF_LEN 19
+				int loglev_char;
+				char tbuf[TBUF_LEN], *tp;
+				unsigned tlen;
+				unsigned long long t;
+				unsigned long nanosec_rem;
+				
+				/*
+				 * force the log level token to be
+				 * before the time output.
+				 */
+				if (p[0] == '<' && p[1] >='0' &&
+				   p[1] <= '7' && p[2] == '>') {
+					loglev_char = p[1];
+					p += 3;
+				} else {
+					loglev_char = default_message_loglevel + '0';
+				}
+#if defined(CONFIG_ARCH_MXC91231) || defined(CONFIG_ARCH_MXC91331)
+				t = get_curr_ns_time();
+#else
+				t = sched_clock();
+#endif
+				nanosec_rem = do_div(t, 1000000000);
+				tlen = snprintf(tbuf,TBUF_LEN,"<%c>[%5lu.%06lu] ",
+						loglev_char,(unsigned long)t,nanosec_rem/1000);
+
+				for (tp = tbuf; tp< tbuf + tlen; tp++)
+					emit_log_char (*tp);
+			} else {
+				if (p[0] != '<' || p[1] < '0' ||
+				   p[1] > '7' || p[2] != '>') {
+					emit_log_char('<');
+					emit_log_char(default_message_loglevel + '0');
+					emit_log_char('>');
+				}
+			}
+#endif /* CONFIG_MOT_FEAT_PRINTK_TIMES */
 			log_level_unknown = 0;
 		}
 		emit_log_char(*p);
@@ -642,13 +740,23 @@ void release_console_sem(void)
 		_con_start = con_start;
 		_log_end = log_end;
 		con_start = log_end;		/* Flush */
-		spin_unlock_irqrestore(&logbuf_lock, flags);
+		spin_unlock(&logbuf_lock);
 		call_console_drivers(_con_start, _log_end);
+		local_irq_restore(flags);
 	}
 	console_locked = 0;
 	console_may_schedule = 0;
-	up(&console_sem);
 	spin_unlock_irqrestore(&logbuf_lock, flags);
+	up(&console_sem);
+	/*
+	 * On PREEMPT_RT kernels __wake_up may sleep, so wake syslogd
+	 * up only if we are in a preemptible section. We normally dont
+	 * printk from non-preemptible sections so this is for the emergency
+	 * case only.
+	 */
+#ifdef CONFIG_PREEMPT_RT
+	if (!in_atomic() && !irqs_disabled())
+#endif
 	if (wake_klogd && !oops_in_progress && waitqueue_active(&log_wait))
 		wake_up_interruptible(&log_wait);
 }
@@ -871,7 +979,7 @@ void tty_write_message(struct tty_struct *tty, char *msg)
  */
 int __printk_ratelimit(int ratelimit_jiffies, int ratelimit_burst)
 {
-	static spinlock_t ratelimit_lock = SPIN_LOCK_UNLOCKED;
+	static DEFINE_RAW_SPINLOCK(ratelimit_lock);
 	static unsigned long toks = 10*5*HZ;
 	static unsigned long last_msg;
 	static int missed;

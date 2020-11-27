@@ -56,12 +56,16 @@
 #include <net/xfrm.h>
 #include <net/checksum.h>
 
+#ifdef CONFIG_IPV6_MIP6
+#include <net/mip6.h>
+#endif
+
 static int ip6_fragment(struct sk_buff *skb, int (*output)(struct sk_buff *));
 
 static __inline__ void ipv6_select_ident(struct sk_buff *skb, struct frag_hdr *fhdr)
 {
 	static u32 ipv6_fragmentation_id = 1;
-	static spinlock_t ip6_id_lock = SPIN_LOCK_UNLOCKED;
+	static DEFINE_SPINLOCK(ip6_id_lock);
 
 	spin_lock_bh(&ip6_id_lock);
 	fhdr->identification = htonl(ipv6_fragmentation_id);
@@ -75,6 +79,9 @@ static inline int ip6_output_finish(struct sk_buff *skb)
 
 	struct dst_entry *dst = skb->dst;
 	struct hh_cache *hh = dst->hh;
+#ifdef CONFIG_IPV6_STATISTICS
+	struct inet6_dev *idev = ((struct rt6_info *)dst)->rt6i_idev;
+#endif
 
 	if (hh) {
 		int hh_alen;
@@ -88,7 +95,11 @@ static inline int ip6_output_finish(struct sk_buff *skb)
 	} else if (dst->neighbour)
 		return dst->neighbour->output(skb);
 
+#ifdef CONFIG_IPV6_STATISTICS
+	IP6_INC_STATS_BH(idev, IPSTATS_MIB_OUTNOROUTES);
+#else
 	IP6_INC_STATS_BH(IPSTATS_MIB_OUTNOROUTES);
+#endif
 	kfree_skb(skb);
 	return -EINVAL;
 
@@ -112,6 +123,9 @@ static int ip6_output2(struct sk_buff *skb)
 {
 	struct dst_entry *dst = skb->dst;
 	struct net_device *dev = dst->dev;
+#ifdef CONFIG_IPV6_STATISTICS
+	struct inet6_dev *idev = ((struct rt6_info *)dst)->rt6i_idev;
+#endif
 
 	skb->protocol = htons(ETH_P_IPV6);
 	skb->dev = dev;
@@ -133,13 +147,21 @@ static int ip6_output2(struct sk_buff *skb)
 					ip6_dev_loopback_xmit);
 
 			if (skb->nh.ipv6h->hop_limit == 0) {
+#ifdef CONFIG_IPV6_STATISTICS
+				IP6_INC_STATS(idev, IPSTATS_MIB_OUTDISCARDS);
+#else
 				IP6_INC_STATS(IPSTATS_MIB_OUTDISCARDS);
+#endif
 				kfree_skb(skb);
 				return 0;
 			}
 		}
 
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS(idev, IPSTATS_MIB_OUTMCASTPKTS);
+#else
 		IP6_INC_STATS(IPSTATS_MIB_OUTMCASTPKTS);
+#endif
 	}
 
 	return NF_HOOK(PF_INET6, NF_IP6_POST_ROUTING, skb,NULL, skb->dev,ip6_output_finish);
@@ -153,6 +175,28 @@ int ip6_output(struct sk_buff *skb)
 		return ip6_output2(skb);
 }
 
+int ip6_dontroute_dst_alloc(struct dst_entry **dst, struct flowi *fl)
+{
+	struct net_device *dev;
+	int err;
+
+	*dst = NULL;
+
+	if (!fl->oif)
+		return -EINVAL;
+
+	if (!(dev = dev_get_by_index(fl->oif)))
+		return -ENODEV;
+
+	err = -ENOMEM;
+	if ((*dst = ndisc_dst_alloc(dev, NULL, &fl->fl6_dst, ip6_output)))
+		err = 0;
+
+	dev_put(dev);
+	return err;
+}
+
+
 #ifdef CONFIG_NETFILTER
 int ip6_route_me_harder(struct sk_buff *skb)
 {
@@ -160,17 +204,29 @@ int ip6_route_me_harder(struct sk_buff *skb)
 	struct dst_entry *dst;
 	struct flowi fl = {
 		.oif = skb->sk ? skb->sk->sk_bound_dev_if : 0,
+		.iif = ((struct inet6_skb_parm *)skb->cb)->iif ? : loopback_dev.ifindex,
 		.nl_u =
 		{ .ip6_u =
 		  { .daddr = iph->daddr,
-		    .saddr = iph->saddr, } },
+		    .saddr = iph->saddr,
+		    .flowlabel = (* (__u32 *) iph)&IPV6_FLOWINFO_MASK, } },
 		.proto = iph->nexthdr,
 	};
+#ifdef CONFIG_IPV6_STATISTICS
+	struct inet6_dev *idev = NULL;
+#endif
 
 	dst = ip6_route_output(skb->sk, &fl);
+#ifdef CONFIG_IPV6_STATISTICS
+	idev = ((struct rt6_info *)dst)->rt6i_idev;
+#endif
 
 	if (dst->error) {
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS(idev, IPSTATS_MIB_OUTNOROUTES);
+#else
 		IP6_INC_STATS(IPSTATS_MIB_OUTNOROUTES);
+#endif
 		LIMIT_NETDEBUG(
 			printk(KERN_DEBUG "ip6_route_me_harder: No more route.\n"));
 		dst_release(dst);
@@ -209,10 +265,15 @@ int ip6_xmit(struct sock *sk, struct sk_buff *skb, struct flowi *fl,
 	struct in6_addr *first_hop = &fl->fl6_dst;
 	struct dst_entry *dst = skb->dst;
 	struct ipv6hdr *hdr;
+#ifdef CONFIG_IPV6_STATISTICS
+	struct inet6_dev *idev = ((struct rt6_info *)dst)->rt6i_idev;
+#endif
 	u8  proto = fl->proto;
 	int seg_len = skb->len;
 	int hlimit;
 	u32 mtu;
+
+	skb->h.raw = skb->data;
 
 	if (opt) {
 		int head_room;
@@ -229,7 +290,11 @@ int ip6_xmit(struct sock *sk, struct sk_buff *skb, struct flowi *fl,
 			kfree_skb(skb);
 			skb = skb2;
 			if (skb == NULL) {	
+#ifdef CONFIG_IPV6_STATISTICS
+				IP6_INC_STATS(idev, IPSTATS_MIB_OUTDISCARDS);
+#else
 				IP6_INC_STATS(IPSTATS_MIB_OUTDISCARDS);
+#endif
 				return -ENOBUFS;
 			}
 			if (sk)
@@ -253,6 +318,8 @@ int ip6_xmit(struct sock *sk, struct sk_buff *skb, struct flowi *fl,
 		hlimit = np->hop_limit;
 	if (hlimit < 0)
 		hlimit = dst_metric(dst, RTAX_HOPLIMIT);
+	if (hlimit < 0)
+		hlimit = ipv6_get_hoplimit(dst->dev);
 
 	hdr->payload_len = htons(seg_len);
 	hdr->nexthdr = proto;
@@ -263,15 +330,28 @@ int ip6_xmit(struct sock *sk, struct sk_buff *skb, struct flowi *fl,
 
 	mtu = dst_pmtu(dst);
 	if ((skb->len <= mtu) || ipfragok) {
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS(idev, IPSTATS_MIB_OUTREQUESTS);
+#else
 		IP6_INC_STATS(IPSTATS_MIB_OUTREQUESTS);
+#endif
 		return NF_HOOK(PF_INET6, NF_IP6_LOCAL_OUT, skb, NULL, dst->dev, ip6_maybe_reroute);
 	}
 
 	if (net_ratelimit())
-		printk(KERN_DEBUG "IPv6: sending pkt_too_big to self\n");
+		printk(KERN_DEBUG "IPv6: sending pkt_too_big to self; "
+			"saddr=%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x, "
+			"daddr=%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x, "
+			"skb->len(%d) > mtu(%d)\n",
+			NIP6(hdr->saddr), NIP6(hdr->daddr),
+			skb->len, mtu);
 	skb->dev = dst->dev;
 	icmpv6_send(skb, ICMPV6_PKT_TOOBIG, 0, mtu, skb->dev);
+#ifdef CONFIG_IPV6_STATISTICS
+	IP6_INC_STATS(idev, IPSTATS_MIB_FRAGFAILS);
+#else
 	IP6_INC_STATS(IPSTATS_MIB_FRAGFAILS);
+#endif
 	kfree_skb(skb);
 	return -EMSGSIZE;
 }
@@ -310,6 +390,57 @@ int ip6_nd_hdr(struct sock *sk, struct sk_buff *skb, struct net_device *dev,
 
 	return 0;
 }
+#ifdef CONFIG_IPV6_SUBTREES
+static inline int ip6_dst_lookup_saddr_chk(struct ipv6_pinfo *np,
+					   struct rt6_info *rt,
+					   struct flowi *fl)
+{
+	/* If the source address is not set try to get it from rt or 
+	   saddr_cache. If the address is still ok, the old dst is still
+	   usable. */
+
+	if (ipv6_addr_any(&fl->fl6_src)) {
+		struct inet6_ifaddr *ifp;
+		int saddr_invalid = 1;
+
+		if (rt->rt6i_src.plen == 128 && 
+		    (ifp = ipv6_get_ifaddr(&rt->rt6i_src.addr, 
+					   rt->rt6i_dev, 0))) {
+			if (!ifp->flags&IFA_F_DEPRECATED) {
+				ipv6_addr_copy(&fl->fl6_src, &ifp->addr);
+				saddr_invalid = 0;
+			}
+			in6_ifa_put(ifp);
+		}
+		if (saddr_invalid && np->saddr_cache != NULL && 
+		    (ifp = ipv6_get_ifaddr(np->saddr_cache, 
+					   rt->rt6i_dev, 0))) {
+			if (!ifp->flags&IFA_F_DEPRECATED) {
+				ipv6_addr_copy(&fl->fl6_src, &ifp->addr);
+				saddr_invalid = 0;
+			}
+			in6_ifa_put(ifp);
+		}
+		return saddr_invalid;
+	}
+	/* Otherwise, just compare the addresses. */
+
+ 	return ((rt->rt6i_src.plen != 128 ||
+		 ipv6_addr_cmp(&fl->fl6_src, &rt->rt6i_src.addr)) &&
+		(np->saddr_cache == NULL ||
+		 ipv6_addr_cmp(&fl->fl6_src, np->saddr_cache)));
+	
+}
+#else
+static inline int ip6_dst_lookup_saddr_chk(struct ipv6_pinfo *np,
+					   struct rt6_info *rt,
+					   struct flowi *fl)
+{
+	if (ipv6_addr_any(&fl->fl6_src))
+		ipv6_get_saddr(&rt->u.dst, &fl->fl6_dst, &fl->fl6_src);
+	return 0;
+}
+#endif
 
 int ip6_call_ra_chain(struct sk_buff *skb, int sel)
 {
@@ -338,6 +469,67 @@ int ip6_call_ra_chain(struct sk_buff *skb, int sel)
 	return 0;
 }
 
+static int ip6_forward_proxy_check(struct sk_buff *skb)
+{
+	struct ipv6hdr *hdr = skb->nh.ipv6h;
+	u8 nexthdr = hdr->nexthdr;
+	int offset;
+
+	if (!skb->dev)
+		goto done;
+	if (!pneigh_lookup(&nd_tbl, &hdr->daddr, skb->dev, 0))
+		goto done;
+
+	if (ipv6_ext_hdr(nexthdr)) {
+		offset = ipv6_skip_exthdr(skb, sizeof(*hdr), &nexthdr, 
+					  skb->len - sizeof(*hdr));
+		if (offset < 0)
+			goto done;
+	} else
+		offset = sizeof(struct ipv6hdr);
+
+	if (nexthdr == IPPROTO_ICMPV6) {
+		struct icmp6hdr *icmp6;
+
+		if (!pskb_may_pull(skb, skb->nh.raw + offset + 1 - skb->data))
+			goto done;
+
+		icmp6 = (struct icmp6hdr *)(skb->nh.raw + offset);
+
+		switch (icmp6->icmp6_type) {
+		case NDISC_ROUTER_SOLICITATION:
+		case NDISC_ROUTER_ADVERTISEMENT:
+		case NDISC_NEIGHBOUR_SOLICITATION:
+		case NDISC_NEIGHBOUR_ADVERTISEMENT:
+		case NDISC_REDIRECT:
+			/* For reaction involving unicast neighbor discovery
+			 * message destined to the proxied address, pass it to
+			 * input function.
+			 */
+			return 1;
+		default:
+			break;
+		}
+	}
+
+#ifdef CONFIG_IPV6_MIP6
+	/* The proxying router can't forward traffic sent to a link-local
+	   address, so signal the sender and discard the packet. This
+	   behavior is required by the MIPv6 specification. */
+
+	if (ipv6_addr_type(&hdr->daddr) & IPV6_ADDR_LINKLOCAL) {
+		dst_link_failure(skb);
+		MIP6_DBG("%s: can't forward proxing unicast link-local  = %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n", __FUNCTION__, NIP6(hdr->daddr));
+		goto drop;
+	}
+#endif
+
+ done:
+	return 0;
+ drop:
+	return -1;
+}
+
 static inline int ip6_forward_finish(struct sk_buff *skb)
 {
 	return dst_output(skb);
@@ -348,14 +540,33 @@ int ip6_forward(struct sk_buff *skb)
 	struct dst_entry *dst = skb->dst;
 	struct ipv6hdr *hdr = skb->nh.ipv6h;
 	struct inet6_skb_parm *opt = IP6CB(skb);
-	
+	int proxied;
+#ifdef CONFIG_IPV6_STATISTICS
+	struct inet6_dev *idev = ((struct rt6_info *)dst)->rt6i_idev;
+#endif
+
 	if (ipv6_devconf.forwarding == 0)
 		goto error;
 
+#ifdef CONFIG_USE_POLICY_FWD
 	if (!xfrm6_policy_check(NULL, XFRM_POLICY_FWD, skb)) {
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS(idev, IPSTATS_MIB_INDISCARDS);
+#else
 		IP6_INC_STATS(IPSTATS_MIB_INDISCARDS);
+#endif
 		goto drop;
 	}
+#else
+	if (!xfrm6_policy_check(NULL, XFRM_POLICY_IN, skb)) {
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS(idev, IPSTATS_MIB_INDISCARDS);
+#else
+		IP6_INC_STATS(IPSTATS_MIB_INDISCARDS);
+#endif
+		goto drop;
+	}
+#endif
 
 	skb->ip_summed = CHECKSUM_NONE;
 
@@ -391,8 +602,20 @@ int ip6_forward(struct sk_buff *skb)
 		return -ETIMEDOUT;
 	}
 
+	proxied = ip6_forward_proxy_check(skb);
+	if (proxied < 0)
+		goto drop;
+	else if (proxied > 0) {
+		ip6_input(skb);
+		return 0;
+	}
+
 	if (!xfrm6_route_forward(skb)) {
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS(idev, IPSTATS_MIB_INDISCARDS);
+#else
 		IP6_INC_STATS(IPSTATS_MIB_INDISCARDS);
+#endif
 		goto drop;
 	}
 
@@ -430,14 +653,23 @@ int ip6_forward(struct sk_buff *skb)
 		/* Again, force OUTPUT device used as source address */
 		skb->dev = dst->dev;
 		icmpv6_send(skb, ICMPV6_PKT_TOOBIG, 0, dst_pmtu(dst), skb->dev);
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS_BH(idev, IPSTATS_MIB_INTOOBIGERRORS);
+		IP6_INC_STATS_BH(idev, IPSTATS_MIB_FRAGFAILS);
+#else
 		IP6_INC_STATS_BH(IPSTATS_MIB_INTOOBIGERRORS);
 		IP6_INC_STATS_BH(IPSTATS_MIB_FRAGFAILS);
+#endif
 		kfree_skb(skb);
 		return -EMSGSIZE;
 	}
 
 	if (skb_cow(skb, dst->dev->hard_header_len)) {
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS(idev, IPSTATS_MIB_OUTDISCARDS);
+#else
 		IP6_INC_STATS(IPSTATS_MIB_OUTDISCARDS);
+#endif
 		goto drop;
 	}
 
@@ -447,11 +679,19 @@ int ip6_forward(struct sk_buff *skb)
  
 	hdr->hop_limit--;
 
+#ifdef CONFIG_IPV6_STATISTICS
+	IP6_INC_STATS_BH(idev, IPSTATS_MIB_OUTFORWDATAGRAMS);
+#else
 	IP6_INC_STATS_BH(IPSTATS_MIB_OUTFORWDATAGRAMS);
+#endif
 	return NF_HOOK(PF_INET6,NF_IP6_FORWARD, skb, skb->dev, dst->dev, ip6_forward_finish);
 
 error:
+#ifdef CONFIG_IPV6_STATISTICS
+	IP6_INC_STATS_BH(idev, IPSTATS_MIB_INADDRERRORS);
+#else
 	IP6_INC_STATS_BH(IPSTATS_MIB_INADDRERRORS);
+#endif
 drop:
 	kfree_skb(skb);
 	return -EINVAL;
@@ -463,6 +703,7 @@ static void ip6_copy_metadata(struct sk_buff *to, struct sk_buff *from)
 	to->priority = from->priority;
 	to->protocol = from->protocol;
 	to->security = from->security;
+	dst_release(to->dst);
 	to->dst = dst_clone(from->dst);
 	to->dev = from->dev;
 
@@ -492,6 +733,9 @@ int ip6_find_1stfragopt(struct sk_buff *skb, u8 **nexthdr)
 	struct ipv6_opt_hdr *exthdr = (struct ipv6_opt_hdr*)(skb->nh.ipv6h + 1);
 	unsigned int packet_len = skb->tail - skb->nh.raw;
 	int found_rhdr = 0;
+#ifdef CONFIG_IPV6_MIP6
+	int found_dest_hao = 0;
+#endif
 	*nexthdr = &skb->nh.ipv6h->nexthdr;
 
 	while (offset + 1 <= packet_len) {
@@ -499,17 +743,29 @@ int ip6_find_1stfragopt(struct sk_buff *skb, u8 **nexthdr)
 		switch (**nexthdr) {
 
 		case NEXTHDR_HOP:
-		case NEXTHDR_ROUTING:
-		case NEXTHDR_DEST:
-			if (**nexthdr == NEXTHDR_ROUTING) found_rhdr = 1;
-			if (**nexthdr == NEXTHDR_DEST && found_rhdr) return offset;
-			offset += ipv6_optlen(exthdr);
-			*nexthdr = &exthdr->nexthdr;
-			exthdr = (struct ipv6_opt_hdr*)(skb->nh.raw + offset);
 			break;
-		default :
+		case NEXTHDR_ROUTING:
+			found_rhdr = 1;
+			break;
+		case NEXTHDR_DEST:
+#ifdef CONFIG_IPV6_MIP6
+			if (ipv6_find_tlv(skb, offset, IPV6_TLV_HAO) >= 0) {
+				MIP6_DBG("%s: hao detected\n", __FUNCTION__);
+				found_dest_hao = 1;
+			}
+			if (!found_dest_hao)
+				break;
+#endif
+			if (found_rhdr)
+				return offset;
+			break;
+		default:
 			return offset;
 		}
+
+		offset += ipv6_optlen(exthdr);
+		*nexthdr = &exthdr->nexthdr;
+		exthdr = (struct ipv6_opt_hdr*)(skb->nh.raw + offset);
 	}
 
 	return offset;
@@ -522,6 +778,9 @@ static int ip6_fragment(struct sk_buff *skb, int (*output)(struct sk_buff *))
 	struct rt6_info *rt = (struct rt6_info*)skb->dst;
 	struct ipv6hdr *tmp_hdr;
 	struct frag_hdr *fh;
+#ifdef CONFIG_IPV6_STATISTICS
+	struct inet6_dev *idev = rt->rt6i_idev;
+#endif
 	unsigned int mtu, hlen, left, len;
 	u32 frag_id = 0;
 	int ptr, offset = 0, err=0;
@@ -565,7 +824,11 @@ static int ip6_fragment(struct sk_buff *skb, int (*output)(struct sk_buff *))
 
 		tmp_hdr = kmalloc(hlen, GFP_ATOMIC);
 		if (!tmp_hdr) {
+#ifdef CONFIG_IPV6_STATISTICS
+			IP6_INC_STATS(idev, IPSTATS_MIB_FRAGFAILS);
+#else
 			IP6_INC_STATS(IPSTATS_MIB_FRAGFAILS);
+#endif
 			return -ENOMEM;
 		}
 
@@ -592,6 +855,7 @@ static int ip6_fragment(struct sk_buff *skb, int (*output)(struct sk_buff *))
 			/* Prepare header of the next frame,
 			 * before previous one went down. */
 			if (frag) {
+				frag->ip_summed = CHECKSUM_NONE;
 				frag->h.raw = frag->data;
 				fh = (struct frag_hdr*)__skb_push(frag, sizeof(struct frag_hdr));
 				frag->nh.raw = __skb_push(frag, hlen);
@@ -620,7 +884,11 @@ static int ip6_fragment(struct sk_buff *skb, int (*output)(struct sk_buff *))
 			kfree(tmp_hdr);
 
 		if (err == 0) {
+#ifdef CONFIG_IPV6_STATISTICS
+			IP6_INC_STATS(idev, IPSTATS_MIB_FRAGOKS);
+#else
 			IP6_INC_STATS(IPSTATS_MIB_FRAGOKS);
+#endif
 			return 0;
 		}
 
@@ -630,7 +898,11 @@ static int ip6_fragment(struct sk_buff *skb, int (*output)(struct sk_buff *))
 			frag = skb;
 		}
 
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS(idev, IPSTATS_MIB_FRAGFAILS);
+#else
 		IP6_INC_STATS(IPSTATS_MIB_FRAGFAILS);
+#endif
 		return err;
 	}
 
@@ -663,7 +935,11 @@ slow_path:
 
 		if ((frag = alloc_skb(len+hlen+sizeof(struct frag_hdr)+LL_RESERVED_SPACE(rt->u.dst.dev), GFP_ATOMIC)) == NULL) {
 			NETDEBUG(printk(KERN_INFO "IPv6: frag: no memory for new fragment!\n"));
+#ifdef CONFIG_IPV6_STATISTICS
+			IP6_INC_STATS(idev, IPSTATS_MIB_FRAGFAILS);
+#eles
 			IP6_INC_STATS(IPSTATS_MIB_FRAGFAILS);
+#endif
 			err = -ENOMEM;
 			goto fail;
 		}
@@ -721,19 +997,31 @@ slow_path:
 		 *	Put this fragment into the sending queue.
 		 */
 
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS(idev, IPSTATS_MIB_FRAGCREATES);
+#else
 		IP6_INC_STATS(IPSTATS_MIB_FRAGCREATES);
+#endif
 
 		err = output(frag);
 		if (err)
 			goto fail;
 	}
 	kfree_skb(skb);
+#ifdef CONFIG_IPV6_STATISTICS
+	IP6_INC_STATS(idev, IPSTATS_MIB_FRAGOKS);
+#else
 	IP6_INC_STATS(IPSTATS_MIB_FRAGOKS);
+#endif
 	return err;
 
 fail:
 	kfree_skb(skb); 
+#ifdef CONFIG_IPV6_STATISTICS
+	IP6_INC_STATS(idev, IPSTATS_MIB_FRAGFAILS);
+#else
 	IP6_INC_STATS(IPSTATS_MIB_FRAGFAILS);
+#endif
 	return err;
 }
 
@@ -751,8 +1039,8 @@ int ip6_dst_lookup(struct sock *sk, struct dst_entry **dst, struct flowi *fl)
 	
 				/* Yes, checking route validity in not connected
 				   case is not very simple. Take into account,
-				   that we do not support routing by source, TOS,
-				   and MSG_DONTROUTE 		--ANK (980726)
+				   that we do not support routing by TOS
+				   --ANK (980726)
 	
 				   1. If route was host route, check that
 				      cached destination is current.
@@ -771,7 +1059,8 @@ int ip6_dst_lookup(struct sock *sk, struct dst_entry **dst, struct flowi *fl)
 			      !ipv6_addr_equal(&fl->fl6_dst, &rt->rt6i_dst.addr))
 			     && (np->daddr_cache == NULL ||
 				 !ipv6_addr_equal(&fl->fl6_dst, np->daddr_cache)))
-			    || (fl->oif && fl->oif != (*dst)->dev->ifindex)) {
+			    || (fl->oif && fl->oif != (*dst)->dev->ifindex)
+			    || ip6_dst_lookup_saddr_chk(np, rt, fl)) {
 				*dst = NULL;
 			} else
 				dst_hold(*dst);
@@ -781,19 +1070,16 @@ int ip6_dst_lookup(struct sock *sk, struct dst_entry **dst, struct flowi *fl)
 	if (*dst == NULL)
 		*dst = ip6_route_output(sk, fl);
 
-	if ((err = (*dst)->error))
-		goto out_err_release;
+	if (!(err = (*dst)->error) && ipv6_addr_any(&fl->fl6_src))
+		err = -EADDRNOTAVAIL;
 
-	if (ipv6_addr_any(&fl->fl6_src)) {
-		err = ipv6_get_saddr(*dst, &fl->fl6_dst, &fl->fl6_src);
-
-		if (err) {
+	if (err) {
 #if IP6_DEBUG >= 2
+		if (err == -EADDRNOTAVAIL)
 			printk(KERN_DEBUG "ip6_dst_lookup: "
 			       "no available source address\n");
 #endif
-			goto out_err_release;
-		}
+		goto out_err_release;
 	}
 
 	return 0;
@@ -812,6 +1098,9 @@ int ip6_append_data(struct sock *sk, int getfrag(void *from, char *to, int offse
 	struct inet_opt *inet = inet_sk(sk);
 	struct ipv6_pinfo *np = inet6_sk(sk);
 	struct sk_buff *skb;
+#ifdef CONFIG_IPV6_STATISTICS
+	struct inet6_dev *idev = rt->rt6i_idev;
+#endif
 	unsigned int maxfraglen, fragheaderlen;
 	int exthdrlen;
 	int hh_len;
@@ -1078,7 +1367,11 @@ alloc_new_skb:
 	return 0;
 error:
 	inet->cork.length -= length;
+#ifdef CONFIG_IPV6_STATISTICS
+	IP6_INC_STATS(idev, IPSTATS_MIB_OUTDISCARDS);
+#else
 	IP6_INC_STATS(IPSTATS_MIB_OUTDISCARDS);
+#endif
 	return err;
 }
 
@@ -1093,6 +1386,9 @@ int ip6_push_pending_frames(struct sock *sk)
 	struct ipv6_txoptions *opt = np->cork.opt;
 	struct rt6_info *rt = np->cork.rt;
 	struct flowi *fl = &inet->cork.fl;
+#ifdef CONFIG_IPV6_STATISTICS
+	struct inet6_dev *idev = rt->rt6i_idev;
+#endif
 	unsigned char proto = fl->proto;
 	int err = 0;
 
@@ -1138,7 +1434,11 @@ int ip6_push_pending_frames(struct sock *sk)
 	ipv6_addr_copy(&hdr->daddr, final_dst);
 
 	skb->dst = dst_clone(&rt->u.dst);
-	IP6_INC_STATS(IPSTATS_MIB_OUTREQUESTS);	
+#ifdef CONFIG_IPV6_STATISTICS
+	IP6_INC_STATS(idev, IPSTATS_MIB_OUTREQUESTS);
+#else
+	IP6_INC_STATS(IPSTATS_MIB_OUTREQUESTS);
+#endif
 	err = NF_HOOK(PF_INET6, NF_IP6_LOCAL_OUT, skb, NULL, skb->dst->dev, dst_output);
 	if (err) {
 		if (err > 0)
@@ -1168,9 +1468,19 @@ void ip6_flush_pending_frames(struct sock *sk)
 	struct inet_opt *inet = inet_sk(sk);
 	struct ipv6_pinfo *np = inet6_sk(sk);
 	struct sk_buff *skb;
+#ifdef CONFIG_IPV6_STATISTICS
+	struct dst_entry *dst;
+	struct inet6_dev *idev = NULL;
+#endif
 
 	while ((skb = __skb_dequeue_tail(&sk->sk_write_queue)) != NULL) {
+#ifdef CONFIG_IPV6_STATISTICS
+		dst = skb->dst;
+		idev = ((struct rt6_info *)dst)->rt6i_idev;
+		IP6_INC_STATS(idev, IPSTATS_MIB_OUTDISCARDS);
+#else
 		IP6_INC_STATS(IPSTATS_MIB_OUTDISCARDS);
+#endif
 		kfree_skb(skb);
 	}
 

@@ -540,7 +540,7 @@ static int create_entropy_store(int size, const char *name,
 		return -ENOMEM;
 	}
 	memset(r->pool, 0, POOLBYTES);
-	r->lock = SPIN_LOCK_UNLOCKED;
+	spin_lock_init(&r->lock);
 	r->name = name;
 	*ret_bucket = r;
 	return 0;
@@ -683,7 +683,7 @@ struct sample {
 
 static struct sample *batch_entropy_pool, *batch_entropy_copy;
 static int	batch_head, batch_tail;
-static spinlock_t batch_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(batch_lock);
 
 static int	batch_max;
 static void batch_entropy_process(void *private_);
@@ -822,9 +822,12 @@ static void add_timer_randomness(struct timer_rand_state *state, unsigned num)
 	preempt_disable();
 	/* if over the trickle threshold, use only 1 in 4096 samples */
 	if ( random_state->entropy_count > trickle_thresh &&
-	     (__get_cpu_var(trickle_count)++ & 0xfff))
-		goto out;
-
+	    (__get_cpu_var(trickle_count)++ & 0xfff)) {
+		preempt_enable();
+		return;
+	}
+	preempt_enable();
+ 
 	/*
 	 * Use get_cycles() if implemented, otherwise fall back to
 	 * jiffies.
@@ -872,8 +875,6 @@ static void add_timer_randomness(struct timer_rand_state *state, unsigned num)
 		entropy = int_ln_12bits(delta);
 	}
 	batch_entropy_store(num, time, entropy);
-out:
-	preempt_enable();
 }
 
 void add_keyboard_randomness(unsigned char scancode)
@@ -2364,6 +2365,24 @@ __u32 secure_ip_id(__u32 daddr)
 	hash[0] = daddr;
 	hash[1] = keyptr->secret[9];
 	hash[2] = keyptr->secret[10];
+	hash[3] = keyptr->secret[11];
+
+	return halfMD4Transform(hash, keyptr->secret);
+}
+
+/* Generate secure starting point for ephemeral TCP port search */
+u32 secure_tcp_port_ephemeral(__u32 saddr, __u32 daddr, __u16 dport)
+{
+	struct keydata *keyptr = get_keyptr();
+	u32 hash[4];
+
+	/*
+	 *  Pick a unique starting offset for each ephemeral port search
+	 *  (saddr, daddr, dport) and 48bits of random data.
+	 */
+	hash[0] = saddr;
+	hash[1] = daddr;
+	hash[2] = dport ^ keyptr->secret[10];
 	hash[3] = keyptr->secret[11];
 
 	return halfMD4Transform(hash, keyptr->secret);

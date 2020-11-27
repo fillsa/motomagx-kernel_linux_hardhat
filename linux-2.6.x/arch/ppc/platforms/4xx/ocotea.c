@@ -5,7 +5,7 @@
  *
  * Matt Porter <mporter@kernel.crashing.org>
  *
- * Copyright 2003-2004 MontaVista Software Inc.
+ * Copyright 2003-2005 MontaVista Software Inc.
  *
  * This program is free software; you can redistribute  it and/or modify it
  * under  the terms of  the GNU General  Public License as published by the
@@ -163,7 +163,7 @@ ocotea_setup_pcix(void)
 {
 	void *pcix_reg_base;
 
-	pcix_reg_base = ioremap64(PCIX0_REG_BASE, PCIX0_REG_SIZE);
+	pcix_reg_base = ioremap64(PCIX0_REG_BASE, PCIX_REG_SIZE);
 
 	/* Enable PCIX0 I/O, Mem, and Busmaster cycles */
 	PCIX_WRITEW(PCIX_READW(PCIX0_COMMAND) | PCI_COMMAND_IO | PCI_COMMAND_MEMORY | PCI_COMMAND_MASTER, PCIX0_COMMAND);
@@ -260,13 +260,16 @@ ocotea_early_serial_map(void)
 	port.flags = ASYNC_BOOT_AUTOCONF | ASYNC_SKIP_TEST;
 	port.line = 0;
 
-	if (early_serial_setup(&port) != 0) {
+#ifdef CONFIG_SERIAL_8250
+	if (early_serial_setup(&port) != 0)
 		printk("Early serial init of port 0 failed\n");
-	}
-
-#if defined(CONFIG_SERIAL_TEXT_DEBUG) || defined(CONFIG_KGDB)
+#endif
+#ifdef CONFIG_SERIAL_TEXT_DEBUG
 	/* Configure debug serial access */
 	gen550_init(0, &port);
+#endif
+#ifdef CONFIG_KGDB_8250
+	kgdb8250_add_port(0, &port);
 #endif
 
 	port.membase = ioremap64(PPC440GX_UART1_ADDR, 8);
@@ -274,13 +277,16 @@ ocotea_early_serial_map(void)
 	port.uartclk = clocks.uart1;
 	port.line = 1;
 
-	if (early_serial_setup(&port) != 0) {
+#ifdef CONFIG_SERIAL_8250
+	if (early_serial_setup(&port) != 0)
 		printk("Early serial init of port 1 failed\n");
-	}
-
-#if defined(CONFIG_SERIAL_TEXT_DEBUG) || defined(CONFIG_KGDB)
+#endif
+#ifdef CONFIG_SERIAL_TEXT_DEBUG
 	/* Configure debug serial access */
 	gen550_init(1, &port);
+#endif
+#ifdef CONFIG_KGDB_8250
+	kgdb8250_add_port(1, &port);
 #endif
 }
 
@@ -346,12 +352,6 @@ void __init platform_init(unsigned long r3, unsigned long r4,
 	 */
 	ibm440gx_get_clocks(&clocks, 33333333, 6 * 1843200);
 	ocp_sys_info.opb_bus_freq = clocks.opb;
-
-	/* XXX Fix L2C IRQ triggerring setting (edge-sensitive).
-	 * Firmware (at least PIBS v1.72 OCT/28/2003) sets it incorrectly
-	 * --ebs
-	 */
-	mtdcr(DCRN_UIC_TR(UIC2), mfdcr(DCRN_UIC_TR(UIC2)) | 0x00000100);
 
 	ibm44x_platform_init();
 

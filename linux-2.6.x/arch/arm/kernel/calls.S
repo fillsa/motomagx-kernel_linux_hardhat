@@ -1,19 +1,14 @@
 /*
  *  linux/arch/arm/kernel/calls.S
  *
- *  Copyright (C) 1995-2004 Russell King
+ *  Copyright (C) 1995-2005 Russell King
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
- *
- *  This file is included twice in entry-common.S
  */
-#ifndef NR_syscalls
-#define NR_syscalls 288
-#else
 
-__syscall_start:
+100:
 /* 0 */		.long	sys_restart_syscall
 		.long	sys_exit
 		.long	sys_fork_wrapper
@@ -27,7 +22,7 @@ __syscall_start:
 /* 10 */	.long	sys_unlink
 		.long	sys_execve_wrapper
 		.long	sys_chdir
-		.long	sys_time		/* used by libc4 */
+		.long	OBSOLETE(sys_time)	/* used by libc4 */
 		.long	sys_mknod
 /* 15 */	.long	sys_chmod
 		.long	sys_lchown16
@@ -36,15 +31,15 @@ __syscall_start:
 		.long	sys_lseek
 /* 20 */	.long	sys_getpid
 		.long	sys_mount
-		.long	sys_oldumount		/* used by libc4 */
+		.long	OBSOLETE(sys_oldumount)	/* used by libc4 */
 		.long	sys_setuid16
 		.long	sys_getuid16
-/* 25 */	.long	sys_stime
+/* 25 */	.long	OBSOLETE(sys_stime)
 		.long	sys_ptrace
-		.long	sys_alarm		/* used by libc4 */
+		.long	OBSOLETE(sys_alarm)	/* used by libc4 */
 		.long	sys_ni_syscall		/* was sys_fstat */
 		.long	sys_pause
-/* 30 */	.long	sys_utime		/* used by libc4 */
+/* 30 */	.long	OBSOLETE(sys_utime)	/* used by libc4 */
 		.long	sys_ni_syscall		/* was sys_stty */
 		.long	sys_ni_syscall		/* was sys_getty */
 		.long	sys_access
@@ -90,21 +85,21 @@ __syscall_start:
 		.long	sys_sigpending
 		.long	sys_sethostname
 /* 75 */	.long	sys_setrlimit
-		.long	sys_old_getrlimit	/* used by libc4 */
+		.long	OBSOLETE(sys_old_getrlimit) /* used by libc4 */
 		.long	sys_getrusage
 		.long	sys_gettimeofday
 		.long	sys_settimeofday
 /* 80 */	.long	sys_getgroups16
 		.long	sys_setgroups16
-		.long	old_select		/* used by libc4 */
+		.long	OBSOLETE(old_select)	/* used by libc4 */
 		.long	sys_symlink
 		.long	sys_ni_syscall		/* was sys_lstat */
 /* 85 */	.long	sys_readlink
 		.long	sys_uselib
 		.long	sys_swapon
 		.long	sys_reboot
-		.long	old_readdir		/* used by libc4 */
-/* 90 */	.long	old_mmap		/* used by libc4 */
+		.long	OBSOLETE(old_readdir)	/* used by libc4 */
+/* 90 */	.long	OBSOLETE(old_mmap)	/* used by libc4 */
 		.long	sys_munmap
 		.long	sys_truncate
 		.long	sys_ftruncate
@@ -116,7 +111,7 @@ __syscall_start:
 		.long	sys_statfs
 /* 100 */	.long	sys_fstatfs
 		.long	sys_ni_syscall
-		.long	sys_socketcall
+		.long	OBSOLETE(ABI(sys_socketcall, sys_oabi_socketcall))
 		.long	sys_syslog
 		.long	sys_setitimer
 /* 105 */	.long	sys_getitimer
@@ -127,14 +122,14 @@ __syscall_start:
 /* 110 */	.long	sys_ni_syscall		/* was sys_iopl */
 		.long	sys_vhangup
 		.long	sys_ni_syscall
-		.long	sys_syscall		/* call a syscall */
+		.long	OBSOLETE(sys_syscall)	/* call a syscall */
 		.long	sys_wait4
 /* 115 */	.long	sys_swapoff
 		.long	sys_sysinfo
-		.long	sys_ipc
+		.long	OBSOLETE(ABI(sys_ipc, sys_oabi_ipc))
 		.long	sys_fsync
 		.long	sys_sigreturn_wrapper
-/* 120 */	.long	sys_clone_wapper
+/* 120 */	.long	sys_clone_wrapper
 		.long	sys_setdomainname
 		.long	sys_newuname
 		.long	sys_ni_syscall
@@ -194,8 +189,8 @@ __syscall_start:
 		.long	sys_rt_sigtimedwait
 		.long	sys_rt_sigqueueinfo
 		.long	sys_rt_sigsuspend_wrapper
-/* 180 */	.long	sys_pread64
-		.long	sys_pwrite64
+/* 180 */	.long	ABI(sys_pread64, sys_oabi_pread64)
+		.long	ABI(sys_pwrite64, sys_oabi_pwrite64)
 		.long	sys_chown16
 		.long	sys_getcwd
 		.long	sys_capget
@@ -207,11 +202,11 @@ __syscall_start:
 /* 190 */	.long	sys_vfork_wrapper
 		.long	sys_getrlimit
 		.long	sys_mmap2
-		.long	sys_truncate64
-		.long	sys_ftruncate64
-/* 195 */	.long	sys_stat64
-		.long	sys_lstat64
-		.long	sys_fstat64
+		.long	ABI(sys_truncate64, sys_oabi_truncate64)
+		.long	ABI(sys_ftruncate64, sys_oabi_ftruncate64)
+/* 195 */	.long	ABI(sys_stat64, sys_oabi_stat64)
+		.long	ABI(sys_lstat64, sys_oabi_lstat64)
+		.long	ABI(sys_fstat64, sys_oabi_fstat64)
 		.long	sys_lchown
 		.long	sys_getuid
 /* 200 */	.long	sys_getgid
@@ -235,11 +230,11 @@ __syscall_start:
 		.long	sys_pivot_root
 		.long	sys_mincore
 /* 220 */	.long	sys_madvise
-		.long	sys_fcntl64
+		.long	ABI(sys_fcntl64, sys_oabi_fcntl64)
 		.long	sys_ni_syscall /* TUX */
 		.long	sys_ni_syscall
 		.long	sys_gettid
-/* 225 */	.long	sys_readahead
+/* 225 */	.long	ABI(sys_readahead, sys_oabi_readahead)
 		.long	sys_setxattr
 		.long	sys_lsetxattr
 		.long	sys_fsetxattr
@@ -265,12 +260,12 @@ __syscall_start:
 		.long	sys_exit_group
 		.long	sys_lookup_dcookie
 /* 250 */	.long	sys_epoll_create
-		.long	sys_epoll_ctl
-		.long	sys_epoll_wait
+		.long	ABI(sys_epoll_ctl, sys_oabi_epoll_ctl)
+		.long	ABI(sys_epoll_wait, sys_oabi_epoll_wait)
 	 	.long	sys_remap_file_pages
 		.long	sys_ni_syscall	/* sys_set_thread_area */
 /* 255 */	.long	sys_ni_syscall	/* sys_get_thread_area */
- 		.long	sys_ni_syscall	/* sys_set_tid_address */
+ 		.long	sys_set_tid_address
 		.long	sys_timer_create
 		.long	sys_timer_settime
 		.long	sys_timer_gettime
@@ -280,11 +275,11 @@ __syscall_start:
 		.long	sys_clock_gettime
 		.long	sys_clock_getres
 /* 265 */	.long	sys_clock_nanosleep
-		.long	sys_statfs64
-		.long	sys_fstatfs64
+		.long	sys_statfs64_wrapper
+		.long	sys_fstatfs64_wrapper
 		.long	sys_tgkill
 		.long	sys_utimes
-/* 270 */	.long	sys_fadvise64_64
+/* 270 */	.long	sys_arm_fadvise64_64
 		.long	sys_pciconfig_iobase
 		.long	sys_pciconfig_read
 		.long	sys_pciconfig_write
@@ -295,9 +290,48 @@ __syscall_start:
 		.long	sys_mq_notify
 		.long	sys_mq_getsetattr
 /* 280 */	.long	sys_waitid
-__syscall_end:
+		.long	MV_CONFLICT(sys_mbind, sys_socket)
+		.long	MV_CONFLICT(sys_get_mempolicy, ABI(sys_bind, sys_oabi_bind))
+		.long	MV_CONFLICT(sys_set_mempolicy, ABI(sys_connect, sys_oabi_connect))
+		.long	sys_listen
+/* 285 */	.long	sys_accept
+		.long	sys_getsockname
+		.long	sys_getpeername
+		.long	sys_socketpair
+		.long	sys_send
+/* 290 */	.long	ABI(sys_sendto, sys_oabi_sendto)
+		.long	sys_recv
+		.long	sys_recvfrom
+		.long	sys_shutdown
+		.long	sys_setsockopt
+/* 295 */	.long	sys_getsockopt
+		.long	ABI(sys_sendmsg, sys_oabi_sendmsg)
+		.long	sys_recvmsg
+		.long	ABI(sys_semop, sys_oabi_semop)
+		.long	sys_semget
+/* 300 */	.long	sys_semctl
+		.long	sys_msgsnd
+		.long	sys_msgrcv
+		.long	sys_msgget
+		.long	sys_msgctl
+/* 305 */	.long	sys_shmat
+		.long	sys_shmdt
+		.long	sys_shmget
+		.long	sys_shmctl
+		.long	sys_add_key
+/* 310 */	.long	sys_request_key
+		.long	sys_keyctl
+		.long	ABI(sys_semtimedop, sys_oabi_semtimedop)
+/* vserver */	.long	sys_ni_syscall
+		.long	sys_ni_syscall		/* sys_ioprio_set */
+/* 315 */	.long	sys_ni_syscall		/* sys_ioprio_get */
+		.long	sys_ni_syscall		/* sys_inotify_init */
+		.long	sys_ni_syscall		/* sys_inotify_add_watch */
+		.long	sys_ni_syscall		/* sys_inotify_rm_watch */
+		.long	sys_mbind
+/* 320 */	.long	sys_get_mempolicy
+		.long	sys_set_mempolicy
 
-		.rept	NR_syscalls - (__syscall_end - __syscall_start) / 4
+		.rept	NR_syscalls - (. - 100b) / 4
 			.long	sys_ni_syscall
 		.endr
-#endif

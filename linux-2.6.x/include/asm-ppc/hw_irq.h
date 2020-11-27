@@ -5,6 +5,7 @@
 #ifndef _PPC_HW_IRQ_H
 #define _PPC_HW_IRQ_H
 
+#include <linux/ilatency.h>
 #include <asm/ptrace.h>
 #include <asm/reg.h>
 
@@ -16,6 +17,28 @@ extern void timer_interrupt(struct pt_regs *);
 
 #ifdef INLINE_IRQS
 
+#ifdef CONFIG_ILATENCY
+#define local_irq_enable()      ilat_irq_enable(__BASE_FILE__,__LINE__,0)
+#define local_irq_disable()     ilat_irq_disable(__BASE_FILE__,__LINE__)
+#define local_irq_save(x)       do {local_save_flags(x);local_irq_disable();} while (0)
+#define local_irq_restore(x)    ilat_restore_flags(__BASE_FILE__,__LINE__,x)
+#define __local_irq_restore(flags)	mtmsr(flags)
+static inline void __local_irq_disable(void)
+{
+	unsigned long msr;
+	msr = mfmsr();
+	mtmsr(msr & ~MSR_EE);
+	__asm__ __volatile__("": : :"memory");
+}
+
+static inline void __local_irq_enable(void)
+{
+	unsigned long msr;
+	__asm__ __volatile__("": : :"memory");
+	msr = mfmsr();
+	mtmsr(msr | MSR_EE);
+}
+#else
 static inline void local_irq_disable(void)
 {
 	unsigned long msr;
@@ -41,9 +64,10 @@ static inline void local_irq_save_ptr(unsigned long *flags)
 	__asm__ __volatile__("": : :"memory");
 }
 
-#define local_save_flags(flags)		((flags) = mfmsr())
 #define local_irq_save(flags)		local_irq_save_ptr(&flags)
 #define local_irq_restore(flags)	mtmsr(flags)
+#endif
+#define local_save_flags(flags)		((flags) = mfmsr())
 
 #else
 

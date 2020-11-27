@@ -48,7 +48,7 @@ static int s3c2410_rtc_alarmno = NO_IRQ;
 static int s3c2410_rtc_tickno  = NO_IRQ;
 static int s3c2410_rtc_freq    = 1;
 
-static spinlock_t s3c2410_rtc_pie_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(s3c2410_rtc_pie_lock);
 
 /* IRQ Handlers */
 
@@ -115,7 +115,7 @@ static void s3c2410_rtc_setfreq(int freq)
 
 /* Time read/write */
 
-static void s3c2410_rtc_gettime(struct rtc_time *rtc_tm)
+static int s3c2410_rtc_gettime(struct rtc_time *rtc_tm)
 {
 	unsigned int have_retried = 0;
 
@@ -150,6 +150,8 @@ static void s3c2410_rtc_gettime(struct rtc_time *rtc_tm)
 
 	rtc_tm->tm_year += 100;
 	rtc_tm->tm_mon -= 1;
+
+	return 0;
 }
 
 
@@ -170,7 +172,7 @@ static int s3c2410_rtc_settime(struct rtc_time *tm)
 	return 0;
 }
 
-static void s3c2410_rtc_getalarm(struct rtc_wkalrm *alrm)
+static int s3c2410_rtc_getalarm(struct rtc_wkalrm *alrm)
 {
 	struct rtc_time *alm_tm = &alrm->time;
 	unsigned int alm_en;
@@ -230,6 +232,8 @@ static void s3c2410_rtc_getalarm(struct rtc_wkalrm *alrm)
 	}
 
 	/* todo - set alrm->enabled ? */
+
+	return 0;
 }
 
 static int s3c2410_rtc_setalarm(struct rtc_wkalrm *alrm)

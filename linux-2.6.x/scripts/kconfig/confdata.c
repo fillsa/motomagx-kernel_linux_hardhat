@@ -1,6 +1,26 @@
 /*
- * Copyright (C) 2002 Roman Zippel <zippel@linux-m68k.org>
- * Released under the terms of the GNU GPL v2.0.
+ *  confdata.c
+ *
+ *  Copyright (C) 2002 Roman Zippel <zippel@linux-m68k.org>
+ *  Copyright 2006, Motorola
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to the Free Software
+ *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ *  Changes:
+ * Motorola  2006-Nov-?? - exit(1) on nonexistent symbols
+ * Motorola  2006-Nov-16 - Add support for lock/endlock blocks.
  */
 
 #include <sys/stat.h>
@@ -10,6 +30,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <errno.h>
 
 #define LKC_DIRECT_LINK
 #include "lkc.h"
@@ -18,7 +39,9 @@ const char conf_def_filename[] = ".config";
 
 const char conf_defname[] = "arch/$ARCH/defconfig";
 
-const char *conf_confnames[] = {
+/*These are used only when conf_read(NULL) is called, i.e. when doing
+ * make config */
+static const char *__conf_confnames[] = {
 	".config",
 	"/lib/modules/$UNAME_RELEASE/.config",
 	"/etc/kernel-config",
@@ -27,10 +50,23 @@ const char *conf_confnames[] = {
 	NULL,
 };
 
-static char *conf_expand_value(const signed char *in)
+/* If we are doing a cross-compilation, using the host system config is
+ * dangerous (silently broken binaries can be the result).*/
+static const char *__cross_conf_confnames[] = {
+	".config",
+	conf_defname,
+	NULL,
+};
+
+static inline const char **get_conf_confnames(void)
+{
+	return getenv("__KBUILD_CROSS_COMPILING") ? __cross_conf_confnames: __conf_confnames;
+}
+
+static char *conf_expand_value(const char *in)
 {
 	struct symbol *sym;
-	const signed char *src;
+	const char *src;
 	static char res_value[SYMBOL_MAXLENGTH];
 	char *dst, name[SYMBOL_MAXLENGTH];
 
@@ -83,7 +119,7 @@ int conf_read(const char *name)
 	if (name) {
 		in = zconf_fopen(name);
 	} else {
-		const char **names = conf_confnames;
+		const char **names = get_conf_confnames();
 		while ((name = *names++)) {
 			name = conf_expand_value(name);
 			in = zconf_fopen(name);
@@ -155,6 +191,15 @@ int conf_read(const char *name)
 			sym = sym_find(line + 7);
 			if (!sym) {
 				fprintf(stderr, "%s:%d: trying to assign nonexistent symbol %s\n", name, lineno, line + 7);
+				/*************************
+				 * BEGIN Motorola code
+				 * Keep it for upmerges
+				 *************************/
+				exit(1);
+				/*************************
+				 * END Motorola code
+				 * Keep it for upmerges
+				 *************************/
 				break;
 			}
 			switch (sym->type) {
@@ -336,6 +381,9 @@ int conf_write(const char *name)
 
 	menu = rootmenu.list;
 	while (menu) {
+		if (menu->flags & MENU_LOCK)
+			goto next;
+
 		sym = menu->sym;
 		if (!sym) {
 			if (!menu_is_visible(menu))

@@ -232,8 +232,8 @@ static int snd_hwdep_dsp_load(snd_hwdep_t *hw, snd_hwdep_dsp_image_t __user *_in
 	return 0;
 }
 
-static inline int _snd_hwdep_ioctl(struct inode *inode, struct file * file,
-				   unsigned int cmd, unsigned long arg)
+static inline long snd_hwdep_ioctl(struct file * file,
+				  unsigned int cmd, unsigned long arg)
 {
 	snd_hwdep_t *hw = file->private_data;
 	void __user *argp = (void __user *)arg;
@@ -250,17 +250,6 @@ static inline int _snd_hwdep_ioctl(struct inode *inode, struct file * file,
 	if (hw->ops.ioctl)
 		return hw->ops.ioctl(hw, file, cmd, arg);
 	return -ENOTTY;
-}
-
-/* FIXME: need to unlock BKL to allow preemption */
-static int snd_hwdep_ioctl(struct inode *inode, struct file * file,
-			   unsigned int cmd, unsigned long arg)
-{
-	int err;
-	unlock_kernel();
-	err = _snd_hwdep_ioctl(inode, file, cmd, arg);
-	lock_kernel();
-	return err;
 }
 
 static int snd_hwdep_mmap(struct file * file, struct vm_area_struct * vma)
@@ -328,7 +317,7 @@ static struct file_operations snd_hwdep_f_ops =
 	.open =		snd_hwdep_open,
 	.release =	snd_hwdep_release,
 	.poll =		snd_hwdep_poll,
-	.ioctl =	snd_hwdep_ioctl,
+	.unlocked_ioctl = snd_hwdep_ioctl,
 	.mmap =		snd_hwdep_mmap,
 };
 

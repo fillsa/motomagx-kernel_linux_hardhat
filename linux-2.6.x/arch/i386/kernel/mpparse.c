@@ -263,6 +263,7 @@ static void __init MP_ioapic_info (struct mpc_config_ioapic *m)
 		return;
 	}
 	mp_ioapics[nr_ioapics] = *m;
+	setup_IO_APIC_early(nr_ioapics);
 	nr_ioapics++;
 }
 
@@ -913,7 +914,7 @@ void __init mp_register_ioapic (
 	mp_ioapics[idx].mpc_flags = MPC_APIC_USABLE;
 	mp_ioapics[idx].mpc_apicaddr = address;
 
-	set_fixmap_nocache(FIX_IO_APIC_BASE_0 + idx, address);
+	setup_IO_APIC_early(idx);
 	mp_ioapics[idx].mpc_apicid = io_apic_get_unique_id(idx, id);
 	mp_ioapics[idx].mpc_apicver = io_apic_get_version(idx);
 	

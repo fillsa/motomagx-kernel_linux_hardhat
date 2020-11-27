@@ -24,7 +24,7 @@ INITRD_PHYS := $(initrd_phys-y)
 
 export ZRELADDR INITRD_PHYS PARAMS_PHYS
 
-targets := Image zImage xipImage bootpImage uImage
+targets := Image zImage xipImage bootpImage uImage xipuImage
 
 ifeq ($(CONFIG_XIP_KERNEL),y)
 
@@ -32,9 +32,23 @@ $(obj)/xipImage: vmlinux FORCE
 	$(call if_changed,objcopy)
 	@echo '  Kernel: $@ is ready (physical address: $(CONFIG_XIP_PHYS_ADDR))'
 
+quiet_cmd_xipmkimage = XIPUIMAGE  $@
+      cmd_xipmkimage = $(CONFIG_SHELL) $(MKIMAGE) -A arm -O linux -T kernel \
+		      -C none -a $(XIPUIMAGE_LOAD_ADDR) \
+                      -e $(CONFIG_XIP_PHYS_ADDR) -n 'Linux-$(KERNELRELEASE)' \
+		      -d $< $@
+
+XIPUIMAGE_LOAD_ADDR := $(shell echo $(CONFIG_XIP_PHYS_ADDR) | \
+			 awk --non-decimal-data '/[:xdigit:]/ \
+			 { printf("0x%x\n", $$1 - 0x40) }' )
+
+$(obj)/xipuImage: $(obj)/xipImage FORCE
+	$(call if_changed,xipmkimage)
+	@echo '  Image $@ is ready'
+
 $(obj)/Image $(obj)/zImage: FORCE
 	@echo 'Kernel configured for XIP (CONFIG_XIP_KERNEL=y)'
-	@echo 'Only the xipImage target is available in this case'
+	@echo 'Only XIP image targets are available in this case'
 	@false
 
 else

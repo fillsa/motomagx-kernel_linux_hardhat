@@ -421,7 +421,6 @@ static void ohci_usb_reset (struct ohci_hcd *ohci)
 
 static int ohci_init (struct ohci_hcd *ohci)
 {
-	u32 temp;
 	int ret;
 
 	disable (ohci);
@@ -432,6 +431,8 @@ static int ohci_init (struct ohci_hcd *ohci)
 	/* SMM owns the HC?  not for long! */
 	if (!no_handshake && ohci_readl (ohci,
 					&ohci->regs->control) & OHCI_CTRL_IR) {
+		u32 temp;
+
 		ohci_dbg (ohci, "USB HC TakeOver from BIOS/SMM\n");
 
 		/* this timeout is arbitrary.  we make it long, so systems
@@ -900,21 +901,21 @@ MODULE_LICENSE ("GPL");
 #include "ohci-pxa27x.c"
 #endif
 
+#ifdef CONFIG_SOC_AU1X00
+#include "ohci-au1xxx.c"
+#endif
+
+#ifdef CONFIG_ARCH_PNX4008
+#include "ohci-pnx4008.c"
+#endif
+
 #if !(defined(CONFIG_PCI) \
       || defined(CONFIG_SA1111) \
       || defined(CONFIG_ARCH_OMAP) \
       || defined (CONFIG_ARCH_LH7A404) \
       || defined (CONFIG_PXA27x) \
+      || defined (CONFIG_SOC_AU1X00) \
+      || defined (CONFIG_ARCH_PNX4008)\
 	)
 #error "missing bus glue for ohci-hcd"
-#endif
-
-#if	!defined(HAVE_HNP) && defined(CONFIG_USB_OTG)
-
-#warning non-OTG configuration, too many HCDs
-
-static void start_hnp(struct ohci_hcd *ohci)
-{
-	/* "can't happen" */
-}
 #endif

@@ -53,6 +53,7 @@
  *  - 1510 Innovator OHCI with bundled usb1/usb2 cable
  *  - 1510 Innovator OHCI with custom usb0 cable, feeding 5V VBUS
  *  - 1710 custom development board using alternate pin group
+ *  - 1710 H3 (with usb1 mini-AB) using standard Mini-B or OTG cables
  */
 
 /*-------------------------------------------------------------------------*/
@@ -97,6 +98,12 @@ static u32 __init omap_usb0_init(unsigned nwires, unsigned is_device)
 		if (!cpu_is_omap15xx()) {
 			/* pulldown D+/D- */
 			USB_TRANSCEIVER_CTRL_REG &= ~(3 << 1);
+		}
+		if (!cpu_is_omap1710()) {
+			// USB_TRANSCEIVER_CTRL_REG.CONF_USB0_PORT_R = 7
+			// P9 = USB.PUEN, R8 = Z-state
+			USB_TRANSCEIVER_CTRL_REG |= (7 << 4);
+			omap_writel(0xeaef, COMP_MODE_CTRL_0);
 		}
 		return 0;
 	}
@@ -181,9 +188,12 @@ static u32 __init omap_usb1_init(unsigned nwires)
 		omap_cfg_reg(USB1_SEO);
 		omap_cfg_reg(USB1_SPEED);
 		// SUSP
-	} else if (cpu_is_omap16xx()) {
+	} else if (cpu_is_omap1610() || cpu_is_omap5912()) {
 		omap_cfg_reg(W13_1610_USB1_SE0);
 		omap_cfg_reg(R13_1610_USB1_SPEED);
+		// SUSP
+	} else if (cpu_is_omap1710()) {
+		omap_cfg_reg(R13_1710_USB1_SE0);
 		// SUSP
 	} else {
 		pr_debug("usb unrecognized\n");

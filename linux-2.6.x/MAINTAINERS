@@ -906,6 +906,12 @@ L:	linux-nvidia@lists.surfsouth.com
 W:	http://drama.obuda.kando.hu/~fero/cgi-bin/hgafb.shtml
 S:	Maintained
 
+High-Res-Timers (HRT) extension to Posix Clocks & Timers
+P:	George Anzinger
+M:	george@mvista.com
+L:	linux-kernel@vger.kernel.org
+S:	Supported
+
 HIGH-SPEED SCC DRIVER FOR AX.25
 P:	Klaus Kudielka
 M:	klaus.kudielka@ieee.org
@@ -1363,6 +1369,13 @@ L:	linux-security-module@wirex.com
 W:	http://lsm.immunix.org
 S:	Supported
 
+LINUX TRACE TOOLKIT
+P:     Karim Yaghmour
+M:     karim@opersys.com
+W:     http://www.opersys.com/LTT
+L:     ltt-dev@listserv.shafik.org
+S:     Maintained
+
 LM83 HARDWARE MONITOR DRIVER
 P:	Jean Delvare
 M:	khali@linux-fr.org
@@ -1439,7 +1452,7 @@ S:	Maintained
 
 MEMORY TECHNOLOGY DEVICES
 P:	David Woodhouse
-M:	dwmw2@redhat.com
+M:	dwmw2@infradead.org
 W:	http://www.linux-mtd.infradead.org/
 L:	linux-mtd@lists.infradead.org
 S:	Maintained

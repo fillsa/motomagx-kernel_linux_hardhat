@@ -1,7 +1,7 @@
 /*
  *  linux/arch/arm/mm/consistent.c
  *
- *  Copyright (C) 2000-2002 Russell King
+ *  Copyright (C) 2000-2004 Russell King
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -21,16 +21,26 @@
 #include <asm/cacheflush.h>
 #include <asm/io.h>
 #include <asm/tlbflush.h>
+#include <asm/sizes.h>
 
-#define CONSISTENT_BASE	(0xffc00000)
+/* Sanity check size */
+#if (CONSISTENT_DMA_SIZE % SZ_2M)
+#error "CONSISTENT_DMA_SIZE must be multiple of 2MiB"
+#endif
+
 #define CONSISTENT_END	(0xffe00000)
+#define CONSISTENT_BASE	(CONSISTENT_END - CONSISTENT_DMA_SIZE)
+
 #define CONSISTENT_OFFSET(x)	(((unsigned long)(x) - CONSISTENT_BASE) >> PAGE_SHIFT)
+#define CONSISTENT_PTE_INDEX(x) (((unsigned long)(x) - CONSISTENT_BASE) >> PGDIR_SHIFT)
+#define NUM_CONSISTENT_PTES (CONSISTENT_DMA_SIZE >> PGDIR_SHIFT)
+
 
 /*
- * This is the page table (2MB) covering uncached, DMA consistent allocations
+ * These are the page tables (2MB each) covering uncached, DMA consistent allocations
  */
-static pte_t *consistent_pte;
-static spinlock_t consistent_lock = SPIN_LOCK_UNLOCKED;
+static pte_t *consistent_pte[NUM_CONSISTENT_PTES];
+static DEFINE_SPINLOCK(consistent_lock);
 
 /*
  * VM region handling support.
@@ -65,6 +75,7 @@ struct vm_region {
 	struct list_head	vm_list;
 	unsigned long		vm_start;
 	unsigned long		vm_end;
+	struct page		*vm_pages;
 };
 
 static struct vm_region consistent_head = {
@@ -140,7 +151,7 @@ __dma_alloc(struct device *dev, size_t size, dma_addr_t *handle, int gfp,
 	unsigned long order;
 	u64 mask = ISA_DMA_THRESHOLD, limit;
 
-	if (!consistent_pte) {
+	if (!consistent_pte[0]) {
 		printk(KERN_ERR "%s: not initialised\n", __func__);
 		dump_stack();
 		return NULL;
@@ -195,6 +206,7 @@ __dma_alloc(struct device *dev, size_t size, dma_addr_t *handle, int gfp,
 		unsigned long kaddr = (unsigned long)page_address(page);
 		memset(page_address(page), 0, size);
 		dmac_flush_range(kaddr, kaddr + size);
+		dmac_l2_flush_range(__pa(kaddr), __pa(kaddr + size));
 	}
 
 	/*
@@ -203,8 +215,13 @@ __dma_alloc(struct device *dev, size_t size, dma_addr_t *handle, int gfp,
 	c = vm_region_alloc(&consistent_head, size,
 			    gfp & ~(__GFP_DMA | __GFP_HIGHMEM));
 	if (c) {
-		pte_t *pte = consistent_pte + CONSISTENT_OFFSET(c->vm_start);
+		pte_t *pte;
 		struct page *end = page + (1 << order);
+		int idx = CONSISTENT_PTE_INDEX(c->vm_start);
+		u32 off = CONSISTENT_OFFSET(c->vm_start) & (PTRS_PER_PTE-1);
+
+		pte = consistent_pte[idx] + off;
+		c->vm_pages = page;
 
 		/*
 		 * Set the "dma handle"
@@ -215,10 +232,18 @@ __dma_alloc(struct device *dev, size_t size, dma_addr_t *handle, int gfp,
 			BUG_ON(!pte_none(*pte));
 
 			set_page_count(page, 1);
+			/*
+			 * x86 does not mark the pages reserved...
+			 */
 			SetPageReserved(page);
 			set_pte(pte, mk_pte(page, prot));
 			page++;
 			pte++;
+			off++;
+			if (off >= PTRS_PER_PTE) {
+				off = 0;
+				pte = consistent_pte[++idx];
+			}
 		} while (size -= PAGE_SIZE);
 
 		/*
@@ -264,6 +289,53 @@ dma_alloc_writecombine(struct device *dev, size_t size, dma_addr_t *handle, int 
 }
 EXPORT_SYMBOL(dma_alloc_writecombine);
 
+static int dma_mmap(struct device *dev, struct vm_area_struct *vma,
+		    void *cpu_addr, dma_addr_t dma_addr, size_t size)
+{
+	unsigned long flags, user_size, kern_size;
+	struct vm_region *c;
+	int ret = -ENXIO;
+
+	user_size = (vma->vm_end - vma->vm_start) >> PAGE_SHIFT;
+
+	spin_lock_irqsave(&consistent_lock, flags);
+	c = vm_region_find(&consistent_head, (unsigned long)cpu_addr);
+	spin_unlock_irqrestore(&consistent_lock, flags);
+
+	if (c) {
+		unsigned long off = vma->vm_pgoff;
+
+		kern_size = (c->vm_end - c->vm_start) >> PAGE_SHIFT;
+
+		if (off < kern_size &&
+		    user_size <= (kern_size - off)) {
+			vma->vm_flags |= VM_RESERVED;
+			ret = remap_pfn_range(vma, vma->vm_start,
+					      page_to_pfn(c->vm_pages) + off,
+					      user_size << PAGE_SHIFT,
+					      vma->vm_page_prot);
+		}
+	}
+
+	return ret;
+}
+
+int dma_mmap_coherent(struct device *dev, struct vm_area_struct *vma,
+		      void *cpu_addr, dma_addr_t dma_addr, size_t size)
+{
+	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+	return dma_mmap(dev, vma, cpu_addr, dma_addr, size);
+}
+EXPORT_SYMBOL(dma_mmap_coherent);
+
+int dma_mmap_writecombine(struct device *dev, struct vm_area_struct *vma,
+			  void *cpu_addr, dma_addr_t dma_addr, size_t size)
+{
+	vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
+	return dma_mmap(dev, vma, cpu_addr, dma_addr, size);
+}
+EXPORT_SYMBOL(dma_mmap_writecombine);
+
 /*
  * free a page as defined by the above mapping.
  */
@@ -272,6 +344,8 @@ void dma_free_coherent(struct device *dev, size_t size, void *cpu_addr, dma_addr
 	struct vm_region *c;
 	unsigned long flags;
 	pte_t *ptep;
+	int idx;
+	u32 off;
 
 	size = PAGE_ALIGN(size);
 
@@ -288,18 +362,29 @@ void dma_free_coherent(struct device *dev, size_t size, void *cpu_addr, dma_addr
 		size = c->vm_end - c->vm_start;
 	}
 
-	ptep = consistent_pte + CONSISTENT_OFFSET(c->vm_start);
+	idx = CONSISTENT_PTE_INDEX(c->vm_start);
+	off = CONSISTENT_OFFSET(c->vm_start) & (PTRS_PER_PTE-1);
+	ptep = consistent_pte[idx] + off;
 	do {
 		pte_t pte = ptep_get_and_clear(ptep);
 		unsigned long pfn;
 
 		ptep++;
+		off++;
+		if (off >= PTRS_PER_PTE) {
+			off = 0;
+			ptep = consistent_pte[++idx];
+		}
 
 		if (!pte_none(pte) && pte_present(pte)) {
 			pfn = pte_pfn(pte);
 
 			if (pfn_valid(pfn)) {
 				struct page *page = pfn_to_page(pfn);
+
+				/*
+				 * x86 does not mark the pages reserved...
+				 */
 				ClearPageReserved(page);
 
 				__free_page(page);
@@ -336,13 +421,14 @@ static int __init consistent_init(void)
 	pgd_t *pgd;
 	pmd_t *pmd;
 	pte_t *pte;
-	int ret = 0;
+	int ret = 0, i = 0;
+	u32 base = CONSISTENT_BASE;
 
 	spin_lock(&init_mm.page_table_lock);
 
 	do {
-		pgd = pgd_offset(&init_mm, CONSISTENT_BASE);
-		pmd = pmd_alloc(&init_mm, pgd, CONSISTENT_BASE);
+		pgd = pgd_offset(&init_mm, base);
+		pmd = pmd_alloc(&init_mm, pgd, base);
 		if (!pmd) {
 			printk(KERN_ERR "%s: no pmd tables\n", __func__);
 			ret = -ENOMEM;
@@ -350,15 +436,16 @@ static int __init consistent_init(void)
 		}
 		WARN_ON(!pmd_none(*pmd));
 
-		pte = pte_alloc_kernel(&init_mm, pmd, CONSISTENT_BASE);
+		pte = pte_alloc_kernel(&init_mm, pmd, base);
 		if (!pte) {
 			printk(KERN_ERR "%s: no pte tables\n", __func__);
 			ret = -ENOMEM;
 			break;
 		}
 
-		consistent_pte = pte;
-	} while (0);
+		consistent_pte[i++] = pte;
+		base += (1 << PGDIR_SHIFT);
+	} while (base < CONSISTENT_END);
 
 	spin_unlock(&init_mm.page_table_lock);
 
@@ -378,12 +465,15 @@ void consistent_sync(void *vaddr, size_t size, int direction)
 	switch (direction) {
 	case DMA_FROM_DEVICE:		/* invalidate only */
 		dmac_inv_range(start, end);
+		dmac_l2_inv_range(__pa(start), __pa(end));
 		break;
 	case DMA_TO_DEVICE:		/* writeback only */
 		dmac_clean_range(start, end);
+		dmac_l2_clean_range(__pa(start), __pa(end));
 		break;
 	case DMA_BIDIRECTIONAL:		/* writeback and invalidate */
 		dmac_flush_range(start, end);
+		dmac_l2_flush_range(__pa(start), __pa(end));
 		break;
 	default:
 		BUG();

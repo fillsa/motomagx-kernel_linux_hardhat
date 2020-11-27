@@ -35,6 +35,7 @@
  * sources per level' errata.
  */
 #define LOCAL_TIMER_VECTOR	0xef
+#define LOCAL_TIMER_IPI_VECTOR  0xee
 
 /*
  * First APIC vector available to drivers: (vectors 0x30-0xee)

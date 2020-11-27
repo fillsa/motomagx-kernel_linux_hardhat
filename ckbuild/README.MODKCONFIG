@@ -1,0 +1,22 @@
+USAGE NOTES FOR MODKCONFIG
+--------------------------
+
+A full description of ModKconfig and usage notes are available here:
+
+  http://sourceforge.mot.com/twiki/bin/view/Brava/ModKconfigHowto
+
+
+MAINTAINER NOTES FOR MODKCONFIG
+-------------------------------
+
+ModKconfig is an extension to the CKbuild system. It adds the following
+files:
+
+modkconfig.mk : makefile fragment included by modules using ModKconfig
+modkconfigvars.mk : definition of variables used by modkconfig.mk
+
+scripts/modkconfig.pl : frontend for all ModKconfig operations
+scripts/ModKconfig.pm : Perl module containing all of ModKconfig's logic
+scripts/ModKconfig/Spec.pm : Perl module for handling ModKconfig spec files
+scripts/ModKconfig/Slurp.pm : Perl module for sourcing Kconfig files
+ 

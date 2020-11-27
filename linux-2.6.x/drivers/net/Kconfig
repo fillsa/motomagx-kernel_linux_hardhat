@@ -444,10 +444,18 @@ config LASI_82596
 
 config MIPS_JAZZ_SONIC
 	tristate "MIPS JAZZ onboard SONIC Ethernet support"
-	depends on NET_ETHERNET && MIPS_JAZZ
+	depends on NET_ETHERNET && MACH_JAZZ
 	help
 	  This is the driver for the onboard card of MIPS Magnum 4000,
 	  Acer PICA, Olivetti M700-10 and a few other identical OEM systems.
+
+config GALILEO_64240_ETH
+	tristate "Galileo GT64240 Ethernet support"
+	depends on NET_ETHERNET && MOMENCO_OCELOT_G
+	select MII
+	help
+	  This is the driver for the ethernet interfaces integrated into
+	  the Galileo (now Marvell) GT64240 chipset.
 
 config MIPS_GT96100ETH
 	bool "MIPS GT96100 Ethernet support"
@@ -463,13 +471,9 @@ config MIPS_AU1X00_ENET
 	  If you have an Alchemy Semi AU1X00 based system
 	  say Y.  Otherwise, say N.
 
-config NET_SB1250_MAC
-	tristate "SB1250 Ethernet support"
-	depends on NET_ETHERNET && SIBYTE_SB1xxx_SOC
-
 config SGI_IOC3_ETH
 	bool "SGI IOC3 Ethernet"
-	depends on NET_ETHERNET && SGI_IP27
+	depends on NET_ETHERNET && PCI && SGI_IP27
 	select CRC32
 	select MII
 	help
@@ -1787,14 +1791,6 @@ config DECLANCE
 	  DEC (now Compaq) based on the AMD Lance chipset, including the
 	  DEPCA series.  (This chipset is better known via the NE2100 cards.)
 
-config BAGETLANCE
-	tristate "Baget AMD LANCE support"
-	depends on NET_ETHERNET && BAGET_MIPS
-	help
-	  Say Y to enable kernel support for AMD Lance Ethernet cards on the
-	  MIPS-32-based Baget embedded system.  This chipset is better known
-	  via the NE2100 cards.
-
 config 68360_ENET
 	bool "Motorola 68360 ethernet controller"
 	depends on M68360
@@ -1979,6 +1975,10 @@ config R8169_NAPI
 
 	  If in doubt, say N.
 
+config NET_SB1250_MAC
+	tristate "SB1250 Ethernet support"
+	depends on SIBYTE_SB1xxx_SOC
+
 config SK98LIN
 	tristate "Marvell Yukon Chipset / SysKonnect SK-98xx Support"
 	depends on PCI
@@ -2117,6 +2117,20 @@ config MV643XX_ETH_2
 	help
 	  This enables support for Port 2 of the Marvell MV643XX Gigabit
 	  Ethernet.
+
+config BIG_SUR_FE
+	bool "PMC-Sierra TITAN Fast Ethernet Support"
+	depends on NET_ETHERNET && PMC_BIG_SUR
+	help
+	  This enables support for the the integrated ethernet of
+	  PMC-Sierra's Big Sur SoC.
+
+config TITAN_GE
+	bool "PMC-Sierra TITAN Gigabit Ethernet Support"
+	depends on PMC_YOSEMITE
+	help
+	  This enables support for the the integrated ethernet of
+	  PMC-Sierra's Titan SoC.
 
 endmenu
 

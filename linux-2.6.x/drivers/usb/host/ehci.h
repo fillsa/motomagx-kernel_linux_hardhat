@@ -103,6 +103,9 @@ struct ehci_hcd {			/* one per controller */
 /* unwrap an HCD pointer to get an EHCI_HCD pointer */ 
 #define hcd_to_ehci(hcd_ptr) container_of(hcd_ptr, struct ehci_hcd, hcd)
 
+#ifdef CONFIG_USB_EHCI_ARC
+#define ehci_to_hcd(ehci_ptr)	(&((ehci_ptr)->hcd))
+#endif
 
 enum ehci_timer_action {
 	TIMER_IO_WATCHDOG,

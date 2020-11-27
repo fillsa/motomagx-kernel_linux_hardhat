@@ -135,7 +135,7 @@
 #define DMA_AUTOINIT	0x10
 
 
-extern spinlock_t  dma_spin_lock;
+extern spinlock_t dma_spin_lock;
 
 static __inline__ unsigned long claim_dma_lock(void)
 {

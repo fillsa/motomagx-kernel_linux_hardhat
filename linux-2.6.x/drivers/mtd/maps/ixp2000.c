@@ -216,11 +216,6 @@ static int ixp2000_flash_probe(struct device *_dev)
 		goto Error;
 	}
 
-	/*
-	 * Setup read mode for FLASH
-	 */
-	*IXP2000_SLOWPORT_FRM = 1;
-
 #if defined(__ARMEB__)
 	/*
 	 * Enable erratum 44 workaround for NPUs with broken slowport

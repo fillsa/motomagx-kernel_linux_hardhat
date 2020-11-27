@@ -48,6 +48,8 @@
 #include <linux/cpumask.h>
 #include <linux/profile.h>
 #include <linux/bitops.h>
+#include <linux/ilatency.h>
+#include <linux/ltt-events.h>
 
 #include <asm/uaccess.h>
 #include <asm/system.h>
@@ -138,6 +140,8 @@ skip:
 void do_IRQ(struct pt_regs *regs)
 {
 	int irq, first = 1;
+
+ 	interrupt_overhead_start();
         irq_enter();
 
 	/*
@@ -149,13 +153,16 @@ void do_IRQ(struct pt_regs *regs)
 	 * has already been handled. -- Tom
 	 */
 	while ((irq = ppc_md.get_irq(regs)) >= 0) {
+		ltt_ev_irq_entry(irq, !(user_mode(regs)));
 		__do_IRQ(irq, regs);
+		ltt_ev_irq_exit();
 		first = 0;
 	}
 	if (irq != -2 && first)
 		/* That's not SMP safe ... but who cares ? */
 		ppc_spurious_interrupts++;
         irq_exit();
+	latency_check();
 }
 
 void __init init_IRQ(void)

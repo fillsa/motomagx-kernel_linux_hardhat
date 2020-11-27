@@ -6,6 +6,7 @@
 #include <linux/module.h>
 #include <linux/spinlock.h>
 #include <linux/init.h>
+#include <linux/kgdb.h>
 #include <asm/uaccess.h>
 
 /* Simple binary search */
@@ -31,6 +32,12 @@ search_extable(const struct exception_table_entry *first,
                 else
                         last = mid-1;
         }
+#ifdef CONFIG_KGDB
+	if (atomic_read(&debugger_active) && kgdb_may_fault)
+		/* Restore our previous state. */
+		kgdb_fault_longjmp(kgdb_fault_jmp_regs);
+		/* Not reached. */
+#endif
         return NULL;
 }
 

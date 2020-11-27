@@ -3,8 +3,21 @@
  *
  * $Id: mtdblock.c,v 1.65 2004/11/16 18:28:59 dwmw2 Exp $
  *
+ * Copyright (C) 2006 - 2007  Motorola, Inc.
  * (C) 2000-2003 Nicolas Pitre <nico@cam.org>
  * (C) 1999-2003 David Woodhouse <dwmw2@infradead.org>
+ *
+ * ChangeLog:
+ *(mm-dd-yyyy)  Author    Comment
+ * 06-10-2006	Motorola  added CONFIG_MOT_FEAT_SECURE_DRM feature.
+ *			  make sure "user" and "pds" partitions are handled 
+ *			  as protected device.
+ *
+ * 10-20-2006	Motorola  added CONFIG_MOT_FEAT_MTD_AUTO_BBM feature.
+ *			  provides automatically bad block replacement on block
+ *			  device layer.
+ * 03-15-2007   Motorola added 'rsv' partition as a protected device.
+ *
  */
 
 #include <linux/config.h>
@@ -27,6 +40,16 @@ static struct mtdblk_dev {
 	unsigned int cache_size;
 	enum { STATE_EMPTY, STATE_CLEAN, STATE_DIRTY } cache_state;
 } *mtdblks[MAX_MTD_DEVICES];
+
+#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+static inline int is_protected_device(struct mtd_info *mtd)
+{
+	return ((mtd) && (mtd->name) &&
+		((strcmp(mtd->name, "pds") == 0) ||
+		 (strcmp(mtd->name, "user") == 0)||
+		 (strcmp(mtd->name, "rsv") == 0)));
+}
+#endif /* CONFIG_MOT_FEAT_SECURE_DRM */
 
 /*
  * Cache stuff...
@@ -83,10 +106,28 @@ static int erase_write (struct mtd_info *mtd, unsigned long pos,
 	/*
 	 * Next, writhe data to flash.
 	 */
+#ifdef CONFIG_MOT_FEAT_MTD_AUTO_BBM
+bbm_retry:
+	ret = MTD_WRITE (mtd, pos, len, &retlen, buf);
+	if (ret) {
+		if (mtd->block_replace) {
+			DEBUG(MTD_DEBUG_LEVEL0, "mtdblock: block_replace with pos %08x\n", (unsigned int)pos);
+			if (mtd->block_replace(mtd, pos, 0)) {
+				printk (KERN_ERR "mtdblock: out of replacement block for pos %08x\n",
+					(unsigned int)pos);
+				return ret;
+			}
+			/* try to write again with replacement block */
+			goto bbm_retry;
+		}
+		return ret;
+	}
+#else
 
 	ret = MTD_WRITE (mtd, pos, len, &retlen, buf);
 	if (ret)
 		return ret;
+#endif
 	if (retlen != len)
 		return -EIO;
 	return 0;
@@ -241,6 +282,14 @@ static int mtdblock_readsect(struct mtd_blktrans_dev *dev,
 			      unsigned long block, char *buf)
 {
 	struct mtdblk_dev *mtdblk = mtdblks[dev->devnum];
+
+#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+	if (is_protected_device(mtdblk->mtd))
+	{
+		return -EPERM;
+	}
+#endif /* CONFIG_MOT_FEAT_SECURE_DRM */
+
 	return do_cached_read(mtdblk, block<<9, 512, buf);
 }
 
@@ -248,7 +297,15 @@ static int mtdblock_writesect(struct mtd_blktrans_dev *dev,
 			      unsigned long block, char *buf)
 {
 	struct mtdblk_dev *mtdblk = mtdblks[dev->devnum];
-	if (unlikely(!mtdblk->cache_data)) {
+
+#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+	if (is_protected_device(mtdblk->mtd))
+	{
+		return -EPERM;
+	}
+#endif /* CONFIG_MOT_FEAT_SECURE_DRM */
+
+	if (unlikely(!mtdblk->cache_data && mtdblk->cache_size)) {
 		mtdblk->cache_data = vmalloc(mtdblk->mtd->erasesize);
 		if (!mtdblk->cache_data)
 			return -EINTR;
@@ -392,3 +449,21 @@ module_exit(cleanup_mtdblock);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Nicolas Pitre <nico@cam.org> et al.");
 MODULE_DESCRIPTION("Caching read/erase/writeback block device emulation access to MTD devices");
+
+void mtdblock_flush_all(void)
+{
+	int i;
+
+	for (i = 0; i < MAX_MTD_DEVICES; i++) {
+		struct mtdblk_dev *mtdblk = mtdblks[i];
+
+		if (mtdblk) {
+			down(&mtdblk->cache_sem);
+			write_cached_data(mtdblk);
+			up(&mtdblk->cache_sem);
+
+			if (mtdblk->mtd->sync)
+				mtdblk->mtd->sync(mtdblk->mtd);
+		}
+	}
+}

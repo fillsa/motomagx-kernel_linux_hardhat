@@ -5,7 +5,7 @@
  *  Copyright (C) 2001 Altera Corporation
  *  Copyright (C) 2001 Red Hat, Inc.
  *
- * $Id: epxa10db-flash.c,v 1.13 2004/11/04 13:24:14 gleixner Exp $ 
+ * $Id: epxa10db-flash.c,v 1.12 2004/09/16 23:27:13 gleixner Exp $ 
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by

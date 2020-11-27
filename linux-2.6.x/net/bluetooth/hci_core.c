@@ -4,6 +4,7 @@
 
    Written 2000,2001 by Maxim Krasnyansky <maxk@qualcomm.com>
 
+
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License version 2 as
    published by the Free Software Foundation;
@@ -20,11 +21,33 @@
    ALL LIABILITY, INCLUDING LIABILITY FOR INFRINGEMENT OF ANY PATENTS, 
    COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS 
    SOFTWARE IS DISCLAIMED.
+
+   
+   Copyright (C) 2006 - Motorola
+
+   Date         Author           Comment
+   -----------  --------------   --------------------------------
+   2006-May-17  Motorola	 Adding support for HCI write notification
+   2006-Aug-30  Motorola         Adding support for HCI suspend/resume.
+
 */
+
+/*
+   The Bluetooth word mark and logos are owned by Bluetooth SIG, Inc. and any use of such marks by Motorola
+   is under license. Other trademarks and trade names are those of their respective owners.
+
+*/
+
+
+
+
 
 /* Bluetooth HCI core. */
 
 #include <linux/config.h>
+#ifdef MODKCONFIG
+#include "modkconfig/config.h"
+#endif
 #include <linux/module.h>
 #include <linux/kmod.h>
 
@@ -82,11 +105,13 @@ int hci_register_notifier(struct notifier_block *nb)
 {
 	return notifier_chain_register(&hci_notifier, nb);
 }
+EXPORT_SYMBOL(hci_register_notifier);
 
 int hci_unregister_notifier(struct notifier_block *nb)
 {
 	return notifier_chain_unregister(&hci_notifier, nb);
 }
+EXPORT_SYMBOL(hci_unregister_notifier);
 
 void hci_notify(struct hci_dev *hdev, int event)
 {
@@ -881,6 +906,13 @@ EXPORT_SYMBOL(hci_unregister_dev);
 /* Suspend HCI device */
 int hci_suspend_dev(struct hci_dev *hdev)
 {
+	if (!hdev || !hdev->suspend)
+		return -EINVAL;
+
+	BT_DBG("hdev %s", hdev->name);
+
+	hdev->suspend(hdev);
+
 	hci_notify(hdev, HCI_DEV_SUSPEND);
 	return 0;
 }
@@ -889,7 +921,15 @@ EXPORT_SYMBOL(hci_suspend_dev);
 /* Resume HCI device */
 int hci_resume_dev(struct hci_dev *hdev)
 {
+	if (!hdev || !hdev->resume)
+		return -EINVAL;
+
+	BT_DBG("hdev %s", hdev->name);
+
+	hdev->resume(hdev);
+
 	hci_notify(hdev, HCI_DEV_RESUME);
+
 	return 0;
 }
 EXPORT_SYMBOL(hci_resume_dev);
@@ -986,6 +1026,8 @@ static int hci_send_frame(struct sk_buff *skb)
 
 	/* Get rid of skb owner, prior to sending to the driver. */
 	skb_orphan(skb);
+        
+        hci_notify(hdev, HCI_DEV_WRITE);
 
 	return hdev->send(skb);
 }

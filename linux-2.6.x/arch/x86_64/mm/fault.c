@@ -39,6 +39,7 @@ void bust_spinlocks(int yes)
 {
 	int loglevel_save = console_loglevel;
 	if (yes) {
+		stop_trace();
 		oops_in_progress = 1;
 	} else {
 #ifdef CONFIG_VT
@@ -470,6 +471,10 @@ no_context:
 
 	if (is_errata93(regs, address))
 		return; 
+
+	if (notify_die(DIE_PAGE_FAULT, "no context", regs, error_code, 14,
+				SIGSEGV) == NOTIFY_STOP)
+		return;
 
 /*
  * Oops. The kernel tried to access some bad page. We'll have to

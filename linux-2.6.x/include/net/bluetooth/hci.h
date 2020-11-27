@@ -20,7 +20,23 @@
    ALL LIABILITY, INCLUDING LIABILITY FOR INFRINGEMENT OF ANY PATENTS, 
    COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS 
    SOFTWARE IS DISCLAIMED.
+
+
+   Copyright (C) 2005-2006 - Motorola
+
+   Date         Author           Comment
+   -----------  --------------   --------------------------------
+   2005-Oct-26	Motorola	 changes structs to __attribute__((packed)) to work around ABI issues
+   2006-May-17  Motorola         Adding support for HCI write notification.
+
 */
+
+/*
+   The Bluetooth word mark and logos are owned by Bluetooth SIG, Inc. and any use of such marks by Motorola
+   is under license. Other trademarks and trade names are those of their respective owners.
+
+*/
+
 
 #ifndef __HCI_H
 #define __HCI_H
@@ -37,6 +53,7 @@
 #define HCI_DEV_DOWN			4
 #define HCI_DEV_SUSPEND			5
 #define HCI_DEV_RESUME			6
+#define HCI_DEV_WRITE                   7
 
 /* HCI notify events */
 #define HCI_NOTIFY_CONN_ADD		1
@@ -647,20 +664,20 @@ struct hci_sco_hdr {
 struct sockaddr_hci {
 	sa_family_t    hci_family;
 	unsigned short hci_dev;
-};
+} __attribute__ ((packed));
 #define HCI_DEV_NONE	0xffff
 
 struct hci_filter {
 	unsigned long type_mask;
 	unsigned long event_mask[2];
 	__u16   opcode;
-};
+} __attribute__ ((packed));
 
 struct hci_ufilter {
 	__u32   type_mask;
 	__u32   event_mask[2];
 	__u16   opcode;
-};
+} __attribute__ ((packed));
 
 #define HCI_FLT_TYPE_BITS	31
 #define HCI_FLT_EVENT_BITS	63
@@ -679,7 +696,7 @@ struct hci_dev_stats {
 	__u32 sco_rx;
 	__u32 byte_rx;
 	__u32 byte_tx;
-};
+} __attribute__ ((packed));
 
 struct hci_dev_info {
 	__u16 dev_id;
@@ -702,7 +719,7 @@ struct hci_dev_info {
 	__u16 sco_pkts;
 
 	struct hci_dev_stats stat;
-};
+} __attribute__ ((packed));
 
 struct hci_conn_info {
 	__u16    handle;
@@ -711,29 +728,29 @@ struct hci_conn_info {
 	__u8	 out;
 	__u16	 state;
 	__u32	 link_mode;
-};
+} __attribute__ ((packed));
 
 struct hci_dev_req {
 	__u16 dev_id;
 	__u32 dev_opt;
-};
+} __attribute__ ((packed));
 
 struct hci_dev_list_req {
 	__u16  dev_num;
 	struct hci_dev_req dev_req[0];	/* hci_dev_req structures */
-};
+} __attribute__ ((packed));
 
 struct hci_conn_list_req {
 	__u16  dev_id;
 	__u16  conn_num;
 	struct hci_conn_info conn_info[0];
-};
+} __attribute__ ((packed));
 
 struct hci_conn_info_req {
 	bdaddr_t bdaddr;
 	__u8     type;
 	struct   hci_conn_info conn_info[0];
-};
+} __attribute__ ((packed));
 
 struct hci_inquiry_req {
 	__u16 dev_id;
@@ -741,7 +758,7 @@ struct hci_inquiry_req {
 	__u8  lap[3];
 	__u8  length;
 	__u8  num_rsp;
-};
+} __attribute__ ((packed));
 #define IREQ_CACHE_FLUSH 0x0001
 
 #endif /* __HCI_H */

@@ -74,6 +74,13 @@ invalidate_complete_page(struct address_space *mapping, struct page *page)
 	if (PagePrivate(page) && !try_to_release_page(page, 0))
 		return 0;
 
+	/*
+	 * file system may manually remove page from the page
+	 * cache in ->releasepage(). Check for this.
+	 */
+	if (page->mapping != mapping)
+		return 0;
+
 	spin_lock_irq(&mapping->tree_lock);
 	if (PageDirty(page)) {
 		spin_unlock_irq(&mapping->tree_lock);
@@ -81,10 +88,6 @@ invalidate_complete_page(struct address_space *mapping, struct page *page)
 	}
 
 	BUG_ON(PagePrivate(page));
-	if (page_count(page) != 2) {
-		spin_unlock_irq(&mapping->tree_lock);
-		return 0;
-	}
 	__remove_from_page_cache(page);
 	spin_unlock_irq(&mapping->tree_lock);
 	ClearPageUptodate(page);

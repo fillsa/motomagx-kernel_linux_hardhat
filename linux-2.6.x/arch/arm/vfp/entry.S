@@ -17,13 +17,14 @@
  */
 #include <linux/linkage.h>
 #include <linux/init.h>
-#include <asm/thread_info.h>
+#include <asm/constants.h>
 #include <asm/vfpmacros.h>
 
 	.globl	do_vfp
 do_vfp:
  	ldr	r4, .LCvfp
 	add	r10, r10, #TI_VFPSTATE	@ r10 = workspace
+	mov	r2, r5
 	ldr	pc, [r4]		@ call VFP entry point
 
 .LCvfp:

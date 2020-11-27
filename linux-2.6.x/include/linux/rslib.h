@@ -9,7 +9,7 @@
  * RS code lifted from reed solomon library written by Phil Karn
  * Copyright 2002 Phil Karn, KA9Q
  *
- * $Id: rslib.h,v 1.3 2004/10/05 22:08:22 gleixner Exp $
+ * $Id: rslib.h,v 1.2 2004/10/01 21:43:50 gleixner Exp $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as

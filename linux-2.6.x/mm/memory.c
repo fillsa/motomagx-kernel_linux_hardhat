@@ -47,11 +47,15 @@
 #include <linux/module.h>
 #include <linux/init.h>
 
+#include <linux/module.h>
+#include <linux/ltt-events.h>
+
 #include <asm/pgalloc.h>
 #include <asm/uaccess.h>
 #include <asm/tlb.h>
 #include <asm/tlbflush.h>
 #include <asm/pgtable.h>
+#include <asm/io.h>
 
 #include <linux/swapops.h>
 #include <linux/elf.h>
@@ -114,7 +118,7 @@ static inline void free_one_pmd(struct mmu_gather *tlb, pmd_t * dir)
 	page = pmd_page(*dir);
 	pmd_clear(dir);
 	dec_page_state(nr_page_table_pages);
-	tlb->mm->nr_ptes--;
+	tlb_mm(tlb)->nr_ptes--;
 	pte_free_tlb(tlb, page);
 }
 
@@ -145,7 +149,7 @@ static inline void free_one_pgd(struct mmu_gather *tlb, pgd_t * dir)
  */
 void clear_page_tables(struct mmu_gather *tlb, unsigned long first, int nr)
 {
-	pgd_t * page_dir = tlb->mm->pgd;
+	pgd_t * page_dir = tlb_mm(tlb)->pgd;
 
 	page_dir += first;
 	do {
@@ -427,10 +431,10 @@ static void zap_pte_range(struct mmu_gather *tlb,
 			if (pte_dirty(pte))
 				set_page_dirty(page);
 			if (PageAnon(page))
-				tlb->mm->anon_rss--;
+				tlb_mm(tlb)->anon_rss--;
 			else if (pte_young(pte))
 				mark_page_accessed(page);
-			tlb->freed++;
+			tlb_free(tlb);
 			page_remove_rmap(page);
 			tlb_remove_page(tlb, page);
 			continue;
@@ -490,19 +494,15 @@ static void unmap_page_range(struct mmu_gather *tlb,
 	tlb_end_vma(tlb, vma);
 }
 
-/* Dispose of an entire struct mmu_gather per rescheduling point */
-#if defined(CONFIG_SMP) && defined(CONFIG_PREEMPT)
-#define ZAP_BLOCK_SIZE	(FREE_PTE_NR * PAGE_SIZE)
-#endif
-
-/* For UP, 256 pages at a time gives nice low latency */
-#if !defined(CONFIG_SMP) && defined(CONFIG_PREEMPT)
-#define ZAP_BLOCK_SIZE	(256 * PAGE_SIZE)
-#endif
-
+#ifdef CONFIG_PREEMPT
+/*
+ * It's not an issue to have a small zap block size - TLB flushes
+ * only happen once normally, due to the tlb->need_flush optimization.
+ */
+# define ZAP_BLOCK_SIZE	(8 * PAGE_SIZE)
+#else
 /* No preempt: go for improved straight-line efficiency */
-#if !defined(CONFIG_PREEMPT)
-#define ZAP_BLOCK_SIZE	(1024 * PAGE_SIZE)
+# define ZAP_BLOCK_SIZE	(1024 * PAGE_SIZE)
 #endif
 
 /**
@@ -577,15 +577,15 @@ int unmap_vmas(struct mmu_gather **tlbp, struct mm_struct *mm,
 
 			start += block;
 			zap_bytes -= block;
-			if ((long)zap_bytes > 0)
-				continue;
-			if (!atomic && need_resched()) {
+			if (!atomic) {
 				int fullmm = tlb_is_full_mm(*tlbp);
 				tlb_finish_mmu(*tlbp, tlb_start, start);
 				cond_resched_lock(&mm->page_table_lock);
 				*tlbp = tlb_gather_mmu(mm, fullmm);
 				tlb_start_valid = 0;
 			}
+			if ((long)zap_bytes > 0)
+				continue;
 			zap_bytes = ZAP_BLOCK_SIZE;
 		}
 	}
@@ -685,6 +685,66 @@ static inline struct page *get_page_map(struct page *page)
 	return page;
 }
 
+#ifdef CONFIG_CRAMFS_XIP_DEBUGGABLE
+/*
+ * Do a quick page-table lookup for a XIP untouched page entry. 
+ * If the address is in the untouched XIP page (resides on ROM), it returns 1 
+ * and set *paddr to the physical address of coresponding ROM address.
+ */
+int 
+find_xip_untouched_entry(struct mm_struct *mm, unsigned long address, unsigned long *paddr)
+{
+	pgd_t *pgd;
+	pmd_t *pmd;
+	pte_t *ptep, pte;
+	unsigned long pfn;
+	struct page *page;
+
+	page = follow_huge_addr(mm, address, write);
+	if (! IS_ERR(page)) {
+		*paddr = page_to_phys(page);
+		return 1;
+	}
+
+	pgd = pgd_offset(mm, address);
+	if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd)))
+		goto out;
+
+	pmd = pmd_offset(pgd, address);
+	if (pmd_none(*pmd))
+		goto out;
+	if (pmd_huge(*pmd)) {
+		page = follow_huge_pmd(mm, address, pmd, write);
+		if (! IS_ERR(page)) {
+			*paddr = page_to_phys(page);
+			return 1;
+		} else
+			return 0;
+	}
+	if (unlikely(pmd_bad(*pmd)))
+		goto out;
+
+	ptep = pte_offset_map(pmd, address);
+	if (!ptep)
+		goto out;
+
+	pte = *ptep;
+	pte_unmap(ptep);
+	pfn = pte_pfn(pte);
+	page = pfn_to_page(pfn);
+	*paddr = page_to_phys(page);
+	
+	if (!pte_present(pte))
+		goto out;
+	
+	if (pfn_valid(pfn))
+		goto out;
+	
+	return 1;
+out:
+	return 0;
+}
+#endif
 
 static inline int
 untouched_anonymous_page(struct mm_struct* mm, struct vm_area_struct *vma,
@@ -761,7 +821,8 @@ int get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 			continue;
 		}
 
-		if (!vma || (vma->vm_flags & VM_IO)
+		if (!vma || ((vma->vm_flags & VM_IO) &&
+					!(vma->vm_flags & VM_XIP))
 				|| !(flags & vma->vm_flags))
 			return i ? : -EFAULT;
 
@@ -774,6 +835,8 @@ int get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 		do {
 			struct page *map;
 			int lookup_write = write;
+
+			cond_resched_lock(&mm->page_table_lock);
 			while (!(map = follow_page(mm, start, lookup_write))) {
 				/*
 				 * Shortcut for anonymous pages. We don't want
@@ -1025,7 +1088,6 @@ static inline void break_cow(struct vm_area_struct * vma, struct page * new_page
 {
 	pte_t entry;
 
-	flush_cache_page(vma, address);
 	entry = maybe_mkwrite(pte_mkdirty(mk_pte(new_page, vma->vm_page_prot)),
 			      vma);
 	ptep_establish(vma, address, page_table, entry);
@@ -1060,6 +1122,63 @@ static int do_wp_page(struct mm_struct *mm, struct vm_area_struct * vma,
 	pte_t entry;
 
 	if (unlikely(!pfn_valid(pfn))) {
+		if ((vma->vm_flags & VM_XIP) && pte_present(pte) && 
+		    pte_read(pte)) {
+			/*
+			 * Handle COW of XIP memory.
+			 * Note that the source memory actually isn't a ram
+			 * page so no struct page is associated to the source
+			 * pte.
+			 */
+			char *dst;
+			int ret = 0;
+
+			spin_unlock(&mm->page_table_lock);
+			new_page = alloc_page(GFP_HIGHUSER);
+			if (!new_page)
+				return VM_FAULT_OOM;
+			dst = kmap_atomic(new_page, KM_USER0);
+			
+			/* copy XIP data to memory */
+#ifdef CONFIG_CRAMFS_XIP_DEBUGGABLE
+			{
+				void *maddr;
+				unsigned long paddr;
+				int xip;
+
+				xip = find_xip_untouched_entry(mm, address, &paddr);
+				BUG_ON(!xip);
+				
+				maddr = ioremap(paddr, PAGE_SIZE);
+				if (!maddr) 
+					return VM_FAULT_OOM;
+			
+				memcpy(dst, maddr, PAGE_SIZE);
+				iounmap(maddr);
+			}
+#else
+			ret = copy_from_user(dst, (void*)address, PAGE_SIZE);
+#endif
+			kunmap_atomic(dst, KM_USER0);
+
+			/* make sure pte didn't change while we dropped the
+			   lock */
+			spin_lock(&mm->page_table_lock);
+			if (!ret && pte_same(*page_table, pte)) {
+				++mm->rss;
+				break_cow(vma, new_page, address, page_table);
+				lru_cache_add(new_page);
+				page_add_file_rmap(new_page);
+				spin_unlock(&mm->page_table_lock);
+				return VM_FAULT_MINOR;	/* Minor fault */
+			}
+
+			/* pte changed: back off */
+			spin_unlock(&mm->page_table_lock);
+			page_cache_release(new_page);
+			return ret ? VM_FAULT_OOM : VM_FAULT_MINOR;
+		}
+
 		/*
 		 * This should really halt the system so it can be debugged or
 		 * at least the kernel stops what it's doing before it corrupts
@@ -1077,7 +1196,7 @@ static int do_wp_page(struct mm_struct *mm, struct vm_area_struct * vma,
 		int reuse = can_share_swap_page(old_page);
 		unlock_page(old_page);
 		if (reuse) {
-			flush_cache_page(vma, address);
+			flush_cache_page(vma, address, pfn);
 			entry = maybe_mkwrite(pte_mkyoung(pte_mkdirty(pte)),
 					      vma);
 			ptep_set_access_flags(vma, address, page_table, entry, 1);
@@ -1115,6 +1234,7 @@ static int do_wp_page(struct mm_struct *mm, struct vm_area_struct * vma,
 			++mm->rss;
 		else
 			page_remove_rmap(old_page);
+		flush_cache_page(vma, address, pfn);
 		break_cow(vma, new_page, address, page_table);
 		lru_cache_add_active(new_page);
 		page_add_anon_rmap(new_page, vma, address);
@@ -1346,6 +1466,7 @@ static int do_swap_page(struct mm_struct * mm,
 	spin_unlock(&mm->page_table_lock);
 	page = lookup_swap_cache(entry);
 	if (!page) {
+	        ltt_ev_memory(LTT_EV_MEMORY_SWAP_IN, address);
  		swapin_readahead(entry, address, vma);
  		page = read_swap_cache_async(entry, vma, address);
 		if (!page) {
@@ -1515,6 +1636,7 @@ do_no_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	}
 	smp_rmb();  /* Prevent CPU from reordering lock-free ->nopage() */
 retry:
+	cond_resched();
 	new_page = vma->vm_ops->nopage(vma, address & PAGE_MASK, &ret);
 
 	/* no page was available -- either SIGBUS or OOM */
@@ -1811,7 +1933,7 @@ unsigned long vmalloc_to_pfn(void * vmalloc_addr)
 
 EXPORT_SYMBOL(vmalloc_to_pfn);
 
-#if !defined(CONFIG_ARCH_GATE_AREA)
+#if !defined(__HAVE_ARCH_GATE_AREA)
 
 #if defined(AT_SYSINFO_EHDR)
 struct vm_area_struct gate_vma;
@@ -1837,7 +1959,7 @@ struct vm_area_struct *get_gate_vma(struct task_struct *tsk)
 #endif
 }
 
-int in_gate_area(struct task_struct *task, unsigned long addr)
+int in_gate_area_no_task(unsigned long addr)
 {
 #ifdef AT_SYSINFO_EHDR
 	if ((addr >= FIXADDR_USER_START) && (addr < FIXADDR_USER_END))
@@ -1846,4 +1968,4 @@ int in_gate_area(struct task_struct *task, unsigned long addr)
 	return 0;
 }
 
-#endif
+#endif	/* __HAVE_ARCH_GATE_AREA */

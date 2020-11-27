@@ -5,12 +5,36 @@
  *	Kazunori MIYAZAWA @USAGI
  * 	YOSHIFUJI Hideaki @USAGI
  *		Split up af-specific portion
- * 	
+ *
+ *
+ * Copyright (C) 2007,2008 Motorola Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+ * 02111-1307, USA
+ * 
+ * Date         Author          Comment
+ * 04/2007      Motorola        UMA DSCP support - new funcs added
+ * 03/2008      Motorola        Fixed segfault in UMA DSCP code
  */
 
 #include <linux/config.h>
 #include <net/xfrm.h>
 #include <net/ip.h>
+
+#ifdef CONFIG_MOT_FEAT_DSCP_UMA
+#include <net/inet_ecn.h>
+#endif
 
 static struct dst_ops xfrm4_dst_ops;
 static struct xfrm_policy_afinfo xfrm4_policy_afinfo;
@@ -224,6 +248,56 @@ _decode_session4(struct sk_buff *skb, struct flowi *fl)
 	fl->fl4_dst = iph->daddr;
 	fl->fl4_src = iph->saddr;
 }
+
+#ifdef CONFIG_MOT_FEAT_DSCP_UMA
+void xfrm4_copy_dscp(struct iphdr *outer, struct iphdr *inner)
+{
+    struct flowi fl;
+    struct xfrm_policy* policy = NULL;
+
+    if((inner !=NULL)&&(outer != NULL))
+    {
+        fl.fl4_dst = inner->daddr;
+        fl.fl4_src = inner->saddr;
+    
+        policy = flow_cache_lookup(&fl, AF_INET, FLOW_DIR_IN, xfrm_policy_lookup);
+
+        // Extract the dscp field (first 6 bits of the TOS byte) from the outer ip
+        // header. Put it in the dscp array of the SP at the index that corresponds 
+        // to the dscp field of the inner ip header.
+        if (policy != NULL)
+        {
+            policy->dscp[(inner->tos & ~INET_ECN_MASK)>>2] = (outer->tos & ~INET_ECN_MASK)>>2;
+        }
+    }
+}
+
+void xfrm4_extract_dscp(struct iphdr *outer, struct iphdr *inner)
+{
+    struct flowi fl;
+    struct xfrm_policy* policy = NULL;
+    
+    if((inner !=NULL)&&(outer!=NULL))
+    {
+        fl.fl4_dst = inner->saddr;
+        fl.fl4_src = inner->daddr;
+
+        policy = flow_cache_lookup(&fl, AF_INET, FLOW_DIR_IN, xfrm_policy_lookup);
+
+        // The tos field is already copied from inner to outer header before this
+        // function is called from xfrm4_encap function.
+
+        // Take the tos field from the inner (which is same as outer) and extract
+        // dscp field. This gives the index into the dscp array of the SP.
+        // Extract the dscp field from this array and OR it with the ECN mask.
+        // Then put this value into the TOS field of the outer ip header.
+        if (policy != NULL)
+        {
+            outer->tos = (policy->dscp[outer->tos >> 2])<<2 | (outer->tos & INET_ECN_MASK);
+        }
+    }	
+}
+#endif
 
 static inline int xfrm4_garbage_collect(void)
 {

@@ -79,6 +79,8 @@
 #define PXA_LAST_GPIO	127
 #endif
 
+#define ARCH_TIMER_IRQ	IRQ_OST0
+
 /*
  * The next 16 interrupts are for board specific purposes.  Since
  * the kernel can only run on one machine at a time, we can re-use

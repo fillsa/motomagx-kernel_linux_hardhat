@@ -92,7 +92,7 @@ static inline u32 fz_key(u32 dst, struct fn_zone *fz)
 	return dst & FZ_MASK(fz);
 }
 
-static rwlock_t fib_hash_lock = RW_LOCK_UNLOCKED;
+static DEFINE_RWLOCK(fib_hash_lock);
 
 #define FZ_MAX_DIVISOR ((PAGE_SIZE<<MAX_ORDER) / sizeof(struct hlist_head))
 
@@ -986,13 +986,23 @@ out:
 	return fa;
 }
 
+static struct fib_alias *fib_get_idx(struct seq_file *seq, loff_t pos)
+{
+	struct fib_alias *fa = fib_get_first(seq);
+
+	if (fa)
+		while (pos && (fa = fib_get_next(seq)))
+			--pos;
+	return pos ? NULL : fa;
+}
+
 static void *fib_seq_start(struct seq_file *seq, loff_t *pos)
 {
 	void *v = NULL;
 
 	read_lock(&fib_hash_lock);
 	if (ip_fib_main_table)
-		v = *pos ? fib_get_next(seq) : SEQ_START_TOKEN;
+		v = *pos ? fib_get_idx(seq, *pos - 1) : SEQ_START_TOKEN;
 	return v;
 }
 

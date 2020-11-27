@@ -132,6 +132,10 @@ static __inline__ int atomic_dec_and_test(atomic_t *v)
 {
 	unsigned char c;
 
+	if (!atomic_read(v)) {
+		printk("BUG: atomic counter underflow at:\n");
+		dump_stack();
+	}
 	__asm__ __volatile__(
 		LOCK "decl %0; sete %1"
 		:"=m" (v->counter), "=qm" (c)

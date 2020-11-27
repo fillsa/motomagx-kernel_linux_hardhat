@@ -1,4 +1,4 @@
-/* $Id: jffs2_fs_i.h,v 1.17 2004/11/11 23:51:27 dwmw2 Exp $ */
+/* $Id: jffs2_fs_i.h,v 1.16 2003/01/09 14:03:21 dwmw2 Exp $ */
 
 #ifndef _JFFS2_FS_I
 #define _JFFS2_FS_I
@@ -14,7 +14,15 @@ struct jffs2_inode_info {
 	   before letting GC proceed. Or we'd have to put ugliness
 	   into the GC code so it didn't attempt to obtain the i_sem
 	   for the inode(s) which are already locked */
-	struct semaphore sem;
+	/*
+	 * (On PREEMPT_RT: while use of ei->sem is mostly mutex-alike, the
+	 * SLAB cache keeps the semaphore locked, which breaks the strict
+	 * "owner must exist" properties of rt_mutexes. Fix it the easy
+	 * way: by going to a compat_semaphore. But the real fix would be
+	 * to cache inodes in an unlocked state and lock them when
+	 * allocating a new inode.)
+	 */
+	struct compat_semaphore sem;
 
 	/* The highest (datanode) version number used for this ino */
 	uint32_t highest_version;

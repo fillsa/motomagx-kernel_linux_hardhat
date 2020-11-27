@@ -32,7 +32,7 @@ static struct dst_entry 	*dst_garbage_list;
 #if RT_CACHE_DEBUG >= 2 
 static atomic_t			 dst_total = ATOMIC_INIT(0);
 #endif
-static spinlock_t		 dst_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(dst_lock);
 
 static unsigned long dst_gc_timer_expires;
 static unsigned long dst_gc_timer_inc = DST_GC_MAX;
@@ -218,31 +218,26 @@ again:
  *
  * Commented and originally written by Alexey.
  */
-static void dst_ifdown(struct dst_entry *dst, int unregister)
+static inline void dst_ifdown(struct dst_entry *dst, int unregister)
 {
 	struct net_device *dev = dst->dev;
+
+	if (dst->ops->ifdown)
+		dst->ops->ifdown(dst, unregister);
 
 	if (!unregister) {
 		dst->input = dst_discard_in;
 		dst->output = dst_discard_out;
-	}
-
-	do {
-		if (unregister) {
-			dst->dev = &loopback_dev;
-			dev_hold(&loopback_dev);
+	} else {
+		dst->dev = &loopback_dev;
+		dev_hold(&loopback_dev);
+		dev_put(dev);
+		if (dst->neighbour && dst->neighbour->dev == dev) {
+			dst->neighbour->dev = &loopback_dev;
 			dev_put(dev);
-			if (dst->neighbour && dst->neighbour->dev == dev) {
-				dst->neighbour->dev = &loopback_dev;
-				dev_put(dev);
-				dev_hold(&loopback_dev);
-			}
+			dev_hold(&loopback_dev);
 		}
-
-		if (dst->ops->ifdown)
-			dst->ops->ifdown(dst, unregister);
-	} while ((dst = dst->child) && dst->flags & DST_NOHASH &&
-		 dst->dev == dev);
+	}
 }
 
 static int dst_dev_event(struct notifier_block *this, unsigned long event, void *ptr)

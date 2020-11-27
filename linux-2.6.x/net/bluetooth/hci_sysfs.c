@@ -1,6 +1,17 @@
+/*
+   Motorola contributions are Copyright (C) 2007 - Motorola
+
+   Date         Author           Comment
+   -----------  --------------   --------------------------------
+   02-FEB-2007  Motorola         ModKconfig Build System Change
+
+*/
 /* Bluetooth HCI driver model support. */
 
 #include <linux/config.h>
+#ifdef MODKCONFIG
+#include "modkconfig/config.h"
+#endif
 #include <linux/kernel.h>
 #include <linux/init.h>
 

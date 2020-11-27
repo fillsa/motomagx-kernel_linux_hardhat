@@ -27,6 +27,7 @@
 #include <linux/ptrace.h>
 #include <linux/utsname.h>
 #include <linux/kprobes.h>
+#include <linux/ltt-events.h>
 
 #ifdef CONFIG_EISA
 #include <linux/ioport.h>
@@ -93,7 +94,7 @@ asmlinkage void machine_check(void);
 
 static int kstack_depth_to_print = 24;
 struct notifier_block *i386die_chain;
-static spinlock_t die_notifier_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_RAW_SPINLOCK(die_notifier_lock);
 
 int register_die_notifier(struct notifier_block *nb)
 {
@@ -115,22 +116,27 @@ static inline unsigned long print_context_stack(struct thread_info *tinfo,
 				unsigned long *stack, unsigned long ebp)
 {
 	unsigned long addr;
+#ifndef CONFIG_FRAME_POINTER
+	unsigned long prev_frame;
+#endif
 
-#ifdef	CONFIG_FRAME_POINTER
+#ifdef CONFIG_FRAME_POINTER
 	while (valid_stack_ptr(tinfo, (void *)ebp)) {
 		addr = *(unsigned long *)(ebp + 4);
 		printk(" [<%08lx>] ", addr);
 		print_symbol("%s", addr);
-		printk("\n");
+		printk(" (%ld)\n", *(unsigned long *)ebp - ebp);
 		ebp = *(unsigned long *)ebp;
 	}
 #else
+	prev_frame = (unsigned long)stack;
 	while (valid_stack_ptr(tinfo, stack)) {
 		addr = *stack++;
 		if (__kernel_text_address(addr)) {
 			printk(" [<%08lx>]", addr);
 			print_symbol(" %s", addr);
-			printk("\n");
+			printk(" (%ld)\n", (unsigned long)stack - prev_frame);
+			prev_frame = (unsigned long)stack;
 		}
 	}
 #endif
@@ -162,6 +168,7 @@ void show_trace(struct task_struct *task, unsigned long * stack)
 			break;
 		printk(" =======================\n");
 	}
+	print_traces(task);
 }
 
 void show_stack(struct task_struct *task, unsigned long *esp)
@@ -224,8 +231,8 @@ void show_registers(struct pt_regs *regs)
 		regs->eax, regs->ebx, regs->ecx, regs->edx);
 	printk("esi: %08lx   edi: %08lx   ebp: %08lx   esp: %08lx\n",
 		regs->esi, regs->edi, regs->ebp, esp);
-	printk("ds: %04x   es: %04x   ss: %04x\n",
-		regs->xds & 0xffff, regs->xes & 0xffff, ss);
+	printk("ds: %04x   es: %04x   ss: %04x   preempt: %08x\n",
+		regs->xds & 0xffff, regs->xes & 0xffff, ss, preempt_count());
 	printk("Process %s (pid: %d, threadinfo=%p task=%p)",
 		current->comm, current->pid, current_thread_info(), current);
 	/*
@@ -293,20 +300,90 @@ bug:
 	printk("Kernel BUG\n");
 }
 
+/* Trace related code */
+#if (CONFIG_LTT)
+asmlinkage void trace_real_syscall_entry(struct pt_regs *regs)
+{
+	int use_depth;
+	int use_bounds;
+	int depth = 0;
+	int seek_depth;
+	unsigned long lower_bound;
+	unsigned long upper_bound;
+	unsigned long addr;
+	unsigned long *stack;
+	ltt_syscall_entry trace_syscall_event;
+
+	/* Set the syscall ID */
+	trace_syscall_event.syscall_id = regs->orig_eax;
+
+	/* Set the address in any case */
+	trace_syscall_event.address = regs->eip;
+
+	/* Are we in the kernel (This is a kernel thread)? */
+	if (!(regs->xcs & 3))
+		/* Don't go digining anywhere */
+		goto trace_syscall_end;
+
+	/* Get the trace configuration */
+	if (ltt_get_trace_config(&use_depth,
+				 &use_bounds,
+				 &seek_depth,
+				 (void *) &lower_bound,
+				 (void *) &upper_bound) < 0)
+		goto trace_syscall_end;
+
+	/* Do we have to search for an eip address range */
+	if ((use_depth == 1) || (use_bounds == 1)) {
+		/* Start at the top of the stack (bottom address since stacks grow downward) */
+		stack = (unsigned long *) regs->esp;
+
+		/* Keep on going until we reach the end of the process' stack limit (wherever it may be) */
+		while (!get_user(addr, stack)) {
+			/* Does this LOOK LIKE an address in the program */
+			if ((addr > current->mm->start_code)
+			    && (addr < current->mm->end_code)) {
+				/* Does this address fit the description */
+				if (((use_depth == 1) && (depth == seek_depth))
+				    || ((use_bounds == 1) && (addr > lower_bound) && (addr < upper_bound))) {
+					/* Set the address */
+					trace_syscall_event.address = addr;
+
+					/* We're done */
+					goto trace_syscall_end;
+				} else
+					/* We're one depth more */
+					depth++;
+			}
+			/* Go on to the next address */
+			stack++;
+		}
+	}
+trace_syscall_end:
+	/* Trace the event */
+	ltt_log_event(LTT_EV_SYSCALL_ENTRY, &trace_syscall_event);
+}
+
+asmlinkage void trace_real_syscall_exit(void)
+{
+	ltt_log_event(LTT_EV_SYSCALL_EXIT, NULL);
+}
+#endif				/* (CONFIG_LTT) */
+
 void die(const char * str, struct pt_regs * regs, long err)
 {
 	static struct {
-		spinlock_t lock;
+		raw_spinlock_t lock;
 		u32 lock_owner;
 		int lock_owner_depth;
 	} die = {
-		.lock =			SPIN_LOCK_UNLOCKED,
+		.lock =			RAW_SPIN_LOCK_UNLOCKED,
 		.lock_owner =		-1,
 		.lock_owner_depth =	0
 	};
 	static int die_counter;
 
-	if (die.lock_owner != smp_processor_id()) {
+	if (die.lock_owner != _smp_processor_id()) {
 		console_verbose();
 		spin_lock_irq(&die.lock);
 		die.lock_owner = smp_processor_id();
@@ -332,7 +409,7 @@ void die(const char * str, struct pt_regs * regs, long err)
 #endif
 		if (nl)
 			printk("\n");
-	notify_die(DIE_OOPS, (char *)str, regs, err, 255, SIGSEGV);
+		notify_die(DIE_OOPS, (char *)str, regs, err, 255, SIGSEGV);
 		show_registers(regs);
   	} else
 		printk(KERN_ERR "Recursive die() failure, output suppressed\n");
@@ -361,6 +438,11 @@ static inline void die_if_kernel(const char * str, struct pt_regs * regs, long e
 static void do_trap(int trapnr, int signr, char *str, int vm86,
 			   struct pt_regs * regs, long error_code, siginfo_t *info)
 {
+#ifdef CONFIG_LTT
+	if (trapnr != 3 || !user_mode(regs))
+		ltt_ev_trap_entry(trapnr, regs->eip);
+#endif
+
 	if (regs->eflags & VM_MASK) {
 		if (vm86)
 			goto vm86_trap;
@@ -370,6 +452,11 @@ static void do_trap(int trapnr, int signr, char *str, int vm86,
 	if (!(regs->xcs & 3))
 		goto kernel_trap;
 
+#ifdef CONFIG_PREEMPT_RT
+	local_irq_enable();
+	preempt_check_resched();
+#endif
+
 	trap_signal: {
 		struct task_struct *tsk = current;
 		tsk->thread.error_code = error_code;
@@ -378,20 +465,30 @@ static void do_trap(int trapnr, int signr, char *str, int vm86,
 			force_sig_info(signr, info, tsk);
 		else
 			force_sig(signr, tsk);
+#ifdef CONFIG_LTT
+		if (trapnr != 3 || !user_mode(regs))
+			ltt_ev_trap_exit();
+#endif
 		return;
 	}
 
 	kernel_trap: {
 		if (!fixup_exception(regs))
 			die(str, regs, error_code);
+		ltt_ev_trap_exit();
 		return;
 	}
 
 	vm86_trap: {
 		int ret = handle_vm86_trap((struct kernel_vm86_regs *) regs, error_code, trapnr);
 		if (ret) goto trap_signal;
+		ltt_ev_trap_exit();
 		return;
 	}
+#ifdef CONFIG_LTT
+	if (trapnr != 3 || !user_mode(regs))
+		ltt_ev_trap_exit();
+#endif
 }
 
 #define DO_ERROR(trapnr, signr, str, name) \
@@ -493,12 +590,16 @@ fastcall void do_general_protection(struct pt_regs * regs, long error_code)
 
 	current->thread.error_code = error_code;
 	current->thread.trap_no = 13;
+	ltt_ev_trap_entry(13, regs->eip);
 	force_sig(SIGSEGV, current);
+	ltt_ev_trap_exit();
 	return;
 
 gp_in_vm86:
 	local_irq_enable();
+	ltt_ev_trap_entry(13, regs->eip);
 	handle_vm86_fault((struct kernel_vm86_regs *) regs, error_code);
+	ltt_ev_trap_exit();
 	return;
 
 gp_in_kernel:
@@ -551,10 +652,11 @@ static void unknown_nmi_error(unsigned char reason, struct pt_regs * regs)
 	printk("Do you have a strange power saving mode enabled?\n");
 }
 
-static spinlock_t nmi_print_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_RAW_SPINLOCK(nmi_print_lock);
 
 void die_nmi (struct pt_regs *regs, const char *msg)
 {
+	deadlock_trace_off();
 	spin_lock(&nmi_print_lock);
 	/*
 	* We are in trouble anyway, lets at least try
@@ -569,17 +671,27 @@ void die_nmi (struct pt_regs *regs, const char *msg)
 	console_silent();
 	spin_unlock(&nmi_print_lock);
 	bust_spinlocks(0);
+	nmi_exit();
 	do_exit(SIGSEGV);
 }
 
-static void default_do_nmi(struct pt_regs * regs)
+static void notrace default_do_nmi(struct pt_regs * regs)
 {
 	unsigned char reason = 0;
+
+#ifndef CONFIG_X86_LOCAL_APIC
+	/* On an machines with APIC enabled,
+	* NMIs are used to implement a watchdog and
+	* will hang the machine if traced.
+	*/
+	ltt_ev_trap_entry(2, regs->eip);
+#endif
 
 	/* Only the BSP gets external NMIs from the system.  */
 	if (!smp_processor_id())
 		reason = get_nmi_reason();
- 
+
+//	trace_special(6, 0, 0);
 	if (!(reason & 0xc0)) {
 		if (notify_die(DIE_NMI_IPI, "nmi_ipi", regs, reason, 0, SIGINT)
 							== NOTIFY_STOP)
@@ -591,10 +703,14 @@ static void default_do_nmi(struct pt_regs * regs)
 		 */
 		if (nmi_watchdog) {
 			nmi_watchdog_tick(regs);
+//			trace_special(6, 1, 0);
 			return;
 		}
 #endif
 		unknown_nmi_error(reason, regs);
+#ifndef CONFIG_X86_LOCAL_APIC
+		ltt_ev_trap_exit();
+#endif
 		return;
 	}
 	if (notify_die(DIE_NMI, "nmi", regs, reason, 0, SIGINT) == NOTIFY_STOP)
@@ -608,20 +724,24 @@ static void default_do_nmi(struct pt_regs * regs)
 	 * as it's edge-triggered.
 	 */
 	reassert_nmi();
+#ifndef CONFIG_X86_LOCAL_APIC
+	ltt_ev_trap_exit();
+#endif
 }
 
-static int dummy_nmi_callback(struct pt_regs * regs, int cpu)
+static notrace int dummy_nmi_callback(struct pt_regs * regs, int cpu)
 {
 	return 0;
 }
  
 static nmi_callback_t nmi_callback = dummy_nmi_callback;
  
-fastcall void do_nmi(struct pt_regs * regs, long error_code)
+fastcall notrace void do_nmi(struct pt_regs * regs, long error_code)
 {
 	int cpu;
 
 	nmi_enter();
+	nmi_trace((unsigned long)do_nmi, regs->eip, regs->eflags);
 
 	cpu = smp_processor_id();
 	++nmi_count(cpu);
@@ -707,6 +827,9 @@ fastcall void do_debug(struct pt_regs * regs, long error_code)
 
 	/* Mask out spurious TF errors due to lazy TF clearing */
 	if (condition & DR_STEP) {
+		if (notify_die(DIE_DEBUGSTEP, "debugstep", regs, condition,
+					1, SIGTRAP) == NOTIFY_STOP)
+			goto spurious_squashed;
 		/*
 		 * The TF error should be masked out only if the current
 		 * process is not traced and if the TRAP flag has been set
@@ -721,6 +844,7 @@ fastcall void do_debug(struct pt_regs * regs, long error_code)
 		if ((tsk->ptrace & (PT_DTRACE|PT_PTRACED)) == PT_DTRACE)
 			goto clear_TF;
 	}
+spurious_squashed:
 
 	/* Ok, finally something we can handle */
 	tsk->thread.trap_no = 1;
@@ -728,13 +852,17 @@ fastcall void do_debug(struct pt_regs * regs, long error_code)
 	info.si_signo = SIGTRAP;
 	info.si_errno = 0;
 	info.si_code = TRAP_BRKPT;
-	
-	/* If this is a kernel mode trap, save the user PC on entry to 
-	 * the kernel, that's what the debugger can make sense of.
-	 */
-	info.si_addr = ((regs->xcs & 3) == 0) ? (void __user *)tsk->thread.eip
-	                                      : (void __user *)regs->eip;
+
+	/* If this is a kernel mode trap, we need to reset db7 to allow us
+	 * to continue sanely */
+	if ((regs->xcs & 3) == 0)
+		goto clear_dr7;
+
+	info.si_addr = (void *)regs->eip;
+
+	ltt_ev_trap_entry(1, regs->eip);
 	force_sig_info(SIGTRAP, &info, tsk);
+	ltt_ev_trap_exit();
 
 	/* Disable additional traps. They'll be re-enabled when
 	 * the signal is delivered.
@@ -743,10 +871,13 @@ clear_dr7:
 	__asm__("movl %0,%%db7"
 		: /* no output */
 		: "r" (0));
+	notify_die(DIE_DEBUG, "debug2", regs, condition, error_code, SIGTRAP);
 	return;
 
 debug_vm86:
+	ltt_ev_trap_entry(1, regs->eip);
 	handle_vm86_trap((struct kernel_vm86_regs *) regs, error_code, 1);
+	ltt_ev_trap_exit();
 	return;
 
 clear_TF_reenable:
@@ -898,10 +1029,12 @@ fastcall void do_simd_coprocessor_error(struct pt_regs * regs,
 fastcall void do_spurious_interrupt_bug(struct pt_regs * regs,
 					  long error_code)
 {
+ 	ltt_ev_trap_entry(16, regs->eip);
 #if 0
 	/* No need to warn about this any longer. */
 	printk("Ignoring P6 Local APIC Spurious Interrupt Bug...\n");
 #endif
+	ltt_ev_trap_exit();
 }
 
 /*
@@ -932,8 +1065,10 @@ asmlinkage void math_emulate(long arg)
 {
 	printk("math-emulation not enabled and no coprocessor found.\n");
 	printk("killing %s.\n",current->comm);
+	ltt_ev_trap_entry(7, 0);
 	force_sig(SIGFPE,current);
 	schedule();
+	ltt_ev_trap_exit();
 }
 
 #endif /* CONFIG_MATH_EMULATION */
@@ -1000,6 +1135,12 @@ static void __init set_task_gate(unsigned int n, unsigned int gdt_entry)
 	_set_gate(idt_table+n,5,0,0,(gdt_entry<<3));
 }
 
+/* Some traps need to be set early. */
+void __init early_trap_init(void) {
+	set_intr_gate(1,&debug);
+	set_system_intr_gate(3, &int3); /* int3 can be called from all */
+	set_intr_gate(14,&page_fault);
+}
 
 void __init trap_init(void)
 {
@@ -1014,10 +1155,8 @@ void __init trap_init(void)
 #endif
 
 	set_trap_gate(0,&divide_error);
-	set_intr_gate(1,&debug);
 	set_intr_gate(2,&nmi);
-	set_system_intr_gate(3, &int3); /* int3-5 can be called from all */
-	set_system_gate(4,&overflow);
+	set_system_gate(4,&overflow); /* int4/5 can be called from all */
 	set_system_gate(5,&bounds);
 	set_trap_gate(6,&invalid_op);
 	set_trap_gate(7,&device_not_available);
@@ -1027,7 +1166,6 @@ void __init trap_init(void)
 	set_trap_gate(11,&segment_not_present);
 	set_trap_gate(12,&stack_segment);
 	set_trap_gate(13,&general_protection);
-	set_intr_gate(14,&page_fault);
 	set_trap_gate(15,&spurious_interrupt_bug);
 	set_trap_gate(16,&coprocessor_error);
 	set_trap_gate(17,&alignment_check);

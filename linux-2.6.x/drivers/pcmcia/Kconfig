@@ -141,6 +141,10 @@ config HD64465_PCMCIA
 	tristate "HD64465 host bridge support"
 	depends on HD64465 && PCMCIA
 
+config PCMCIA_AU1X00
+	tristate "Au1x00 pcmcia support"
+	depends on SOC_AU1X00 && PCMCIA
+
 config PCMCIA_SA1100
 	tristate "SA1100 support"
 	depends on ARM && ARCH_SA1100 && PCMCIA
@@ -167,6 +171,14 @@ config PCMCIA_PXA2XX
 	help
 	  Say Y here to include support for the PXA2xx PCMCIA controller
 
+config PCMCIA_MX31ADS
+	tristate "MX31ADS PCMCIA support"
+	depends on ARM && MACH_MX31ADS && PCMCIA
+	help
+	  Say Y here to include support for the Freescale i.MX31 PCMCIA controller.
+
+	  This driver is also available as a module called mx31ads_pcmcia.
+
 config PCMCIA_PROBE
 	bool
 	default y if ISA && !ARCH_SA1100 && !ARCH_CLPS711X
@@ -190,4 +202,13 @@ config M32R_CFC_NUM
 	help
 	  Set the number of M32R CF slots.
 
+config PCMCIA_VRC4171
+	tristate "NEC VRC4171 Card Controllers support"
+	depends on VRC4171 && PCMCIA
+
+config PCMCIA_VRC4173
+	tristate "NEC VRC4173 CARDU support"
+	depends on CPU_VR41XX && PCI && PCMCIA
+
 endmenu
+

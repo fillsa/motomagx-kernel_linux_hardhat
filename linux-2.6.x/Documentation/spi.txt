@@ -1,0 +1,382 @@
+Documentation/spi.txt
+========================================================
+Table of contents
+1. Introduction -- what is SPI ?
+2. Purposes of this code
+3. SPI devices stack
+3.1 SPI outline
+3.2 How the SPI devices gets discovered and probed ?
+3.3 DMA and SPI messages
+4. SPI functions and structures reference
+5. How to contact authors
+========================================================
+
+1. What is SPI ?
+----------------
+SPI stands for "Serial Peripheral Interface", a full-duplex synchronous
+serial interface for connecting low-/medium-bandwidth external devices
+using four wires. SPI devices communicate using a master/slave relation-
+ship over two data lines and two control lines:
+- Master Out Slave In (MOSI): supplies the output data from the master
+  to the inputs of the slaves;
+- Master In Slave Out (MISO): supplies the output data from a slave to
+  the input of the master. It is important to note that there can be no
+  more than one slave that is transmitting data during any particular
+  transfer;
+- Serial Clock (SCLK): a control line driven by the master, regulating
+  the flow of data bits;
+- Slave Select (SS): a control line that allows slaves to be turned on
+  and off with  hardware control.
+More information is also available at http://en.wikipedia.org/wiki/Serial_Peripheral_Interface
+
+2. Purposes of this code
+------------------------
+The supplied patch is starting point for implementing drivers for various
+SPI busses as well as devices connected to these busses. Currently, the
+SPI core supports only for MASTER mode for system running Linux.
+
+3. SPI devices stack
+--------------------
+
+3.1 The SPI outline
+
+The SPI infrastructure deals with several levels of abstraction. They are
+"SPI bus", "SPI bus driver", "SPI slave device" and "SPI device driver". The
+"SPI bus" is hardware device, which usually called "SPI adapter", and has
+"SPI slave devices" connected. From the Linux' point of view, the "SPI bus" is
+structure of type platform_device, and "SPI slave device" is structure of type
+spi_device. The "SPI bus driver" is the driver which controls the whole
+SPI bus (and, particularly, creates and destroys "SPI slave devices" on the bus),
+and "SPI device driver" is driver that controls the only device on the SPI
+bus, controlled by "SPI bus driver". "SPI device driver" can indirectly
+call "SPI bus driver" to send/receive messages using API provided by SPI
+core, and provide its own interface to the kernel and/or userland.
+So, the device stack looks as follows:
+
+  +--------------+                    +---------+
+  | some_bus     |                    | spi_bus |
+  +--------------+                    +---------+
+       |..|                                |
+       |..|--------+               +---------------+
+     +------------+| is parent to  |  SPI devices  |
+     | SPI busses |+-------------> |               |
+     +------------+                +---------------+
+           |                               |
+     +----------------+          +----------------------+
+     | SPI bus driver |          |    SPI device driver |
+     +----------------+          +----------------------+
+
+3.2 How do the SPI devices gets discovered and probed ?
+
+In general, the SPI bus driver cannot effective discover devices
+on its bus. Fortunately, the devices on SPI bus usually implemented
+onboard, so the following method has been chosen: the SPI bus driver
+calls the function named spi_bus_populate and passed the `topology
+string' to it. The function will parse the string and call the callback
+for each device, just before registering it. This allows bus driver
+to determine parameters like CS# for each device, retrieve them from
+string and store somewhere like spi_device->platform_data. An example:
+	err = spi_bus_populate( the_spi_bus,
+			"Dev1 0 1 2\0" "Dev2 2 1 0\0",
+			extract_name )
+In this example, function like extract_name would put the '\0' on the
+1st space of device's name, so names will become just "Dev1", "Dev2",
+and the rest of string will become parameters of device.
+
+The another way is to create array of structures spi_device_desc and pass
+this array to function spi_bus_populate2, like this:
+  struct spi_device_desc spi_slaves[] = {
+    [0] = {
+	.name = "device1",
+        .param = device1_params,
+    },
+    [1] = {
+        .name = "device2",
+        .param = NULL,
+    }
+    [2] = {
+	NULL, NULL
+    };
+  spi_bus_populate2( the_spi_bus, spi_slaves, callback );
+
+3.3. DMA and SPI messages
+-------------------------
+
+To handle DMA transfers on SPI bus, any device driver might provide special
+callbacks to allocate/free/get access to buffer. These callbacks are defined
+in subsection iii of section 4.
+To send data using DMA, the buffers should be allocated using
+dma_alloc_coherent function. Usually buffers are allocated statically or
+using kmalloc function.
+To allow drivers to allocate buffers in non-standard
+When one allocates the structure for spi message, it needs to provide target
+device. If its driver wants to allocate buffer in driver-specific way, it may
+provide its own allocation/free methods: alloc and free. If driver does not
+provide these methods, kmalloc and kfree will be used.
+After allocation, the buffer must be accessed to copy the buffer to be send
+or retrieve buffer that has been just received from device. If buffer was
+allocated using driver's alloc method, it(buffer) will be accessed using
+get_buffer. Driver should provide accessible buffer that corresponds buffer
+allocated by driver's alloc method. If there is no get_buffer method,
+the result of alloc will be used.
+After reading/writing from/to buffer, it will be released by call to driver's
+release_buffer method.
+
+
+4. SPI functions are structures reference
+-----------------------------------------
+This section describes structures and functions that listed
+in include/linux/spi.h
+
+i. struct spi_msg
+~~~~~~~~~~~~~~~~~
+
+struct spi_msg {
+        unsigned char flags;
+        unsigned short len;
+        unsigned long clock;
+        struct spi_device* device;
+        void          *context;
+        struct list_head link;
+        void (*status)( struct spi_msg* msg, int code );
+        void *devbuf_rd, *devbuf_wr;
+        u8 *databuf_rd, *databuf_wr;
+};
+This structure represents the message that SPI device driver sends to the
+SPI bus driver to handle.
+Fields:
+	flags 	combination of message flags
+		SPI_M_RD	"read" operation (from device to host)
+		SPI_M_WR	"write" operation (from host to device)
+		SPI_M_CS	assert the CS signal before sending the message
+		SPI_M_CSREL	clear the CS signal after sending the message
+		SPI_M_CSPOL	set clock polarity to high
+		SPI_M_CPHA	set clock phase to high
+	len	length, in bytes, of allocated buffer
+	clock	reserved, set to zero
+	device	the target device of the message
+	context	user-defined field; to associate any user data with the message
+	link	used by bus driver to queue messages
+	status	user-provided callback function to inform about message flow
+	devbuf_rd, devbuf_wr
+		so-called "device buffers". These buffers allocated by the
+		device driver, if device driver provides approproate callback.
+		Otherwise, the kmalloc API will be used.
+	databuf_rd, databuf_wr
+		pointers to access content of device buffers. They are acquired
+		using get_buffer callback, if device driver provides one.
+		Otherwise, they are just pointers to corresponding
+		device buffers
+
+struct spi_msg* spimsg_alloc( struct spi_device* device,
+                              unsigned flags,
+                              unsigned short len,
+                              void (*status)( struct spi_msg*, int code ) )
+This functions is called to allocate the spi_msg structure and set the
+corresponding fields in structure. If device->platform_data provides callbacks
+to handle buffers, alloc/get_buffer are to be used. Returns NULL on errors.
+
+struct void spimsg_free( struct spi_msg* msg )
+Deallocate spi_msg as well as internal buffers. If msg->device->platform_data
+provides callbacks to handle buffers, release_buffer and free are to be used.
+
+u8* spimsg_buffer_rd( struct spi_msg* msg )
+u8* spimsg_buffer_wr( struct spi_msg* msg )
+u8* spimsg_buffer( struct spi_msg* )
+Return the corresponding data buffer, which can be directly modified by driver.
+spimsg_buffer checks flags and return either databuf_rd or databuf_wr basing on
+value of `flags' in spi_msg structure.
+
+ii. struct spi_device
+~~~~~~~~~~~~~~~~~~~~~
+
+struct spi_device
+{
+        char name[ BUS_ID_SIZE ];
+        struct device dev;
+};
+This structure represents the physical device on SPI bus. The SPI bus driver
+will create and register this structure for you.
+	name	the name of the device. It should match to the SPI device
+		driver name
+	dev	field used to be registered with core
+
+struct spi_device* spi_device_add( struct device* parent,
+                    		   char* name )
+This function registers the device on the spi bus, and set its parent
+to `parent', which represents the SPI bus. The device name will be set to name,
+that should be non-empty, non-NULL string. Returns pointer to allocated
+spi_device structure, NULL on error.
+
+void spi_device_del( struct spi_device* dev )
+Unregister the SPI device. Return value is ignored
+
+iii. struct spi_driver
+~~~~~~~~~~~~~~~~~~~~~~
+
+struct spi_driver {
+    	void* (*alloc)( size_t, int );
+    	void  (*free)( const void* );
+    	unsigned char* (*get_buffer)( struct spi_device*, void* );
+    	void (*release_buffer)( struct spi_device*, unsigned char*);
+    	void (*control)( struct spi_device*, int mode, u32 ctl );
+        struct device_driver driver;
+};
+This structure represents the SPI device driver object. Before registering,
+all fields of driver sub-structure should be properly filled, e.g., the
+`bus_type' should be set to spi_bus. Otherwise, the driver will be incorrectly
+registered and its callbacks might never been called. An example of will-
+formed spi_driver structure:
+	extern struct bus_type spi_bus;
+	static struct spi_driver pnx4008_eeprom_driver = {
+        	.driver = {
+                   	.bus = &spi_bus,
+                   	.name = "pnx4008-eeprom",
+                   	.probe = pnx4008_spiee_probe,
+                   	.remove = pnx4008_spiee_remove,
+                   	.suspend = pnx4008_spiee_suspend,
+                   	.resume = pnx4008_spiee_resume,
+               	},
+};
+The method control gets called during the processing of SPI message.
+For detailed description of malloc/free/get_buffer/release_buffer, please
+look to section 3.3, "DMA and SPI messages"
+
+
+int spi_driver_add( struct spi_driver* driver )
+Register the SPI device driver with core; returns 0 on no errors, error code
+otherwise.
+
+void spi_driver_del( struct spi_driver* driver )
+Unregisters the SPI device driver; return value ignored.
+
+iv. struct spi_bus_driver
+~~~~~~~~~~~~~~~~~~~~~~~~~
+To handle transactions over the SPI bus, the spi_bus_driver structure must
+be prepared and registered with core. Any transactions, either synchronous
+or asynchronous, go through spi_bus_driver->xfer function.
+
+struct spi_bus_driver
+{
+        int (*xfer)( struct spi_msg* msgs );
+        void (*select) ( struct spi_device* arg );
+        void (*deselect)( struct spi_device* arg );
+
+	struct spi_msg *(*retrieve)( struct spi_bus_driver *this, struct spi_bus_data *bd);
+	void (*reset)( struct spi_bus_driver *this, u32 context);
+
+        struct device_driver driver;
+};
+
+Fields:
+	xfer	pointer to function to execute actual transaction on SPI bus
+		msg	message to handle
+	select	pointer to function that gets called when bus needs to
+		select another device to be target of transfers
+	deselect
+		pointer to function that gets called before another device
+		is selected to be the target of transfers
+	reset
+		pointer to function that performs reset of SPI bus
+	retrieve
+		this function is used to retrieve next message from queue. If NULL,
+		spi_bus_fifo_retrieve is used
+
+
+spi_bus_driver_register( struct spi_bus_driver* )
+
+Register the SPI bus driver with the system. The driver sub-structure should
+be properly filled before using this function, otherwise you may get unpredi-
+ctable results when trying to exchange data. An example of correctly prepared
+spi_bus_driver structure:
+	static struct spi_bus_driver spipnx_driver = {
+        .driver = {
+                   .bus = &platform_bus_type,
+                   .name = "spipnx",
+                   .probe = spipnx_probe,
+                   .remove = spipnx_remove,
+                   .suspend = spipnx_suspend,
+                   .resume = spipnx_resume,
+                   },
+        .xfer = spipnx_xfer,
+};
+The driver and corresponding platform device are matched by name, so, in
+order the example abive to work, the platform_device named "spipnx" should
+be registered somewhere.
+
+void spi_bus_driver_unregister( struct spi_bus_driver* )
+
+Unregister the SPI bus driver registered by call to spi_buys_driver_register
+function; returns void.
+
+int spi_bus_populate( struct device* parent,
+			      char* devices,
+			      void (*callback)( struct device* parent, struct spi_device* new_one ) )
+This function usually called by SPI bus drivers in order to populate the SPI
+bus (see also section 3.2, "How the SPI devices gets discovered and probed ?").
+After creating the spi_device, the spi_bus_populate calls the `callback'
+function to allow to modify spi_device's fields before registering it with core.
+	parent	pointer to SPI bus
+	devices	string representing the current topology of SPI bus. It should
+		be formed like
+		"dev-1_and_its_info\0dev-2_and_its_info\0another_device\0\0"
+		the spi_bus_populate delimits this string by '\0' characters,
+		creates spi_device and after calling the callback registers the
+		spi_device
+	callback
+		pointer to function which could modify spi_device fields just
+		before registering them with core
+
+int spi_bus_populate2 (struct device *parent, struct spi_device_desc *devices,
+			void (*callback) (struct device* parent, struct spi_device* new_dev,
+					  void *params ))
+This is another way to populate the bus; but instead of string with device names and
+parameters, the array of structures spi_device_desc is passed. Each item in array describes
+the SPI slave device to create.
+
+
+v. spi_transfer and spi_queue
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The driver that uses SPI core can initiate transfers either by calling
+spi_transfer function (that will wait till the transfer is funished) or
+queueing the message using spi_queue function (you need to provide function
+that will be called during message is processed). In any way, you need to
+prepare the spimsg structure and know the target device to your message to
+be sent.
+
+int spi_transfer( struct spi_msg msgs,
+                  void (*callback)( struct spi_msg* msg, int ) )
+If callback is zero, start synchronous transfer. Otherwise, queue
+the message.
+	msg		message to be handled
+	callback	the callback function to be called during
+			message processing. If NULL, the function
+			will wait until end of processing.
+
+int spi_queue( struct spi_device* device,
+               struct spi_msg* msg )
+Queue the only message to the device. Returns status of queueing. To obtain
+status of message processing, you have to provide `status' callback in message
+and examine its parameters
+	msg	message to be queued
+
+vi. the spi_bus variable
+~~~~~~~~~~~~~~~~~~~~~~~~
+This variable is created during initialization of spi core, and has to be
+specified as `bus' on any SPI device driver (look to section iii, "struct
+spi_driver" ). If you do not specify spi_bus, your driver will be never
+matched to spi_device and never be probed with hardware. Note that
+spi_bus.match points to function that matches drivers and devices by name,
+so SPI devices and their drivers should have the same name.
+
+5. How to contact authors
+-------------------------
+Do you have any comments ? Enhancements ? Device driver ? Feel free
+to contact me:
+	dpervushin@gmail.com
+	dimka@pervushin.msk.ru
+Visit our project page:
+	http://spi-devel.sourceforge.net
+Subscribe to mailing list:
+	spi-devel-general@lists.sourceforge.net
+

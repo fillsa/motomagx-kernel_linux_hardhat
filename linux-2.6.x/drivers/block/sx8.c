@@ -279,7 +279,7 @@ struct carm_host {
 
 	struct work_struct		fsm_task;
 
-	struct semaphore		probe_sem;
+	struct compat_semaphore		probe_sem;
 };
 
 struct carm_response {

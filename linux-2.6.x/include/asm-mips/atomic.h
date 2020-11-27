@@ -18,15 +18,20 @@
  * main big wrapper ...
  */
 #include <linux/config.h>
-#include <linux/spinlock.h>
 
 #ifndef _ASM_ATOMIC_H
 #define _ASM_ATOMIC_H
 
 #include <asm/cpu-features.h>
 #include <asm/war.h>
+#include <asm/types.h>
 
-extern spinlock_t atomic_lock;
+#ifndef CONFIG_NO_SPINLOCK
+
+#include <linux/spinlock.h>
+extern raw_spinlock_t atomic_lock;
+
+#endif
 
 typedef struct { volatile int counter; } atomic_t;
 
@@ -78,13 +83,16 @@ static __inline__ void atomic_add(int i, atomic_t * v)
 		"	beqz	%0, 1b					\n"
 		: "=&r" (temp), "=m" (v->counter)
 		: "Ir" (i), "m" (v->counter));
-	} else {
+	} 
+#ifndef CONFIG_NO_SPINLOCK
+	else {
 		unsigned long flags;
 
 		spin_lock_irqsave(&atomic_lock, flags);
 		v->counter += i;
 		spin_unlock_irqrestore(&atomic_lock, flags);
 	}
+#endif
 }
 
 /*
@@ -116,13 +124,16 @@ static __inline__ void atomic_sub(int i, atomic_t * v)
 		"	beqz	%0, 1b					\n"
 		: "=&r" (temp), "=m" (v->counter)
 		: "Ir" (i), "m" (v->counter));
-	} else {
+	} 
+#ifndef CONFIG_NO_SPINLOCK
+	else {
 		unsigned long flags;
 
 		spin_lock_irqsave(&atomic_lock, flags);
 		v->counter -= i;
 		spin_unlock_irqrestore(&atomic_lock, flags);
 	}
+#endif
 }
 
 /*
@@ -158,7 +169,9 @@ static __inline__ int atomic_add_return(int i, atomic_t * v)
 		: "=&r" (result), "=&r" (temp), "=m" (v->counter)
 		: "Ir" (i), "m" (v->counter)
 		: "memory");
-	} else {
+	} 
+#ifndef CONFIG_NO_SPINLOCK
+	else {
 		unsigned long flags;
 
 		spin_lock_irqsave(&atomic_lock, flags);
@@ -167,6 +180,7 @@ static __inline__ int atomic_add_return(int i, atomic_t * v)
 		v->counter = result;
 		spin_unlock_irqrestore(&atomic_lock, flags);
 	}
+#endif
 
 	return result;
 }
@@ -201,7 +215,9 @@ static __inline__ int atomic_sub_return(int i, atomic_t * v)
 		: "=&r" (result), "=&r" (temp), "=m" (v->counter)
 		: "Ir" (i), "m" (v->counter)
 		: "memory");
-	} else {
+	} 
+#ifndef CONFIG_NO_SPINLOCK
+	else {
 		unsigned long flags;
 
 		spin_lock_irqsave(&atomic_lock, flags);
@@ -210,6 +226,7 @@ static __inline__ int atomic_sub_return(int i, atomic_t * v)
 		v->counter = result;
 		spin_unlock_irqrestore(&atomic_lock, flags);
 	}
+#endif
 
 	return result;
 }
@@ -253,7 +270,9 @@ static __inline__ int atomic_sub_if_positive(int i, atomic_t * v)
 		: "=&r" (result), "=&r" (temp), "=m" (v->counter)
 		: "Ir" (i), "m" (v->counter)
 		: "memory");
-	} else {
+	} 
+#ifndef CONFIG_NO_SPINLOCK
+	else {
 		unsigned long flags;
 
 		spin_lock_irqsave(&atomic_lock, flags);
@@ -263,6 +282,7 @@ static __inline__ int atomic_sub_if_positive(int i, atomic_t * v)
 			v->counter = result;
 		spin_unlock_irqrestore(&atomic_lock, flags);
 	}
+#endif
 
 	return result;
 }
@@ -383,13 +403,16 @@ static __inline__ void atomic64_add(long i, atomic64_t * v)
 		"	beqz	%0, 1b					\n"
 		: "=&r" (temp), "=m" (v->counter)
 		: "Ir" (i), "m" (v->counter));
-	} else {
+	} 
+#ifndef CONFIG_NO_SPINLOCK
+	else {
 		unsigned long flags;
 
 		spin_lock_irqsave(&atomic_lock, flags);
 		v->counter += i;
 		spin_unlock_irqrestore(&atomic_lock, flags);
 	}
+#endif
 }
 
 /*
@@ -421,13 +444,16 @@ static __inline__ void atomic64_sub(long i, atomic64_t * v)
 		"	beqz	%0, 1b					\n"
 		: "=&r" (temp), "=m" (v->counter)
 		: "Ir" (i), "m" (v->counter));
-	} else {
+	} 
+#ifndef CONFIG_NO_SPINLOCK
+	else {
 		unsigned long flags;
 
 		spin_lock_irqsave(&atomic_lock, flags);
 		v->counter -= i;
 		spin_unlock_irqrestore(&atomic_lock, flags);
 	}
+#endif
 }
 
 /*
@@ -463,7 +489,9 @@ static __inline__ long atomic64_add_return(long i, atomic64_t * v)
 		: "=&r" (result), "=&r" (temp), "=m" (v->counter)
 		: "Ir" (i), "m" (v->counter)
 		: "memory");
-	} else {
+	} 
+#ifndef CONFIG_NO_SPINLOCK
+	else {
 		unsigned long flags;
 
 		spin_lock_irqsave(&atomic_lock, flags);
@@ -472,6 +500,7 @@ static __inline__ long atomic64_add_return(long i, atomic64_t * v)
 		v->counter = result;
 		spin_unlock_irqrestore(&atomic_lock, flags);
 	}
+#endif
 
 	return result;
 }
@@ -506,7 +535,9 @@ static __inline__ long atomic64_sub_return(long i, atomic64_t * v)
 		: "=&r" (result), "=&r" (temp), "=m" (v->counter)
 		: "Ir" (i), "m" (v->counter)
 		: "memory");
-	} else {
+	} 
+#ifndef CONFIG_NO_SPINLOCK
+	else {
 		unsigned long flags;
 
 		spin_lock_irqsave(&atomic_lock, flags);
@@ -515,6 +546,7 @@ static __inline__ long atomic64_sub_return(long i, atomic64_t * v)
 		v->counter = result;
 		spin_unlock_irqrestore(&atomic_lock, flags);
 	}
+#endif
 
 	return result;
 }
@@ -558,7 +590,9 @@ static __inline__ long atomic64_sub_if_positive(long i, atomic64_t * v)
 		: "=&r" (result), "=&r" (temp), "=m" (v->counter)
 		: "Ir" (i), "m" (v->counter)
 		: "memory");
-	} else {
+	} 
+#ifndef CONFIG_NO_SPINLOCK
+	else {
 		unsigned long flags;
 
 		spin_lock_irqsave(&atomic_lock, flags);
@@ -568,6 +602,7 @@ static __inline__ long atomic64_sub_if_positive(long i, atomic64_t * v)
 			v->counter = result;
 		spin_unlock_irqrestore(&atomic_lock, flags);
 	}
+#endif
 
 	return result;
 }

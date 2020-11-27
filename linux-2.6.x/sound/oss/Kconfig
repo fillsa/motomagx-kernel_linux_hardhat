@@ -4,6 +4,23 @@
 # More hacking for modularisation.
 #
 # Prompt user for primary drivers.
+config SOUND_OMAP
+	tristate "OMAP Sound Driver"
+	depends on SOUND_PRIME!=n && SOUND && ARCH_OMAP
+	---help---
+	  OMAP Audio driver
+
+config SOUND_OMAP_TSC2101
+	tristate "TSC2101 Stereo Codec"
+	depends on SOUND_OMAP
+	select OMAP_TSC2101
+	select OMAP_UWIRE if ARCH_OMAP
+	---help---
+	  Tsc2101 Audio Codec Driver for OMAP will be enabled.
+	  Will also Enable the following:
+	  1. uWire Driver based on Platform
+	  2. TSC2101 Glue driver
+
 config SOUND_BT878
 	tristate "BT878 audio dma"
 	depends on SOUND_PRIME!=n && SOUND
@@ -100,6 +117,16 @@ config SOUND_CS4281
 	  Picture and feature list at
 	  <http://www.pcbroker.com/crystal4281.html>.
 
+config SOUND_BCM_CS4297A
+	tristate "Crystal Sound CS4297a (for Swarm)"
+	depends on SOUND_PRIME!=n && SIBYTE_SWARM && SOUND
+	help
+	  The BCM91250A has a Crystal CS4297a on synchronous serial
+	  port B (in addition to the DB-9 serial port).  Say Y or M
+	  here to enable the sound chip instead of the UART.  Also
+	  note that CONFIG_KGDB should not be enabled at the same
+	  time, since it also attempts to use this UART port.
+
 config SOUND_ES1370
 	tristate "Ensoniq AudioPCI (ES1370)"
 	depends on SOUND_PRIME!=n && SOUND && PCI && SOUND_GAMEPORT
@@ -192,7 +219,11 @@ config SOUND_HAL2
 	depends on SOUND_PRIME!=n && SOUND && SGI_IP22 && EXPERIMENTAL
 	help
 	  Say Y or M if you have an SGI Indy system and want to be able to
-	  use it's on-board A2 audio system.
+	  use it's on-board A2 audio system
+
+config SOUND_IT8172
+	tristate "IT8172G Sound"
+	depends on SOUND_PRIME!=n && (MIPS_ITE8172 || MIPS_IVR) && SOUND
 
 config SOUND_VRC5477
 	tristate "NEC Vrc5477 AC97 sound"
@@ -201,6 +232,14 @@ config SOUND_VRC5477
 	  Say Y here to enable sound support for the NEC Vrc5477 chip, an
 	  integrated, multi-function controller chip for MIPS CPUs.  Works
 	  with the AC97 codec.
+
+config SOUND_AU1000
+	tristate "Au1000 Sound"
+	depends on SOUND_PRIME!=n && (SOC_AU1000 || SOC_AU1100 || SOC_AU1500) && SOUND
+
+config SOUND_AU1550_AC97
+	tristate "Au1550 AC97 Sound"
+	depends on SOUND_PRIME!=n && SOC_AU1550 && SOUND
 
 config SOUND_TRIDENT
 	tristate "Trident 4DWave DX/NX, SiS 7018 or ALi 5451 PCI Audio Core"
@@ -766,6 +805,34 @@ config PAS_JOYSTICK
 	  Say Y here to enable the Pro Audio Spectrum 16's auxiliary joystick
 	  port.
 
+config SOUND_PNX4008
+	tristate "PNX4008 Sound Support (based on Teak DSP)"
+	depends on SOUND_OSS && ARCH_PNX4008
+	help
+	  Say Y or M of you wish to enable support for
+	  PNX4008 on-chip Teak DSP and Audio modules.
+	  Module name is pnx4008-dsp
+
+config SOUND_PNX4008_DSP_BIN_NAME
+	string "Full pathname of DSP firmware"
+	depends on SOUND_PNX4008
+	default "/lib/firmware/philips-nexperia_pnx4008-dsp.bin"
+	help
+	  Please indicate the full path (and name) of the DSP firmware.
+	  Normally it should be stored on a dedicated MTD partition.
+	  This firmware is maintained and supplied by Philips Semiconductors.
+	  It will be loaded once the device is opened for the first time.
+
+config SOUND_PNX4008_DYNAMIC_AMP_ENABLE
+	bool "Allow dynamic enabling/disabling of clocks and amplifiers"
+	depends on SOUND_PNX4008
+	default n
+	help
+	  Say Y here is you want to have input and output amplifies and clocks
+	  enabled only for the duration of playback/recording to save more power.
+	  Be warned, however, that enabling/disabling the amplifiers and clocks
+	  results in really loud clicks.
+
 config SOUND_PSS
 	tristate "PSS (AD1848, ADSP-2115, ESC614) support"
 	depends on SOUND_OSS
@@ -1052,6 +1119,34 @@ config SOUND_WAVEARTIST
 	help
 	  Say Y here to include support for the Rockwell WaveArtist sound
 	  system.  This driver is mainly for the NetWinder.
+
+config SOUND_MXC
+	tristate "MXC sound driver support"
+	depends on SOUND_OSS && ARCH_MXC && MXC_DAM && MXC_SSI && (MXC_MC13783_AUDIO || MXC_PMIC_SC55112_AUDIO)
+	default y
+	help
+	  Answer Y to enable MXC platform sound support. Select M to build
+	  the MXC OSS sound driver as a set of loadable kernel modules named
+	  soundcore.ko, sound.ko, and mxc-sound.ko.
+
+choice
+	prompt "MXC sound driver mode selection"
+	depends on SOUND_MXC
+	default SOUND_MXC_SDMA
+
+config SOUND_MXC_FIFO
+	bool "FIFO mode"
+	help
+	  This mode selects MXC sound driver FIFO mode. It does not use DMA.
+	  NOTE: MXC sound driver functionality is limited in FIFO mode.
+
+config SOUND_MXC_SDMA
+	bool "SDMA mode"
+	depends on MXC_SDMA_API
+	help
+	  This mode selects MXC sound driver SDMA mode.
+
+endchoice
 
 config SOUND_TVMIXER
 	tristate "TV card (bt848) mixer support"

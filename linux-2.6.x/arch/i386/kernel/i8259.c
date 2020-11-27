@@ -38,7 +38,7 @@
  * moves to arch independent land
  */
 
-spinlock_t i8259A_lock = SPIN_LOCK_UNLOCKED;
+DEFINE_RAW_SPINLOCK(i8259A_lock);
 
 static void end_8259A_irq (unsigned int irq)
 {
@@ -194,14 +194,19 @@ void mask_and_ack_8259A(unsigned int irq)
 		goto spurious_8259A_irq;
 	cached_irq_mask |= irqmask;
 
+#undef DO_DUMMY_IMR_READ
 handle_real_irq:
 	if (irq & 8) {
+#ifdef DO_DUMMY_IMR_READ
 		inb(PIC_SLAVE_IMR);	/* DUMMY - (do we need this?) */
+#endif
 		outb(cached_slave_mask, PIC_SLAVE_IMR);
 		outb(0x60+(irq&7),PIC_SLAVE_CMD);/* 'Specific EOI' to slave */
 		outb(0x60+PIC_CASCADE_IR,PIC_MASTER_CMD); /* 'Specific EOI' to master-IRQ2 */
 	} else {
+#ifdef DO_DUMMY_IMR_READ
 		inb(PIC_MASTER_IMR);	/* DUMMY - (do we need this?) */
+#endif
 		outb(cached_master_mask, PIC_MASTER_IMR);
 		outb(0x60+irq,PIC_MASTER_CMD);	/* 'Specific EOI to master */
 	}
@@ -358,7 +363,7 @@ static irqreturn_t math_error_irq(int cpl, void *dev_id, struct pt_regs *regs)
  * New motherboards sometimes make IRQ 13 be a PCI interrupt,
  * so allow interrupt sharing.
  */
-static struct irqaction fpu_irq = { math_error_irq, 0, CPU_MASK_NONE, "fpu", NULL, NULL };
+static struct irqaction fpu_irq = { math_error_irq, SA_NODELAY, CPU_MASK_NONE, "fpu", NULL, NULL };
 
 void __init init_ISA_irqs (void)
 {

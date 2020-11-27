@@ -1802,10 +1802,10 @@ e1000_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 	if(adapter->pcix_82544)
 		count += nr_frags;
 
- 	local_irq_save(flags); 
+ 	local_irq_save_nort(flags); 
  	if (!spin_trylock(&adapter->tx_lock)) { 
  		/* Collision - tell upper layer to requeue */ 
- 		local_irq_restore(flags); 
+ 		local_irq_restore_nort(flags); 
  		return NETDEV_TX_LOCKED; 
  	} 
 

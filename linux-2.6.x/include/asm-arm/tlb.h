@@ -32,6 +32,9 @@ struct mmu_gather {
 
 	unsigned int		flushes;
 	unsigned int		avoided_flushes;
+#ifdef CONFIG_PREEMPT_RT
+	struct semaphore	gather_sem;
+#endif
 };
 
 DECLARE_PER_CPU(struct mmu_gather, mmu_gathers);
@@ -41,6 +44,10 @@ tlb_gather_mmu(struct mm_struct *mm, unsigned int full_mm_flush)
 {
 	int cpu = smp_processor_id();
 	struct mmu_gather *tlb = &per_cpu(mmu_gathers, cpu);
+
+#ifdef CONFIG_PREEMPT_RT
+	down(&tlb->gather_sem);
+#endif
 
 	tlb->mm = mm;
 	tlb->freed = 0;
@@ -67,6 +74,10 @@ tlb_finish_mmu(struct mmu_gather *tlb, unsigned long start, unsigned long end)
 		tlb->avoided_flushes++;
 	}
 
+#ifdef CONFIG_PREEMPT_RT
+	up(&tlb->gather_sem);
+#endif
+
 	/* keep the page table cache within bounds */
 	check_pgt_cache();
 }
@@ -75,6 +86,13 @@ static inline unsigned int
 tlb_is_full_mm(struct mmu_gather *tlb)
 {
      return tlb->fullmm;
+}
+
+#define tlb_mm(tlb)	((tlb)->mm)
+
+static inline void tlb_free(struct mmu_gather *tlb)
+{
+	tlb->freed++;
 }
 
 #define tlb_remove_tlb_entry(tlb,ptep,address)	do { } while (0)

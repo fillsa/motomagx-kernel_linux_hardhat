@@ -6,6 +6,12 @@
  *
  *  Address space accounting code	<alan@redhat.com>
  *  (C) Copyright 2002 Red Hat Inc, All Rights Reserved
+ *  (C) Copyright 2006 Motorola Inc.
+ *
+ * Date         Author          Comment
+ * 10/2006      Motorola        Added security feature to disallow
+ *				privileged applications from mprotect()ing
+ *				executable pages to make them writable
  */
 
 #include <linux/mm.h>
@@ -19,6 +25,10 @@
 #include <linux/mempolicy.h>
 #include <linux/personality.h>
 #include <linux/syscalls.h>
+#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+#include <linux/mount.h>
+#include <linux/root_dev.h>
+#endif
 
 #include <asm/uaccess.h>
 #include <asm/pgtable.h>
@@ -263,6 +273,15 @@ sys_mprotect(unsigned long start, size_t len, unsigned long prot)
 			error = -EACCES;
 			goto out;
 		}
+
+#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+		if (!(vma->vm_flags & VM_EXEC) && (newflags & VM_EXEC) &&
+		    current->security && vma->vm_file &&
+		    (vma->vm_file->f_vfsmnt->mnt_sb->s_dev != ROOT_DEV)) {
+			error = -EACCES;
+			goto out;
+		}
+#endif
 
 		error = security_file_mprotect(vma, prot);
 		if (error)

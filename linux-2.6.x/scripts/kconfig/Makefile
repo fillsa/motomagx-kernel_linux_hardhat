@@ -1,8 +1,22 @@
 # ===========================================================================
 # Kernel configuration targets
 # These targets are used from top-level makefile
+#
+# Copyright 2006 Motorla, Inc.
 
-.PHONY: oldconfig xconfig gconfig menuconfig config silentoldconfig
+PYTHON          = python
+BASECONFIG      = $(TOPDIR)/scripts/kconfig/baseconfig
+
+.PHONY: oldconfig xconfig gconfig menuconfig config silentoldconfig \
+	checksetconfig
+
+ifneq ($(SUBARCH),$(ARCH))
+  # This is used in scripts/kconfig/confdata.c
+  export __KBUILD_CROSS_COMPILING := 1
+else
+  #Let's prevent interferences from the environment.
+  unexport __KBUILD_CROSS_COMPILING
+endif
 
 xconfig: $(obj)/qconf
 	$< arch/$(ARCH)/Kconfig
@@ -23,6 +37,13 @@ oldconfig: $(obj)/conf
 silentoldconfig: $(obj)/conf
 	$< -s arch/$(ARCH)/Kconfig
 
+checksetconfig: $(obj)/conf
+	$< -V arch/$(ARCH)/Kconfig
+	$(PYTHON) $(srctree)/scripts/kconfig/checksetflags -z -v --config-file .config --flag-file $(BASECONFIG)
+	$< -V arch/$(ARCH)/Kconfig
+	@$(shell [ -d arch/$(ARCH) ] || mkdir -p arch/$(ARCH))
+	cp -f .config arch/$(ARCH)/defconfig
+
 .PHONY: randconfig allyesconfig allnoconfig allmodconfig defconfig
 
 randconfig: $(obj)/conf
@@ -39,7 +60,12 @@ allmodconfig: $(obj)/conf
 
 defconfig: $(obj)/conf
 ifeq ($(KBUILD_DEFCONFIG),)
+ifeq ($(MOT_KBUILD_DEFCONFIG),)
 	$< -d arch/$(ARCH)/Kconfig
+else
+	@echo *** Default configuration is based on '$(MOT_KBUILD_DEFCONFIG)'
+	$(Q)$< -D $(MOT_KBUILD_DEFCONFIG) arch/$(ARCH)/Kconfig
+endif
 else
 	@echo *** Default configuration is based on '$(KBUILD_DEFCONFIG)'
 	$(Q)$< -D arch/$(ARCH)/configs/$(KBUILD_DEFCONFIG) arch/$(ARCH)/Kconfig

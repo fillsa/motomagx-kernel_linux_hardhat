@@ -19,6 +19,26 @@
  *  mapbase is the physical address of the IO port.
  *  membase is an 'ioremapped' cookie.
  */
+/*
+ * Copyright 2004 Freescale Semiconductor, Inc. All Rights Reserved.
+ */
+
+/*!
+ * @defgroup External_UART 16C652 Universal Asynchronous Receiver Transmitter (UART) Driver
+ */
+
+/*!
+ * @file    8250.c
+ * @brief   This is the driver source file for 8250/16550 compatible serial
+ * ports.
+ *
+ * This is modified to support 16C652 dual serial ports on MXC Boards.
+ * The functions \b serial8250_interrupt() and \b serial_link_irq_chain() are
+ * modified to handle interrupt pin connectivity requirements.
+ *
+ * @ingroup External_UART
+ */
+ 
 #include <linux/config.h>
 
 #if defined(CONFIG_SERIAL_8250_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
@@ -39,6 +59,7 @@
 #include <linux/serial_core.h>
 #include <linux/serial.h>
 #include <linux/serial_8250.h>
+#include <linux/kgdb.h>
 
 #include <asm/io.h>
 #include <asm/irq.h>
@@ -986,8 +1007,11 @@ receive_chars(struct uart_8250_port *up, int *status, struct pt_regs *regs)
 		/* The following is not allowed by the tty layer and
 		   unsafe. It should be fixed ASAP */
 		if (unlikely(tty->flip.count >= TTY_FLIPBUF_SIZE)) {
-			if(tty->low_latency)
+			if (tty->low_latency) {
+				spin_unlock(&up->port.lock);
 				tty_flip_buffer_push(tty);
+				spin_lock(&up->port.lock);
+			}
 			/* If this failed then we will throw away the
 			   bytes but must do so to clear interrupts */
 		}
@@ -1058,7 +1082,9 @@ receive_chars(struct uart_8250_port *up, int *status, struct pt_regs *regs)
 	ignore_char:
 		lsr = serial_inp(up, UART_LSR);
 	} while ((lsr & UART_LSR_DR) && (max_count-- > 0));
+	spin_unlock(&up->port.lock);
 	tty_flip_buffer_push(tty);
+	spin_lock(&up->port.lock);
 	*status = lsr;
 }
 
@@ -1134,6 +1160,20 @@ serial8250_handle_port(struct uart_8250_port *up, struct pt_regs *regs)
 		transmit_chars(up);
 }
 
+/*!
+ * This is the 16C652 serial driver's interrupt routine modified for MXC. This
+ * function is modified to handle interrupt pin connectivity requirements.
+ *
+ * @param   irq      The Interrupt number
+ * @param   dev_id   Driver private data
+ * @param   regs     Holds a snapshot of the processors context before the
+ *                   processor entered the interrupt code
+ *
+ * @result    This function returns \b IRQ_HANDLED.
+ *            \b IRQ_HANDLED is defined in include/linux/interrupt.h.
+ *
+ */
+
 /*
  * This is the serial driver's interrupt routine.
  *
@@ -1191,7 +1231,8 @@ static irqreturn_t serial8250_interrupt(int irq, void *dev_id, struct pt_regs *r
 
 	DEBUG_INTR("end.\n");
 
-	return IRQ_RETVAL(handled);
+	//return IRQ_RETVAL(handled);
+	return IRQ_HANDLED;	/* FIXME: iir status not ready on 1510 */
 }
 
 /*
@@ -1217,6 +1258,17 @@ static void serial_do_unlink(struct irq_info *i, struct uart_8250_port *up)
 	spin_unlock_irq(&i->lock);
 }
 
+/*!
+ * This function registers UART interrupt service routine, if not already
+ * registered. If Interrupt type flags contains UPF_SHARE_IRQ, interrupt
+ * sharing is enabled. This function inserts irq info into irq_lists. This
+ * function handles interrupt pin configurations required for MXC boards.
+ *
+ * @param   up   the 8250 UART port structure
+ *
+ * @result   This function returns zero if irq_lists is already initialized
+ *           or the return value from request_irq().
+ */
 static int serial_link_irq_chain(struct uart_8250_port *up)
 {
 	struct irq_info *i = irq_lists + up->port.irq;
@@ -1355,6 +1407,9 @@ static int serial8250_startup(struct uart_port *port)
 	struct uart_8250_port *up = (struct uart_8250_port *)port;
 	unsigned long flags;
 	int retval;
+
+	if (up->port.line == kgdb8250_ttyS)
+		return -EBUSY;
 
 	up->capabilities = uart_config[up->port.type].flags;
 	up->mcr = 0;
@@ -1691,6 +1746,17 @@ serial8250_set_termios(struct uart_port *port, struct termios *termios,
 		serial_outp(up, UART_EFR, efr);
 	}
 
+#ifdef CONFIG_ARCH_OMAP1510
+	/* Workaround to enable 115200 baud on OMAP1510 internal ports */
+	if (cpu_is_omap1510() && is_omap_port(up->port.membase)) {
+		if (baud == 115200) {
+			quot = 1;
+			serial_out(up, UART_OMAP_OSC_12M_SEL, 1);
+		} else
+			serial_out(up, UART_OMAP_OSC_12M_SEL, 0);
+        }
+#endif
+
 	if (up->capabilities & UART_NATSEMI) {
 		/* Switch to bank 2 not bank 1, to avoid resetting EXCR2 */
 		serial_outp(up, UART_LCR, 0xe0);
@@ -1740,6 +1806,11 @@ static int serial8250_request_std_resource(struct uart_8250_port *up)
 {
 	unsigned int size = 8 << up->port.regshift;
 	int ret = 0;
+
+#ifdef CONFIG_ARCH_OMAP
+	if (is_omap_port(up->port.membase))
+		size = 0x16 << up->port.regshift;
+#endif
 
 	switch (up->port.iotype) {
 	case UPIO_MEM:
@@ -1988,6 +2059,9 @@ serial8250_register_ports(struct uart_driver *drv, struct device *dev)
 	for (i = 0; i < UART_NR; i++) {
 		struct uart_8250_port *up = &serial8250_ports[i];
 
+		if (up->port.line == kgdb8250_ttyS)
+			continue;
+
 		up->port.dev = dev;
 		uart_add_one_port(drv, &up->port);
 	}
@@ -2184,6 +2258,7 @@ int __init early_serial_setup(struct uart_port *port)
 	serial8250_isa_init_ports();
 	serial8250_ports[port->line].port	= *port;
 	serial8250_ports[port->line].port.ops	= &serial8250_pops;
+	spin_lock_init(&serial8250_ports[port->line].port.lock);
 	return 0;
 }
 
@@ -2211,6 +2286,8 @@ void serial8250_resume_port(int line)
 	uart_resume_port(&serial8250_reg, &serial8250_ports[line].port);
 }
 
+static struct uart_8250_port *uart_8250_register_port(struct uart_port *port, int *line);
+
 /*
  * Register a set of serial devices attached to a platform device.  The
  * list is terminated with a zero flags entry, which means we expect
@@ -2220,6 +2297,8 @@ static int __devinit serial8250_probe(struct device *dev)
 {
 	struct plat_serial8250_port *p = dev->platform_data;
 	struct uart_port port;
+	struct uart_8250_port *uart;
+	int line;
 
 	memset(&port, 0, sizeof(struct uart_port));
 
@@ -2232,10 +2311,14 @@ static int __devinit serial8250_probe(struct device *dev)
 		port.iotype	= p->iotype;
 		port.flags	= p->flags;
 		port.mapbase	= p->mapbase;
+		port.line	= p->line;
 		port.dev	= dev;
 		if (share_irqs)
 			port.flags |= UPF_SHARE_IRQ;
-		serial8250_register_port(&port);
+
+		uart = uart_8250_register_port(&port, &line);
+		if (!IS_ERR(uart))
+			uart->pm = p->pm;
 	}
 	return 0;
 }
@@ -2255,6 +2338,10 @@ static int __devexit serial8250_remove(struct device *dev)
 	}
 	return 0;
 }
+#ifdef CONFIG_OMAP_SERIAL_WAKE
+extern void omap_pm_wakeup_enable_uart(void);
+extern int omap_pm_get_waker_interrupt(void);
+#endif
 
 static int serial8250_suspend(struct device *dev, u32 state, u32 level)
 {
@@ -2267,11 +2354,18 @@ static int serial8250_suspend(struct device *dev, u32 state, u32 level)
 		struct uart_8250_port *up = &serial8250_ports[i];
 
 		if (up->port.type != PORT_UNKNOWN && up->port.dev == dev)
+		{
 			uart_suspend_port(&serial8250_reg, &up->port);
+#ifdef CONFIG_OMAP_SERIAL_WAKE
+			if (device_may_wakeup(dev))
+				omap_pm_wakeup_enable_uart();
+#endif
+		}
 	}
 
 	return 0;
 }
+
 
 static int serial8250_resume(struct device *dev, u32 level)
 {
@@ -2284,7 +2378,13 @@ static int serial8250_resume(struct device *dev, u32 level)
 		struct uart_8250_port *up = &serial8250_ports[i];
 
 		if (up->port.type != PORT_UNKNOWN && up->port.dev == dev)
+		{
 			uart_resume_port(&serial8250_reg, &up->port);
+#ifdef CONFIG_OMAP_SERIAL_WAKE
+			if(omap_pm_get_waker_interrupt() == up->port.irq)
+			       	pm_set_waker(dev);
+#endif
+		}
 	}
 
 	return 0;
@@ -2365,8 +2465,9 @@ static struct uart_8250_port *serial8250_find_match_or_unused(struct uart_port *
 }
 
 /**
- *	serial8250_register_port - register a serial port
+ *	uart_8250_register_port - register a serial port
  *	@port: serial port template
+ *	@line: returned (on success) value of the line number
  *
  *	Configure the serial port specified by the request. If the
  *	port exists and is in use, it is hung up and unregistered
@@ -2375,15 +2476,20 @@ static struct uart_8250_port *serial8250_find_match_or_unused(struct uart_port *
  *	The port is then probed and if necessary the IRQ is autodetected
  *	If this fails an error is returned.
  *
- *	On success the port is ready to use and the line number is returned.
+ *	On success the port is ready to use and the pointer to the 
+ *	corresponding struct uart_8250_port is returned.
  */
-int serial8250_register_port(struct uart_port *port)
+static struct uart_8250_port *uart_8250_register_port(struct uart_port *port, int *line)
 {
 	struct uart_8250_port *uart;
 	int ret = -ENOSPC;
 
 	if (port->uartclk == 0)
-		return -EINVAL;
+		return ERR_PTR(-EINVAL);
+
+	/* Avoid re-registering platform based ports if KGDB active */
+	if (port->line == kgdb8250_ttyS)
+		return ERR_PTR(-EBUSY);
 
 	down(&serial_sem);
 
@@ -2405,9 +2511,34 @@ int serial8250_register_port(struct uart_port *port)
 
 		ret = uart_add_one_port(&serial8250_reg, &uart->port);
 		if (ret == 0)
-			ret = uart->port.line;
+			*line = uart->port.line;
 	}
 	up(&serial_sem);
+
+	return ret == 0 ? uart : ERR_PTR(ret);
+
+}
+
+/**
+ *	serial8250_register_port - register a serial port
+ *	@port: serial port template
+ *
+ *	Configure the serial port specified by the request. If the
+ *	port exists and is in use, it is hung up and unregistered
+ *	first.
+ *
+ *	The port is then probed and if necessary the IRQ is autodetected
+ *	If this fails an error is returned.
+ *
+ *	On success the port is ready to use and the line number is returned.
+ */
+int serial8250_register_port(struct uart_port *port)
+{
+	int ret = 0;
+	struct uart_8250_port *uart = uart_8250_register_port(port, &ret);
+
+	if (IS_ERR(uart))
+		ret = PTR_ERR(uart);
 
 	return ret;
 }
@@ -2438,6 +2569,31 @@ void serial8250_unregister_port(int line)
 }
 EXPORT_SYMBOL(serial8250_unregister_port);
 
+/**
+ *	serial8250_release_irq - remove a 16x50 serial port at runtime based
+ *	on IRQ
+ *	@irq: IRQ number
+ *
+ *	Remove one serial port.  This may not be called from interrupt
+ *	context.  This is called when the caller know the IRQ of the
+ *	port they want, but not where it is in our table.  This allows
+ *	for one port, based on IRQ, to be permanently released from us.
+ */
+
+int serial8250_release_irq(int irq)
+{
+        struct uart_8250_port *up;
+	int ttyS;
+
+	for (ttyS = 0; ttyS < UART_NR; ttyS++){
+		up =  &serial8250_ports[ttyS];
+		if (up->port.irq == irq && (irq_lists + irq)->head 
+				&& up->port.line == kgdb8250_ttyS)
+			serial8250_unregister_port(up->port.line);
+        }
+	return 0;
+}
+
 static int __init serial8250_init(void)
 {
 	int ret, i;
@@ -2462,6 +2618,9 @@ static int __init serial8250_init(void)
 
 	serial8250_register_ports(&serial8250_reg, &serial8250_isa_devs->dev);
 
+#ifdef CONFIG_OMAP_SERIAL_WAKE
+        device_init_wakeup(&serial8250_isa_devs->dev, 1);
+#endif
 	ret = driver_register(&serial8250_isa_driver);
 	if (ret == 0)
 		goto out;

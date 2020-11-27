@@ -48,6 +48,7 @@ obj-$(CONFIG_USB_KAWETH)	+= net/
 obj-$(CONFIG_USB_PEGASUS)	+= net/
 obj-$(CONFIG_USB_RTL8150)	+= net/
 obj-$(CONFIG_USB_USBNET)	+= net/
+obj-$(CONFIG_USB_USBLAN)	+= usblan/
 
 obj-$(CONFIG_USB_DC2XX)		+= image/
 obj-$(CONFIG_USB_HPUSBSCSI)	+= image/

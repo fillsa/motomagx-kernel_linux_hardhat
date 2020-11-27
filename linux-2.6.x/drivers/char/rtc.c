@@ -35,23 +35,21 @@
  *	1.09a	Pete Zaitcev: Sun SPARC
  *	1.09b	Jeff Garzik: Modularize, init cleanup
  *	1.09c	Jeff Garzik: SMP cleanup
- *	1.10    Paul Barton-Davis: add support for async I/O
+ *	1.10	Paul Barton-Davis: add support for async I/O
  *	1.10a	Andrea Arcangeli: Alpha updates
  *	1.10b	Andrew Morton: SMP lock fix
  *	1.10c	Cesar Barros: SMP locking fixes and cleanup
  *	1.10d	Paul Gortmaker: delete paranoia check in rtc_exit
  *	1.10e	Maciej W. Rozycki: Handle DECstation's year weirdness.
- *      1.11    Takashi Iwai: Kernel access functions
+ *	1.11	Takashi Iwai: Kernel access functions
  *			      rtc_register/rtc_unregister/rtc_control
  *      1.11a   Daniele Bellucci: Audit create_proc_read_entry in rtc_init
- *	1.12	Venkatesh Pallipadi: Hooks for emulating rtc on HPET base-timer
+ *	1.12    Venkatesh Pallipadi: Hooks for emulating rtc on HPET base-timer
  *		CONFIG_HPET_EMULATE_RTC
- *
+ *	1.12a	Maciej W. Rozycki: Handle memory-mapped chips properly.
  */
 
-#define RTC_VERSION		"1.12"
-
-#define RTC_IO_EXTENT	0x8
+#define RTC_VERSION		"1.12a"
 
 /*
  *	Note that *all* calls to CMOS_READ and CMOS_WRITE are done with
@@ -77,6 +75,7 @@
 #include <linux/sysctl.h>
 #include <linux/wait.h>
 #include <linux/bcd.h>
+#include <linux/delay.h>
 
 #include <asm/current.h>
 #include <asm/uaccess.h>
@@ -84,6 +83,28 @@
 
 #if defined(__i386__)
 #include <asm/hpet.h>
+#endif
+
+#ifdef CONFIG_RTC_HISTOGRAM
+
+static cycles_t last_interrupt_time;
+
+#include <asm/timex.h>
+
+#define CPU_MHZ		(cpu_khz / 1000)
+
+#define HISTSIZE	10000
+static int histogram[HISTSIZE];
+
+static int rtc_state;
+
+enum rtc_states {
+	S_STARTUP,		/* First round - let the application start */
+	S_IDLE,			/* Waiting for an interrupt */
+	S_WAITING_FOR_READ,	/* Signal delivered. waiting for rtc_read() */
+	S_READ_MISSED,		/* Signal delivered, read() deadline missed */
+};
+
 #endif
 
 #ifdef __sparc__
@@ -177,7 +198,7 @@ static unsigned long rtc_max_user_freq = 64; /* > this, need CAP_SYS_RESOURCE */
 /*
  * rtc_task_lock nests inside rtc_lock.
  */
-static spinlock_t rtc_task_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(rtc_task_lock);
 static rtc_task_t *rtc_callback = NULL;
 #endif
 
@@ -204,7 +225,147 @@ static inline unsigned char rtc_is_updating(void)
 	return uip;
 }
 
+#ifndef RTC_IRQ
+# undef CONFIG_RTC_HISTOGRAM
+#endif
+
+static inline void rtc_open_event(void)
+{
+#ifdef CONFIG_RTC_HISTOGRAM
+	int i;
+
+	last_interrupt_time = 0;
+	rtc_state = S_STARTUP;
+	rtc_irq_data = 0;
+
+	for (i = 0; i < HISTSIZE; i++)
+		histogram[i] = 0;
+#endif
+}
+
+static inline void rtc_wake_event(void)
+{
+#ifndef CONFIG_RTC_HISTOGRAM
+	kill_fasync (&rtc_async_queue, SIGIO, POLL_IN);
+#else
+	if (!(rtc_status & RTC_IS_OPEN))
+		return;
+
+	switch (rtc_state) {
+	/* Startup */
+	case S_STARTUP:
+		kill_fasync (&rtc_async_queue, SIGIO, POLL_IN);
+		break;
+	/* Waiting for an interrupt */
+	case S_IDLE:
+		kill_fasync (&rtc_async_queue, SIGIO, POLL_IN);
+		last_interrupt_time = get_cycles();
+		rtc_state = S_WAITING_FOR_READ;
+		break;
+
+	/* Signal has been delivered. waiting for rtc_read() */
+	case S_WAITING_FOR_READ:
+		/*
+		 * Well foo.  The usermode application didn't
+		 * schedule and read in time.
+		 */
+		rtc_state = S_READ_MISSED;
+		printk("`%s'[%d] is being piggy. need_resched=%d, cpu=%d\n",
+			current->comm, current->pid,
+				need_resched(), smp_processor_id());
+		printk("Read missed before next interrupt\n");
+		break;
+	/* Signal has been delivered, read() deadline was missed */
+	case S_READ_MISSED:
+		/*
+		 * Not much we can do here.  We're waiting for the usermode
+		 * application to read the rtc
+		 */
+		break;
+	}
+#endif
+}
+
+static inline void rtc_read_event(void)
+{
+#ifdef CONFIG_RTC_HISTOGRAM
+	cycles_t now = get_cycles();
+
+	switch (rtc_state) {
+	/* Startup */
+	case S_STARTUP:
+		rtc_state = S_IDLE;
+		break;
+		
+	/* Waiting for an interrupt */
+	case S_IDLE:
+		printk("bug in rtc_read(): called in state S_IDLE!\n");
+		break;
+	case S_WAITING_FOR_READ:	/*
+					 * Signal has been delivered.
+					 * waiting for rtc_read()
+					 */
+		/*
+		 * Well done
+		 */
+	case S_READ_MISSED:		/*
+					 * Signal has been delivered, read()
+					 * deadline was missed
+					 */
+		/*
+		 * So, you finally got here.
+		 */
+		if (!last_interrupt_time)
+			printk("bug in rtc_read(): last_interrupt_time = 0\n");
+		rtc_state = S_IDLE;
+		{
+			cycles_t latency = now - last_interrupt_time;
+			unsigned long delta;	/* Microseconds */
+
+			delta = latency;
+			delta /= CPU_MHZ;
+
+			if (delta > 1000 * 1000) {
+				printk("rtc: eek\n");
+			} else {
+				unsigned long slot = delta;
+				if (slot >= HISTSIZE)
+					slot = HISTSIZE - 1;
+				histogram[slot]++;
+				if (delta > 2000)
+					printk("wow!  That was a "
+							"%ld millisec bump\n",
+						delta / 1000);
+			}
+		}
+		rtc_state = S_IDLE;
+		break;
+	}
+#endif
+}
+
+static inline void rtc_close_event(void)
+{
+#ifdef CONFIG_RTC_HISTOGRAM
+	int i = 0;
+	unsigned long total = 0;
+
+	for (i = 0; i < HISTSIZE; i++)
+		total += histogram[i];
+	if (!total)
+		return;
+
+	printk("\nrtc latency histogram of {%s/%d, %lu samples}:\n",
+		current->comm, current->pid, total);
+	for (i = 0; i < HISTSIZE; i++) {
+		if (histogram[i])
+			printk("%d %d\n", i, histogram[i]);
+	}
+#endif
+}
+
 #ifdef RTC_IRQ
+
 /*
  *	A very tiny interrupt handler. It runs with SA_INTERRUPT set,
  *	but there is possibility of conflicting with the set_rtc_mmss()
@@ -217,6 +378,8 @@ static inline unsigned char rtc_is_updating(void)
 
 irqreturn_t rtc_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 {
+	int mod;
+
 	/*
 	 *	Can be an alarm interrupt, update complete interrupt,
 	 *	or a periodic interrupt. We store the status in the
@@ -238,19 +401,22 @@ irqreturn_t rtc_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 		rtc_irq_data |= (CMOS_READ(RTC_INTR_FLAGS) & 0xF0);
 	}
 
+	mod = 0;
 	if (rtc_status & RTC_TIMER_ON)
-		mod_timer(&rtc_irq_timer, jiffies + HZ/rtc_freq + 2*HZ/100);
+		mod = 1;
 
 	spin_unlock (&rtc_lock);
+	if (mod)
+		mod_timer(&rtc_irq_timer, jiffies + HZ/rtc_freq + 2*HZ/100);
 
 	/* Now do the rest of the actions */
 	spin_lock(&rtc_task_lock);
 	if (rtc_callback)
 		rtc_callback->func(rtc_callback->private_data);
 	spin_unlock(&rtc_task_lock);
-	wake_up_interruptible(&rtc_wait);	
 
-	kill_fasync (&rtc_async_queue, SIGIO, POLL_IN);
+	rtc_wake_event();
+	wake_up_interruptible(&rtc_wait);	
 
 	return IRQ_HANDLED;
 }
@@ -323,7 +489,15 @@ static ssize_t rtc_read(struct file *file, char __user *buf,
 	if (rtc_has_irq == 0)
 		return -EIO;
 
-	if (count < sizeof(unsigned))
+	/*
+	 * Historically this function used to assume that sizeof(unsigned long)
+	 * is the same in userspace and kernelspace.  This lead to problems
+	 * for configurations with multiple ABIs such a the MIPS o32 and 64
+	 * ABIs supported on the same kernel.  So now we support read of both
+	 * 4 and 8 bytes and assume that's the sizeof(unsigned long) in the
+	 * userspace ABI.
+	 */
+	if (count != sizeof(unsigned int) && count !=  sizeof(unsigned long))
 		return -EINVAL;
 
 	add_wait_queue(&rtc_wait, &wait);
@@ -354,10 +528,14 @@ static ssize_t rtc_read(struct file *file, char __user *buf,
 		schedule();
 	} while (1);
 
-	if (count < sizeof(unsigned long))
-		retval = put_user(data, (unsigned int __user *)buf) ?: sizeof(int); 
+	rtc_read_event();
+
+	if (count == sizeof(unsigned int))
+		retval = put_user(data, (unsigned int __user *)buf) ?: sizeof(int);
 	else
 		retval = put_user(data, (unsigned long __user *)buf) ?: sizeof(long);
+	if (!retval)
+		retval = count;
  out:
 	current->state = TASK_RUNNING;
 	remove_wait_queue(&rtc_wait, &wait);
@@ -404,8 +582,8 @@ static int rtc_do_ioctl(unsigned int cmd, unsigned long arg, int kernel)
 		if (rtc_status & RTC_TIMER_ON) {
 			spin_lock_irq (&rtc_lock);
 			rtc_status &= ~RTC_TIMER_ON;
-			del_timer(&rtc_irq_timer);
 			spin_unlock_irq (&rtc_lock);
+			del_timer(&rtc_irq_timer);
 		}
 		return 0;
 	}
@@ -423,9 +601,9 @@ static int rtc_do_ioctl(unsigned int cmd, unsigned long arg, int kernel)
 		if (!(rtc_status & RTC_TIMER_ON)) {
 			spin_lock_irq (&rtc_lock);
 			rtc_irq_timer.expires = jiffies + HZ/rtc_freq + 2*HZ/100;
-			add_timer(&rtc_irq_timer);
 			rtc_status |= RTC_TIMER_ON;
 			spin_unlock_irq (&rtc_lock);
+			add_timer(&rtc_irq_timer);
 		}
 		set_rtc_irq_bit(RTC_PIE);
 		return 0;
@@ -583,6 +761,11 @@ static int rtc_do_ioctl(unsigned int cmd, unsigned long arg, int kernel)
 		save_freq_select = CMOS_READ(RTC_FREQ_SELECT);
 		CMOS_WRITE((save_freq_select|RTC_DIV_RESET2), RTC_FREQ_SELECT);
 
+		/*
+		 * Make CMOS date writes nonpreemptible even on PREEMPT_RT.
+		 * There's a limit to everything! =B-)
+		 */
+		preempt_disable();
 #ifdef CONFIG_MACH_DECSTATION
 		CMOS_WRITE(real_yrs, RTC_DEC_YEAR);
 #endif
@@ -592,6 +775,7 @@ static int rtc_do_ioctl(unsigned int cmd, unsigned long arg, int kernel)
 		CMOS_WRITE(hrs, RTC_HOURS);
 		CMOS_WRITE(min, RTC_MINUTES);
 		CMOS_WRITE(sec, RTC_SECONDS);
+		preempt_enable();
 
 		CMOS_WRITE(save_control, RTC_CONTROL);
 		CMOS_WRITE(save_freq_select, RTC_FREQ_SELECT);
@@ -689,6 +873,7 @@ static int rtc_open(struct inode *inode, struct file *file)
 	if(rtc_status & RTC_IS_OPEN)
 		goto out_busy;
 
+	rtc_open_event();
 	rtc_status |= RTC_IS_OPEN;
 
 	rtc_irq_data = 0;
@@ -710,6 +895,7 @@ static int rtc_release(struct inode *inode, struct file *file)
 {
 #ifdef RTC_IRQ
 	unsigned char tmp;
+	int del;
 
 	if (rtc_has_irq == 0)
 		goto no_irq;
@@ -728,11 +914,14 @@ static int rtc_release(struct inode *inode, struct file *file)
 		CMOS_WRITE(tmp, RTC_CONTROL);
 		CMOS_READ(RTC_INTR_FLAGS);
 	}
+	del = 0;
 	if (rtc_status & RTC_TIMER_ON) {
 		rtc_status &= ~RTC_TIMER_ON;
-		del_timer(&rtc_irq_timer);
+		del = 1;
 	}
 	spin_unlock_irq(&rtc_lock);
+	if (del)
+		del_timer(&rtc_irq_timer);
 
 	if (file->f_flags & FASYNC) {
 		rtc_fasync (-1, file, 0);
@@ -744,6 +933,7 @@ no_irq:
 	rtc_irq_data = 0;
 	rtc_status &= ~RTC_IS_OPEN;
 	spin_unlock_irq (&rtc_lock);
+	rtc_close_event();
 	return 0;
 }
 
@@ -808,6 +998,7 @@ int rtc_unregister(rtc_task_t *task)
 	return -EIO;
 #else
 	unsigned char tmp;
+	int del;
 
 	spin_lock_irq(&rtc_lock);
 	spin_lock(&rtc_task_lock);
@@ -827,12 +1018,15 @@ int rtc_unregister(rtc_task_t *task)
 		CMOS_WRITE(tmp, RTC_CONTROL);
 		CMOS_READ(RTC_INTR_FLAGS);
 	}
+	del = 0;
 	if (rtc_status & RTC_TIMER_ON) {
 		rtc_status &= ~RTC_TIMER_ON;
-		del_timer(&rtc_irq_timer);
+		del = 1;
 	}
 	rtc_status &= ~RTC_IS_OPEN;
 	spin_unlock(&rtc_task_lock);
+	if (del)
+		del_timer(&rtc_irq_timer);
 	spin_unlock_irq(&rtc_lock);
 	return 0;
 #endif
@@ -886,7 +1080,6 @@ static int __init rtc_init(void)
 {
 #if defined(__alpha__) || defined(__mips__)
 	unsigned int year, ctrl;
-	unsigned long uip_watchdog;
 	char *guess = NULL;
 #endif
 #ifdef __sparc__
@@ -896,6 +1089,9 @@ static int __init rtc_init(void)
 	struct sparc_isa_bridge *isa_br;
 	struct sparc_isa_device *isa_dev;
 #endif
+#endif
+#ifndef __sparc__
+	void *r;
 #endif
 
 #ifdef __sparc__
@@ -943,8 +1139,13 @@ found:
 	}
 no_irq:
 #else
-	if (!request_region(RTC_PORT(0), RTC_IO_EXTENT, "rtc")) {
-		printk(KERN_ERR "rtc: I/O port %d is not free.\n", RTC_PORT (0));
+	if (RTC_IOMAPPED)
+		r = request_region(RTC_PORT(0), RTC_IO_EXTENT, "rtc");
+	else
+		r = request_mem_region(RTC_PORT(0), RTC_IO_EXTENT, "rtc");
+	if (!r) {
+		printk(KERN_ERR "rtc: I/O resource %lx is not free.\n",
+		       (long)(RTC_PORT(0)));
 		return -EIO;
 	}
 
@@ -958,7 +1159,10 @@ no_irq:
 	if(request_irq(RTC_IRQ, rtc_int_handler_ptr, SA_INTERRUPT, "rtc", NULL)) {
 		/* Yeah right, seeing as irq 8 doesn't even hit the bus. */
 		printk(KERN_ERR "rtc: IRQ %d is not free.\n", RTC_IRQ);
-		release_region(RTC_PORT(0), RTC_IO_EXTENT);
+		if (RTC_IOMAPPED)
+			release_region(RTC_PORT(0), RTC_IO_EXTENT);
+		else
+			release_mem_region(RTC_PORT(0), RTC_IO_EXTENT);
 		return -EIO;
 	}
 	hpet_rtc_timer_init();
@@ -989,12 +1193,8 @@ no_irq:
 	/* Each operating system on an Alpha uses its own epoch.
 	   Let's try to guess which one we are using now. */
 	
-	uip_watchdog = jiffies;
 	if (rtc_is_updating() != 0)
-		while (jiffies - uip_watchdog < 2*HZ/100) { 
-			barrier();
-			cpu_relax();
-		}
+		msleep(2*HZ/100);
 	
 	spin_lock_irq(&rtc_lock);
 	year = CMOS_READ(RTC_YEAR);
@@ -1059,7 +1259,10 @@ static void __exit rtc_exit (void)
 	if (rtc_has_irq)
 		free_irq (rtc_irq, &rtc_port);
 #else
-	release_region (RTC_PORT (0), RTC_IO_EXTENT);
+	if (RTC_IOMAPPED)
+		release_region(RTC_PORT(0), RTC_IO_EXTENT);
+	else
+		release_mem_region(RTC_PORT(0), RTC_IO_EXTENT);
 #ifdef RTC_IRQ
 	if (rtc_has_irq)
 		free_irq (RTC_IRQ, NULL);
@@ -1086,6 +1289,7 @@ module_exit(rtc_exit);
 static void rtc_dropped_irq(unsigned long data)
 {
 	unsigned long freq;
+	int mod;
 
 	spin_lock_irq (&rtc_lock);
 
@@ -1095,8 +1299,9 @@ static void rtc_dropped_irq(unsigned long data)
 	}
 
 	/* Just in case someone disabled the timer from behind our back... */
+	mod = 0;
 	if (rtc_status & RTC_TIMER_ON)
-		mod_timer(&rtc_irq_timer, jiffies + HZ/rtc_freq + 2*HZ/100);
+		mod = 1;
 
 	rtc_irq_data += ((rtc_freq/HZ)<<8);
 	rtc_irq_data &= ~0xff;
@@ -1105,6 +1310,8 @@ static void rtc_dropped_irq(unsigned long data)
 	freq = rtc_freq;
 
 	spin_unlock_irq(&rtc_lock);
+	if (mod)
+		mod_timer(&rtc_irq_timer, jiffies + HZ/rtc_freq + 2*HZ/100);
 
 	printk(KERN_WARNING "rtc: lost some interrupts at %ldHz.\n", freq);
 
@@ -1211,7 +1418,6 @@ static int rtc_read_proc(char *page, char **start, off_t off,
 
 void rtc_get_rtc_time(struct rtc_time *rtc_tm)
 {
-	unsigned long uip_watchdog = jiffies;
 	unsigned char ctrl;
 #ifdef CONFIG_MACH_DECSTATION
 	unsigned int real_year;
@@ -1219,19 +1425,15 @@ void rtc_get_rtc_time(struct rtc_time *rtc_tm)
 
 	/*
 	 * read RTC once any update in progress is done. The update
-	 * can take just over 2ms. We wait 10 to 20ms. There is no need to
+	 * can take just over 2ms. We wait 20ms. There is no need to
 	 * to poll-wait (up to 1s - eeccch) for the falling edge of RTC_UIP.
 	 * If you need to know *exactly* when a second has started, enable
 	 * periodic update complete interrupts, (via ioctl) and then 
 	 * immediately read /dev/rtc which will block until you get the IRQ.
 	 * Once the read clears, read the RTC time (again via ioctl). Easy.
 	 */
-
 	if (rtc_is_updating() != 0)
-		while (jiffies - uip_watchdog < 2*HZ/100) {
-			barrier();
-			cpu_relax();
-		}
+		msleep(2*HZ/100);
 
 	/*
 	 * Only the values that we read from the RTC are set. We leave

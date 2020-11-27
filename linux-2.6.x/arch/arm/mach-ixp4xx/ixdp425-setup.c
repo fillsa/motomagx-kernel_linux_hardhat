@@ -8,6 +8,7 @@
  * Author: Deepak Saxena <dsaxena@plexity.net>
  */
 
+#include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/device.h>
 #include <linux/serial.h>
@@ -22,6 +23,7 @@
 #include <asm/irq.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/flash.h>
+#include <asm/kgdb.h>
 
 #ifdef	__ARMEB__
 #define	REG_OFFSET	3
@@ -37,24 +39,26 @@ static struct uart_port ixdp425_serial_ports[] = {
 		.membase	= (char*)(IXP4XX_UART1_BASE_VIRT + REG_OFFSET),
 		.mapbase	= (IXP4XX_UART1_BASE_PHYS),
 		.irq		= IRQ_IXP4XX_UART1,
-		.flags		= UPF_SKIP_TEST,
+		.flags		= UPF_SKIP_TEST | UPF_SHARE_IRQ ,
 		.iotype		= UPIO_MEM,	
 		.regshift	= 2,
 		.uartclk	= IXP4XX_UART_XTAL,
 		.line		= 0,
 		.type		= PORT_XSCALE,
-		.fifosize	= 32
+		.fifosize	= 32,
+		.lock		= SPIN_LOCK_UNLOCKED
 	} , {
 		.membase	= (char*)(IXP4XX_UART2_BASE_VIRT + REG_OFFSET),
 		.mapbase	= (IXP4XX_UART2_BASE_PHYS),
 		.irq		= IRQ_IXP4XX_UART2,
-		.flags		= UPF_SKIP_TEST,
+		.flags		= UPF_SKIP_TEST | UPF_SHARE_IRQ,
 		.iotype		= UPIO_MEM,	
 		.regshift	= 2,
 		.uartclk	= IXP4XX_UART_XTAL,
 		.line		= 1,
 		.type		= PORT_XSCALE,
-		.fifosize	= 32
+		.fifosize	= 32,
+		.lock		= SPIN_LOCK_UNLOCKED
 	}
 };
 
@@ -63,6 +67,10 @@ void __init ixdp425_map_io(void)
 	early_serial_setup(&ixdp425_serial_ports[0]);
 	early_serial_setup(&ixdp425_serial_ports[1]);
 
+#ifdef CONFIG_KGDB_8250
+	kgdb8250_add_port(0, &ixdp425_serial_ports[0]);
+	kgdb8250_add_port(1, &ixdp425_serial_ports[1]);
+#endif
 	ixp4xx_map_io();
 }
 
@@ -108,10 +116,30 @@ static struct platform_device *ixdp425_devices[] __initdata = {
 
 static void __init ixdp425_init(void)
 {
-	platform_add_devices(&ixdp425_devices, ARRAY_SIZE(ixdp425_devices));
+	ixp4xx_sys_init();
+
+	/*
+	 * IXP465 has 32MB window
+	 */
+	if (machine_is_ixdp465()) {
+		ixdp425_flash_resource.end += IXDP425_FLASH_SIZE;
+	}
+
+	platform_add_devices(ixdp425_devices, ARRAY_SIZE(ixdp425_devices));
 }
 
 MACHINE_START(IXDP425, "Intel IXDP425 Development Platform")
+	MAINTAINER("MontaVista Software, Inc.")
+	BOOT_MEM(PHYS_OFFSET, IXP4XX_PERIPHERAL_BASE_PHYS,
+		IXP4XX_PERIPHERAL_BASE_VIRT)
+	MAPIO(ixdp425_map_io)
+	INITIRQ(ixp4xx_init_irq)
+	.timer		= &ixp4xx_timer,
+	BOOT_PARAMS(0x0100)
+	INIT_MACHINE(ixdp425_init)
+MACHINE_END
+
+MACHINE_START(IXDP465, "Intel IXDP465 Development Platform")
 	MAINTAINER("MontaVista Software, Inc.")
 	BOOT_MEM(PHYS_OFFSET, IXP4XX_PERIPHERAL_BASE_PHYS,
 		IXP4XX_PERIPHERAL_BASE_VIRT)

@@ -1,12 +1,23 @@
 /* 
-   RFCOMM implementation for Linux Bluetooth stack (BlueZ).
+   RFCOMM implementation for Linux Bluetooth(R) stack (BlueZ).
+
+   Portions of this file were based on $Id: sock.c,v 1.24 2002/10/03 01:00:34 maxk Exp $
+   from kernel.org found in the release of linux-2.6.10 here www.kernel.org/pub/linux/kernel/v2.6/
+   Those portions had the following copyright:
    Copyright (C) 2002 Maxim Krasnyansky <maxk@qualcomm.com>
    Copyright (C) 2002 Marcel Holtmann <marcel@holtmann.org>
+
+   Portions of this file were based on $Id: sock.c,v 1.24 2002/10/03 01:00:34 maxk Exp $
+   from kernel.org found in the release of linux-2.6.14 here www.kernel.org/pub/linux/kernel/v2.6/
+   Those portions had the following copyright:
+   Copyright (C) 2002 Maxim Krasnyansky <maxk@qualcomm.com>
+   Copyright (C) 2002 Marcel Holtmann <marcel@holtmann.org>
+  
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License version 2 as
    published by the Free Software Foundation;
-
+   
    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF THIRD PARTY RIGHTS.
@@ -19,6 +30,19 @@
    ALL LIABILITY, INCLUDING LIABILITY FOR INFRINGEMENT OF ANY PATENTS, 
    COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS 
    SOFTWARE IS DISCLAIMED.
+
+   
+   Copyright (C) 2006-2007 - Motorola
+
+   Date         Author           Comment
+   -----------  --------------   --------------------------------
+   2006-Mar-01  Motorola         Backport of 2.6.14 patch to 2.6.10 kernel.
+   2006-Apr-10  Motorola         Flow off remote host until TTY is opened
+   2006-Jul-28  Motorola         Added a missing line 'd->link_mode = rfcomm_pi(sk)->link_mode;'
+                                 for security enforcement for outgoing connection
+   2006-Nov-02  Motorola         Changes to enhance RFCOMM channel establishment
+   2007-Jan-25  Motorola         Added modkconfig header file.
+
 */
 
 /*
@@ -27,13 +51,16 @@
  * $Id: sock.c,v 1.24 2002/10/03 01:00:34 maxk Exp $
  */
 
+
 #include <linux/config.h>
+#ifdef MODKCONFIG
+#include "modkconfig/config.h"
+#endif
 #include <linux/module.h>
 
 #include <linux/types.h>
 #include <linux/errno.h>
 #include <linux/kernel.h>
-#include <linux/major.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/poll.h>
@@ -51,6 +78,8 @@
 #include <asm/uaccess.h>
 
 #include <net/bluetooth/bluetooth.h>
+#include <net/bluetooth/hci_core.h>
+#include <net/bluetooth/l2cap.h>
 #include <net/bluetooth/rfcomm.h>
 
 #ifndef CONFIG_BT_RFCOMM_DEBUG
@@ -66,6 +95,9 @@ static struct bt_sock_list rfcomm_sk_list = {
 
 static void rfcomm_sock_close(struct sock *sk);
 static void rfcomm_sock_kill(struct sock *sk);
+static int rfcomm_authorization_ioctl(struct sock *sk, void __user *arg);
+void rfcomm_set_authorization_resp(struct sock *sk, int resp);
+
 
 /* ---- DLC callbacks ----
  *
@@ -100,10 +132,14 @@ static void rfcomm_sk_state_change(struct rfcomm_dlc *d, int err)
 
 	sk->sk_state = d->state;
 
+	if (d->state == BT_CONNECTED && test_bit(RFCOMM_START_THROTTLED, &d->flags)) {
+		rfcomm_dlc_throttle(d);
+	}
+        
 	parent = bt_sk(sk)->parent;
 	if (parent) {
 		if (d->state == BT_CLOSED) {
-			sk->sk_zapped = 1;
+			sk->sk_zapped =1;
 			bt_accept_unlink(sk);
 		}
 		parent->sk_data_ready(parent, 0);
@@ -115,8 +151,13 @@ static void rfcomm_sk_state_change(struct rfcomm_dlc *d, int err)
 
 	bh_unlock_sock(sk);
 
-	if (parent && sk->sk_zapped)
+	if (parent && sk->sk_zapped) {
+		/* We have to drop DLC lock here, otherwise
+		 * rfcomm_sock_destruct() will dead lock. */
+		rfcomm_dlc_unlock(d);
 		rfcomm_sock_kill(sk);
+		rfcomm_dlc_lock(d);
+	}
 }
 
 /* ---- Socket functions ---- */
@@ -182,7 +223,7 @@ static void rfcomm_sock_destruct(struct sock *sk)
 
 	rfcomm_dlc_lock(d);
 	rfcomm_pi(sk)->dlc = NULL;
-	
+
 	/* Detach DLC if it's owned by this socket */
 	if (d->owner == sk)
 		d->owner = NULL;
@@ -241,10 +282,11 @@ static void __rfcomm_sock_close(struct sock *sk)
 	case BT_CONNECT2:
 	case BT_CONFIG:
 	case BT_CONNECTED:
+	case BT_OPEN:
 		rfcomm_dlc_close(d, 0);
 
 	default:
-		sk->sk_zapped = 1;
+		sk->sk_zapped = 1;	
 		break;
 	}
 }
@@ -261,10 +303,18 @@ static void rfcomm_sock_close(struct sock *sk)
 
 static void rfcomm_sock_init(struct sock *sk, struct sock *parent)
 {
+	struct rfcomm_pinfo *pi = rfcomm_pi(sk);
+
 	BT_DBG("sk %p", sk);
 
-	if (parent) 
+	if (parent) {
 		sk->sk_type = parent->sk_type;
+		pi->link_mode = rfcomm_pi(parent)->link_mode;
+	} else {
+		pi->link_mode = 0;
+	}
+
+	pi->dlc->link_mode = pi->link_mode;
 }
 
 static struct sock *rfcomm_sock_alloc(struct socket *sock, int proto, int prio)
@@ -272,17 +322,20 @@ static struct sock *rfcomm_sock_alloc(struct socket *sock, int proto, int prio)
 	struct rfcomm_dlc *d;
 	struct sock *sk;
 
+
 	sk = bt_sock_alloc(sock, BTPROTO_RFCOMM, sizeof(struct rfcomm_pinfo), prio);
 	if (!sk)
 		return NULL;
 
-	sk_set_owner(sk, THIS_MODULE);
+	sock_init_data(sock, sk);
+	INIT_LIST_HEAD(&bt_sk(sk)->accept_q);
 
 	d = rfcomm_dlc_alloc(prio);
 	if (!d) {
 		sk_free(sk);
 		return NULL;
 	}
+
 	d->data_ready   = rfcomm_sk_data_ready;
 	d->state_change = rfcomm_sk_state_change;
 
@@ -295,14 +348,17 @@ static struct sock *rfcomm_sock_alloc(struct socket *sock, int proto, int prio)
 	sk->sk_sndbuf   = RFCOMM_MAX_CREDITS * RFCOMM_DEFAULT_MTU * 10;
 	sk->sk_rcvbuf   = RFCOMM_MAX_CREDITS * RFCOMM_DEFAULT_MTU * 10;
 
+	sk->sk_zapped = 0;
+
 	sk->sk_protocol = proto;
-	sk->sk_state    = BT_OPEN;
+	sk->sk_state	= BT_OPEN;
 
 	bt_sock_link(&rfcomm_sk_list, sk);
 
 	BT_DBG("sk %p", sk);
 	return sk;
 }
+
 
 static int rfcomm_sock_create(struct socket *sock, int protocol)
 {
@@ -342,6 +398,11 @@ static int rfcomm_sock_bind(struct socket *sock, struct sockaddr *addr, int addr
 		goto done;
 	}
 
+	if (sk->sk_type != SOCK_STREAM) {
+		err = -EINVAL;
+		goto done;
+	}
+
 	write_lock_bh(&rfcomm_sk_list.lock);
 
 	if (sa->rc_channel && __rfcomm_get_sock_by_addr(sa->rc_channel, &sa->rc_bdaddr)) {
@@ -372,28 +433,35 @@ static int rfcomm_sock_connect(struct socket *sock, struct sockaddr *addr, int a
 	if (addr->sa_family != AF_BLUETOOTH || alen < sizeof(struct sockaddr_rc))
 		return -EINVAL;
 
-	if (sk->sk_state != BT_OPEN && sk->sk_state != BT_BOUND)
-		return -EBADFD;
-
-	if (sk->sk_type != SOCK_STREAM)
-		return -EINVAL;
-
 	lock_sock(sk);
+
+	if (sk->sk_state != BT_OPEN && sk->sk_state != BT_BOUND) {
+		err = -EBADFD;
+		goto done;
+	}
+
+	if (sk->sk_type != SOCK_STREAM) {
+		err = -EINVAL;
+		goto done;
+	}
 
 	sk->sk_state = BT_CONNECT;
 	bacpy(&bt_sk(sk)->dst, &sa->rc_bdaddr);
 	rfcomm_pi(sk)->channel = sa->rc_channel;
+
+	d->link_mode = rfcomm_pi(sk)->link_mode;
 
 	err = rfcomm_dlc_open(d, &bt_sk(sk)->src, &sa->rc_bdaddr, sa->rc_channel);
 	if (!err)
 		err = bt_sock_wait_state(sk, BT_CONNECTED,
 				sock_sndtimeo(sk, flags & O_NONBLOCK));
 
+done:
 	release_sock(sk);
 	return err;
 }
 
-int rfcomm_sock_listen(struct socket *sock, int backlog)
+static int rfcomm_sock_listen(struct socket *sock, int backlog)
 {
 	struct sock *sk = sock->sk;
 	int err = 0;
@@ -404,6 +472,11 @@ int rfcomm_sock_listen(struct socket *sock, int backlog)
 
 	if (sk->sk_state != BT_BOUND) {
 		err = -EBADFD;
+		goto done;
+	}
+
+	if (sk->sk_type != SOCK_STREAM) {
+		err = -EINVAL;
 		goto done;
 	}
 
@@ -437,7 +510,7 @@ done:
 	return err;
 }
 
-int rfcomm_sock_accept(struct socket *sock, struct socket *newsock, int flags)
+static int rfcomm_sock_accept(struct socket *sock, struct socket *newsock, int flags)
 {
 	DECLARE_WAITQUEUE(wait, current);
 	struct sock *sk = sock->sk, *nsk;
@@ -448,6 +521,11 @@ int rfcomm_sock_accept(struct socket *sock, struct socket *newsock, int flags)
 
 	if (sk->sk_state != BT_LISTEN) {
 		err = -EBADFD;
+		goto done;
+	}
+
+	if (sk->sk_type != SOCK_STREAM) {
+		err = -EINVAL;
 		goto done;
 	}
 
@@ -569,8 +647,11 @@ static long rfcomm_sock_data_wait(struct sock *sk, long timeo)
 	for (;;) {
 		set_current_state(TASK_INTERRUPTIBLE);
 
-		if (skb_queue_len(&sk->sk_receive_queue) || sk->sk_err || (sk->sk_shutdown & RCV_SHUTDOWN) ||
-				signal_pending(current) || !timeo)
+		if (!skb_queue_empty(&sk->sk_receive_queue) ||
+		    sk->sk_err ||
+		    (sk->sk_shutdown & RCV_SHUTDOWN) ||
+		    signal_pending(current) ||
+		    !timeo)
 			break;
 
 		set_bit(SOCK_ASYNC_WAITDATA, &sk->sk_socket->flags);
@@ -671,13 +752,36 @@ static int rfcomm_sock_setsockopt(struct socket *sock, int level, int optname, c
 {
 	struct sock *sk = sock->sk;
 	int err = 0;
+	u32 opt;
 
 	BT_DBG("sk %p", sk);
 
 	lock_sock(sk);
 
 	switch (optname) {
-	default:
+	case RFCOMM_LM:
+		if (get_user(opt, (u32 __user *) optval)) {
+			err = -EFAULT;
+			break;
+		}
+
+		rfcomm_pi(sk)->link_mode = opt;
+		break;
+
+        case RFCOMM_FLOW_ON_TTY_OPEN:
+		if (get_user(opt, (u32 __user *) optval)) {
+			err = -EFAULT;
+			break;
+		}
+		
+		if (opt) {
+			set_bit(RFCOMM_START_THROTTLED, &rfcomm_pi(sk)->dlc->flags);
+		} else {
+			clear_bit(RFCOMM_START_THROTTLED, &rfcomm_pi(sk)->dlc->flags);
+		}
+		break;
+		
+        default:
 		err = -ENOPROTOOPT;
 		break;
 	}
@@ -689,7 +793,9 @@ static int rfcomm_sock_setsockopt(struct socket *sock, int level, int optname, c
 static int rfcomm_sock_getsockopt(struct socket *sock, int level, int optname, char __user *optval, int __user *optlen)
 {
 	struct sock *sk = sock->sk;
-	int len, err = 0; 
+	struct sock *l2cap_sk;
+	struct rfcomm_conninfo cinfo;
+	int len, err = 0;
 
 	BT_DBG("sk %p", sk);
 
@@ -699,10 +805,37 @@ static int rfcomm_sock_getsockopt(struct socket *sock, int level, int optname, c
 	lock_sock(sk);
 
 	switch (optname) {
+	case RFCOMM_LM:
+		if (put_user(rfcomm_pi(sk)->link_mode, (u32 __user *) optval))
+			err = -EFAULT;
+		break;
+
+	case RFCOMM_CONNINFO:
+		if (sk->sk_state != BT_CONNECTED) {
+			err = -ENOTCONN;
+			break;
+		}
+
+		l2cap_sk = rfcomm_pi(sk)->dlc->session->sock->sk;
+
+		cinfo.hci_handle = l2cap_pi(l2cap_sk)->conn->hcon->handle;
+		memcpy(cinfo.dev_class, l2cap_pi(l2cap_sk)->conn->hcon->dev_class, 3);
+
+		len = min_t(unsigned int, len, sizeof(cinfo));
+		if (copy_to_user(optval, (char *) &cinfo, len))
+			err = -EFAULT;
+
+		break;
+		
+	case RFCOMM_FLOW_ON_TTY_OPEN:
+		if (put_user(test_bit(RFCOMM_START_THROTTLED, &rfcomm_pi(sk)->dlc->flags), (u32 __user *) optval))
+			err = -EFAULT;
+		break;
+		
 	default:
 		err = -ENOPROTOOPT;
 		break;
-	};
+	}
 
 	release_sock(sk);
 	return err;
@@ -713,16 +846,44 @@ static int rfcomm_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned lon
 	struct sock *sk = sock->sk;
 	int err;
 
+	BT_DBG("cmd %d", cmd);
+
 	lock_sock(sk);
 
-#ifdef CONFIG_BT_RFCOMM_TTY
-	err = rfcomm_dev_ioctl(sk, cmd, (void __user *)arg);
-#else
-	err = -EOPNOTSUPP;
-#endif
+	switch(cmd)
+	{
+		case RFCOMMSETAUTHORIZATION:
+			err = rfcomm_authorization_ioctl(sk, (void __user *)arg);
+			break;
 
+		default:
+#ifdef CONFIG_BT_RFCOMM_TTY
+			err = rfcomm_dev_ioctl(sk, cmd, (void __user *)arg);
+#else
+			err = -EOPNOTSUPP;
+#endif
+			break;
+	}
 	release_sock(sk);
 	return err;
+}
+
+static int rfcomm_authorization_ioctl(struct sock *sk, void __user *arg)
+{
+	u8 data = 0;
+	if(copy_from_user(&data, arg, sizeof(u8)) ) {
+		BT_DBG("copy_from_user fail");
+		return -EFAULT;
+	}
+
+	BT_DBG("sk %p arg %d auth pending %d", sk, data, test_bit(RFCOMM_AUTHORIZATION_PENDING, &rfcomm_pi(sk)->dlc->flags));
+
+	if(test_and_clear_bit(RFCOMM_AUTHORIZATION_PENDING, &rfcomm_pi(sk)->dlc->flags))
+		rfcomm_set_authorization_resp(sk, data);
+	else
+		BT_DBG("auth pending not set");
+
+	return 0;
 }
 
 static int rfcomm_sock_shutdown(struct socket *sock, int how)
@@ -783,7 +944,7 @@ int rfcomm_connect_ind(struct rfcomm_session *s, u8 channel, struct rfcomm_dlc *
 		return 0;
 
 	/* Check for backlog size */
-	if (parent->sk_ack_backlog > parent->sk_max_ack_backlog) {
+	if (sk_acceptq_is_full(parent)) {
 		BT_DBG("backlog full %d", parent->sk_ack_backlog); 
 		goto done;
 	}
@@ -804,6 +965,10 @@ int rfcomm_connect_ind(struct rfcomm_session *s, u8 channel, struct rfcomm_dlc *
 	*d = rfcomm_pi(sk)->dlc;
 	result = 1;
 
+        if (test_bit(RFCOMM_START_THROTTLED, &rfcomm_pi(parent)->dlc->flags)) {
+		set_bit(RFCOMM_START_THROTTLED, &rfcomm_pi(sk)->dlc->flags);
+	}
+        
 done:
 	bh_unlock_sock(parent);
 	return result;
@@ -919,28 +1084,33 @@ static struct net_proto_family rfcomm_sock_family_ops = {
 	.create		= rfcomm_sock_create
 };
 
+
 int  __init rfcomm_init_sockets(void)
 {
+
 	int err;
 
-	if ((err = bt_sock_register(BTPROTO_RFCOMM, &rfcomm_sock_family_ops))) {
-		BT_ERR("RFCOMM socket layer registration failed. %d", err);
-		return err;
-	}
+	err = bt_sock_register(BTPROTO_RFCOMM, &rfcomm_sock_family_ops);
+	if (err < 0)
+		goto error;
 
 	rfcomm_sock_proc_init();
 
 	BT_INFO("RFCOMM socket layer initialized");
+
 	return 0;
+
+error:
+	BT_ERR("RFCOMM socket layer registration failed");
+	return err;
 }
+
 
 void __exit rfcomm_cleanup_sockets(void)
 {
-	int err;
-
 	rfcomm_sock_proc_cleanup();
 
-	/* Unregister socket, protocol and notifier */
-	if ((err = bt_sock_unregister(BTPROTO_RFCOMM)))
-		BT_ERR("RFCOMM socket layer unregistration failed. %d", err);
+	if (bt_sock_unregister(BTPROTO_RFCOMM) < 0)
+		BT_ERR("RFCOMM socket layer unregistration failed");
+
 }

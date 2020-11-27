@@ -3190,7 +3190,7 @@ qla2x00_free_sp_pool( scsi_qla_host_t *ha)
 static int
 qla2x00_do_dpc(void *data)
 {
-	DECLARE_MUTEX_LOCKED(sem);
+	DECLARE_MUTEX(sem);
 	scsi_qla_host_t *ha;
 	fc_port_t	*fcport;
 	os_lun_t        *q;
@@ -3204,6 +3204,7 @@ qla2x00_do_dpc(void *data)
 	int t;
 	os_tgt_t *tq;
 
+	down(&sem);
 	ha = (scsi_qla_host_t *)data;
 
 	lock_kernel();

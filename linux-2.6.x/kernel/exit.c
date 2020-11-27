@@ -2,6 +2,12 @@
  *  linux/kernel/exit.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *  Copyright (c) 2006, 2008  Motorola
+ */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 26-Sep-2008  Motorola        Dump out the exit process infomation in do_exit()
  */
 
 #include <linux/config.h>
@@ -27,6 +33,12 @@
 #include <linux/mempolicy.h>
 #include <linux/syscalls.h>
 
+#ifdef CONFIG_MOT_FEAT_ANTIVIRUS_HOOKS
+#include <linux/fshook.h>
+#endif
+
+#include <linux/ltt-events.h>
+
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
 #include <asm/pgtable.h>
@@ -45,8 +57,11 @@ static void __unhash_process(struct task_struct *p)
 	if (thread_group_leader(p)) {
 		detach_pid(p, PIDTYPE_PGID);
 		detach_pid(p, PIDTYPE_SID);
-		if (p->pid)
+		if (p->pid) {
+			preempt_disable();
 			__get_cpu_var(process_counts)--;
+			preempt_enable();
+		}
 	}
 
 	REMOVE_LINKS(p);
@@ -368,8 +383,10 @@ static inline void close_files(struct files_struct * files)
 		while (set) {
 			if (set & 1) {
 				struct file * file = xchg(&files->fd[i], NULL);
-				if (file)
+				if (file) {
 					filp_close(file, files);
+					cond_resched();
+				}
 			}
 			i++;
 			set >>= 1;
@@ -499,9 +516,11 @@ static inline void __exit_mm(struct task_struct * tsk)
 	if (mm != tsk->active_mm) BUG();
 	/* more a memory barrier than a real lock */
 	task_lock(tsk);
+	preempt_disable(); // FIXME
 	tsk->mm = NULL;
 	up_read(&mm->mmap_sem);
 	enter_lazy_tlb(mm, current);
+	preempt_enable();
 	task_unlock(tsk);
 	mmput(mm);
 }
@@ -519,8 +538,6 @@ static inline void choose_new_parent(task_t *p, task_t *reaper, task_t *child_re
 	 */
 	BUG_ON(p == reaper || reaper->state >= EXIT_ZOMBIE || reaper->exit_state >= EXIT_ZOMBIE);
 	p->real_parent = reaper;
-	if (p->parent == p->real_parent)
-		BUG();
 }
 
 static inline void reparent_thread(task_t *p, task_t *father, int traced)
@@ -560,7 +577,7 @@ static inline void reparent_thread(task_t *p, task_t *father, int traced)
 			 * a normal stop since it's no longer being
 			 * traced.
 			 */
-			p->state = TASK_STOPPED;
+			ptrace_untrace(p);
 		}
 	}
 
@@ -750,7 +767,9 @@ static void exit_notify(struct task_struct *tsk)
 	}
 
 	state = EXIT_ZOMBIE;
-	if (tsk->exit_signal == -1 && tsk->ptrace == 0)
+	if (tsk->exit_signal == -1 &&
+	    (likely(tsk->ptrace == 0) ||
+	     unlikely(tsk->parent->signal->group_exit)))
 		state = EXIT_DEAD;
 	tsk->exit_state = state;
 
@@ -772,16 +791,19 @@ static void exit_notify(struct task_struct *tsk)
 	/* If the process is dead, release it - nobody will wait for it */
 	if (state == EXIT_DEAD)
 		release_task(tsk);
-
-	/* PF_DEAD causes final put_task_struct after we schedule. */
-	preempt_disable();
-	tsk->flags |= PF_DEAD;
 }
 
 fastcall NORET_TYPE void do_exit(long code)
 {
 	struct task_struct *tsk = current;
 	int group_dead;
+
+#ifdef CONFIG_MOT_FEAT_ANTIVIRUS_HOOKS
+	fsh_task_detach(tsk);
+#endif
+
+	printk("do_exit: process:%s pid:[%d], code:[%d]\n",
+                                tsk->comm, tsk->pid, code);
 
 	profile_task_exit(tsk);
 
@@ -811,6 +833,8 @@ fastcall NORET_TYPE void do_exit(long code)
 		acct_process(code);
 	__exit_mm(tsk);
 
+	ltt_ev_process_exit(0, 0);	
+
 	exit_sem(tsk);
 	__exit_files(tsk);
 	__exit_fs(tsk);
@@ -831,12 +855,18 @@ fastcall NORET_TYPE void do_exit(long code)
 	mpol_free(tsk->mempolicy);
 	tsk->mempolicy = NULL;
 #endif
-
-	BUG_ON(!(current->flags & PF_DEAD));
-	schedule();
-	BUG();
-	/* Avoid "noreturn function does return".  */
-	for (;;) ;
+	check_no_held_locks(tsk);
+	/* PF_DEAD causes final put_task_struct after we schedule. */
+again:
+	local_irq_disable();
+	tsk->flags |= PF_DEAD;
+	__schedule();
+	printk(KERN_ERR "BUG: dead task %s:%d back from the grave!\n",
+		current->comm, current->pid);
+	printk(KERN_ERR ".... flags: %08lx, count: %d, state: %08lx\n",
+		current->flags, atomic_read(&current->usage), current->state);
+	printk(KERN_ERR ".... trying again ...\n");
+	goto again;
 }
 
 NORET_TYPE void complete_and_exit(struct completion *comp, long code)
@@ -856,13 +886,6 @@ asmlinkage long sys_exit(int error_code)
 
 task_t fastcall *next_thread(const task_t *p)
 {
-#ifdef CONFIG_SMP
-	if (!p->sighand)
-		BUG();
-	if (!spin_is_locked(&p->sighand->siglock) &&
-				!rwlock_is_locked(&tasklist_lock))
-		BUG();
-#endif
 	return pid_task(p->pids[PIDTYPE_TGID].pid_list.next, PIDTYPE_TGID);
 }
 
@@ -1316,6 +1339,8 @@ static long do_wait(pid_t pid, int options, struct siginfo __user *infop,
 	struct task_struct *tsk;
 	int flag, retval;
 
+	ltt_ev_process(LTT_EV_PROCESS_WAIT, pid, 0);
+
 	add_wait_queue(&current->wait_chldexit,&wait);
 repeat:
 	/*
@@ -1334,6 +1359,7 @@ repeat:
 		list_for_each(_p,&tsk->children) {
 			p = list_entry(_p,struct task_struct,sibling);
 
+			BUG_ON(!atomic_read(&p->usage));
 			ret = eligible_child(pid, options, p);
 			if (!ret)
 				continue;

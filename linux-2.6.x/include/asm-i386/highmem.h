@@ -58,12 +58,31 @@ extern void * FASTCALL(kmap_high(struct page *page));
 extern void FASTCALL(kunmap_high(struct page *page));
 
 void *kmap(struct page *page);
+extern void kunmap_virt(void *ptr);
+extern struct page *kmap_to_page(void *ptr);
 void kunmap(struct page *page);
-void *kmap_atomic(struct page *page, enum km_type type);
-void kunmap_atomic(void *kvaddr, enum km_type type);
-struct page *kmap_atomic_to_page(void *ptr);
+
+void *__kmap_atomic(struct page *page, enum km_type type);
+void __kunmap_atomic(void *kvaddr, enum km_type type);
+void *__kmap_atomic_pfn(unsigned long pfn, enum km_type type);
+struct page *__kmap_atomic_to_page(void *ptr);
 
 #define flush_cache_kmaps()	do { } while (0)
+
+/*
+ * on PREEMPT_RT kmap_atomic() is a wrapper that uses kmap():
+ */
+#ifdef CONFIG_PREEMPT_RT
+# define kmap_atomic(page, type)	kmap(page)
+# define kmap_atomic_pfn(pfn, type)	kmap(pfn_to_page(pfn))
+# define kunmap_atomic(kvaddr, type)	kunmap_virt(kvaddr)
+# define kmap_atomic_to_page(kvaddr)	kmap_to_page(kvaddr)
+#else
+# define kmap_atomic			__kmap_atomic
+# define kmap_atomic_pfn		__kmap_atomic_pfn
+# define kunmap_atomic			__kunmap_atomic
+# define kmap_atomic_to_page(kvaddr)	__kmap_atomic_to_page(kvaddr)
+#endif
 
 #endif /* __KERNEL__ */
 

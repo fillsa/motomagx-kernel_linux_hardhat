@@ -53,8 +53,7 @@ EXPORT_SYMBOL(jiffies_64);
  */
 extern volatile unsigned long wall_jiffies;
 
-spinlock_t rtc_lock = SPIN_LOCK_UNLOCKED;
-
+raw_spinlock_t rtc_lock = RAW_SPIN_LOCK_UNLOCKED;
 /*
  * By default we provide the null RTC ops
  */
@@ -556,7 +555,7 @@ unsigned int mips_hpt_frequency;
 
 static struct irqaction timer_irqaction = {
 	.handler = timer_interrupt,
-	.flags = SA_INTERRUPT,
+	.flags = SA_NODELAY | SA_INTERRUPT,
 	.name = "timer",
 };
 

@@ -4,7 +4,7 @@
  * 
  * Flash map driver for the Dy4 SVME182 board
  * 
- * $Id: dmv182.c,v 1.5 2004/11/04 13:24:14 gleixner Exp $
+ * $Id: dmv182.c,v 1.4 2004/09/16 23:27:13 gleixner Exp $
  *
  * Copyright 2003-2004, TimeSys Corporation
  *

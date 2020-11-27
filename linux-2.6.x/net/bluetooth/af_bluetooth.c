@@ -1,5 +1,5 @@
 /* 
-   BlueZ - Bluetooth protocol stack for Linux
+   BlueZ - Bluetooth(R) protocol stack for Linux
    Copyright (C) 2000-2001 Qualcomm Incorporated
 
    Written 2000,2001 by Maxim Krasnyansky <maxk@qualcomm.com>
@@ -20,11 +20,21 @@
    ALL LIABILITY, INCLUDING LIABILITY FOR INFRINGEMENT OF ANY PATENTS, 
    COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS 
    SOFTWARE IS DISCLAIMED.
+
+   Copyright (C) 2006 - Motorola
+
+   Date         Author           Comment
+   -----------  --------------   --------------------------------
+   2006-Nov-02  Motorola         Changes to enhance RFCOMM channel establishment
+
 */
 
 /* Bluetooth address family and sockets. */
 
 #include <linux/config.h>
+#ifdef MODKCONFIG
+#include "modkconfig/config.h"
+#endif
 #include <linux/module.h>
 
 #include <linux/types.h>
@@ -64,7 +74,7 @@ static kmem_cache_t *bt_sock_cache;
 
 int bt_sock_register(int proto, struct net_proto_family *ops)
 {
-	if (proto >= BT_MAX_PROTO)
+	if (proto < 0 || proto >= BT_MAX_PROTO)
 		return -EINVAL;
 
 	if (bt_proto[proto])
@@ -77,7 +87,7 @@ EXPORT_SYMBOL(bt_sock_register);
 
 int bt_sock_unregister(int proto)
 {
-	if (proto >= BT_MAX_PROTO)
+	if (proto < 0 || proto >= BT_MAX_PROTO)
 		return -EINVAL;
 
 	if (!bt_proto[proto])
@@ -92,7 +102,7 @@ static int bt_sock_create(struct socket *sock, int proto)
 {
 	int err = 0;
 
-	if (proto >= BT_MAX_PROTO)
+	if (proto < 0 || proto >= BT_MAX_PROTO)
 		return -EINVAL;
 
 #if defined(CONFIG_KMOD)
@@ -195,7 +205,7 @@ struct sock *bt_accept_dequeue(struct sock *parent, struct socket *newsock)
 			continue;
 		}
 
-		if (sk->sk_state == BT_CONNECTED || !newsock) {
+		if (sk->sk_state == BT_CONNECTED || sk->sk_state == BT_OPEN || !newsock) {
 			bt_accept_unlink(sk);
 			if (newsock)
 				sock_graft(sk, newsock);
@@ -253,7 +263,7 @@ static inline unsigned int bt_accept_poll(struct sock *parent)
 
 	list_for_each_safe(p, n, &bt_sk(parent)->accept_q) {
 		sk = (struct sock *) list_entry(p, struct bt_sock, accept_q);
-		if (sk->sk_state == BT_CONNECTED)
+		if (sk->sk_state == BT_CONNECTED || sk->sk_state == BT_OPEN)
 			return POLLIN | POLLRDNORM;
 	}
 

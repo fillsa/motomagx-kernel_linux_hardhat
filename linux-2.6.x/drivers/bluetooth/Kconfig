@@ -2,6 +2,12 @@
 menu "Bluetooth device drivers"
 	depends on BT
 
+menuconfig BT_DRIVERS
+       depends on BT
+       tristate "Bluetooth Drivers"
+       help
+        Bluetooth HCI Drivers.
+
 config BT_HCIUSB
 	tristate "HCI USB driver"
 	depends on USB

@@ -20,6 +20,20 @@
    ALL LIABILITY, INCLUDING LIABILITY FOR INFRINGEMENT OF ANY PATENTS, 
    COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS 
    SOFTWARE IS DISCLAIMED.
+
+
+   Copyright (C) 2006 - Motorola
+
+   Date         Author           Comment
+   -----------  --------------   --------------------------------
+   2006-May-17  Motorola         Adding support for HCI Suspend/Resume.
+
+*/
+
+/*
+   The Bluetooth word mark and logos are owned by Bluetooth SIG, Inc. and any use of such marks by Motorola
+   is under license. Other trademarks and trade names are those of their respective owners.
+
 */
 
 #ifndef __HCI_CORE_H
@@ -137,7 +151,9 @@ struct hci_dev {
 	int (*flush)(struct hci_dev *hdev);
 	int (*send)(struct sk_buff *skb);
 	void (*destruct)(struct hci_dev *hdev);
-	void (*notify)(struct hci_dev *hdev, unsigned int evt);
+        int (*suspend)(struct hci_dev *hdev);
+        int (*resume)(struct hci_dev *hdev);
+        void (*notify)(struct hci_dev *hdev, unsigned int evt);
 	int (*ioctl)(struct hci_dev *hdev, unsigned int cmd, unsigned long arg);
 };
 

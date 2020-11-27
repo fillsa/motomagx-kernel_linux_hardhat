@@ -19,6 +19,7 @@
 #ifndef _LINUX_RADIX_TREE_H
 #define _LINUX_RADIX_TREE_H
 
+#include <linux/config.h>
 #include <linux/preempt.h>
 #include <linux/types.h>
 
@@ -50,7 +51,18 @@ void *radix_tree_delete(struct radix_tree_root *, unsigned long);
 unsigned int
 radix_tree_gang_lookup(struct radix_tree_root *root, void **results,
 			unsigned long first_index, unsigned int max_items);
+/*
+ * On a mutex based kernel we can freely schedule within the radix code:
+ */
+#ifdef CONFIG_PREEMPT_RT
+static inline int radix_tree_preload(int gfp_mask)
+{
+	return 0;
+}
+#else
 int radix_tree_preload(int gfp_mask);
+#endif
+
 void radix_tree_init(void);
 void *radix_tree_tag_set(struct radix_tree_root *root,
 			unsigned long index, int tag);
@@ -65,7 +77,9 @@ int radix_tree_tagged(struct radix_tree_root *root, int tag);
 
 static inline void radix_tree_preload_end(void)
 {
+#ifndef CONFIG_PREEMPT_RT
 	preempt_enable();
+#endif
 }
 
 #endif /* _LINUX_RADIX_TREE_H */

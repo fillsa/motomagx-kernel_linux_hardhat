@@ -124,7 +124,7 @@ struct mld2_query {
 struct in6_addr mld2_all_mcr = MLD2_ALL_MCR_INIT;
 
 /* Big mc list lock for all the sockets */
-static rwlock_t ipv6_sk_mc_lock = RW_LOCK_UNLOCKED;
+static DEFINE_RWLOCK(ipv6_sk_mc_lock);
 
 static struct socket *igmp6_socket;
 
@@ -1318,7 +1318,11 @@ static void mld_sendpack(struct sk_buff *skb)
 	struct inet6_dev *idev = in6_dev_get(skb->dev);
 	int err;
 
+#ifdef CONFIG_IPV6_STATISTICS
+	IP6_INC_STATS(idev, IPSTATS_MIB_OUTREQUESTS);
+#else
 	IP6_INC_STATS(IPSTATS_MIB_OUTREQUESTS);
+#endif
 	payload_len = skb->tail - (unsigned char *)skb->nh.ipv6h -
 		sizeof(struct ipv6hdr);
 	mldlen = skb->tail - skb->h.raw;
@@ -1330,9 +1334,17 @@ static void mld_sendpack(struct sk_buff *skb)
 		dev_queue_xmit);
 	if (!err) {
 		ICMP6_INC_STATS(idev,ICMP6_MIB_OUTMSGS);
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS(idev, IPSTATS_MIB_OUTMCASTPKTS);
+#else
 		IP6_INC_STATS(IPSTATS_MIB_OUTMCASTPKTS);
+#endif
 	} else
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS(idev, IPSTATS_MIB_OUTDISCARDS);
+#else
 		IP6_INC_STATS(IPSTATS_MIB_OUTDISCARDS);
+#endif
 
 	if (likely(idev != NULL))
 		in6_dev_put(idev);
@@ -1602,7 +1614,11 @@ static void mld_send_cr(struct inet6_dev *idev)
 static void igmp6_send(struct in6_addr *addr, struct net_device *dev, int type)
 {
 	struct sock *sk = igmp6_socket->sk;
+#ifdef CONFIG_IPV6_STATISTICS
+	struct inet6_dev *idev = __in6_dev_get(dev);
+#else
 	struct inet6_dev *idev;
+#endif
         struct sk_buff *skb;
         struct icmp6hdr *hdr;
 	struct in6_addr *snd_addr;
@@ -1614,7 +1630,11 @@ static void igmp6_send(struct in6_addr *addr, struct net_device *dev, int type)
 		     IPV6_TLV_ROUTERALERT, 2, 0, 0,
 		     IPV6_TLV_PADN, 0 };
 
+#ifdef CONFIG_IPV6_STATISTICS
+	IP6_INC_STATS(idev, IPSTATS_MIB_OUTREQUESTS);
+#else
 	IP6_INC_STATS(IPSTATS_MIB_OUTREQUESTS);
+#endif
 	snd_addr = addr;
 	if (type == ICMPV6_MGM_REDUCTION) {
 		snd_addr = &all_routers;
@@ -1628,7 +1648,11 @@ static void igmp6_send(struct in6_addr *addr, struct net_device *dev, int type)
 	skb = sock_alloc_send_skb(sk, LL_RESERVED_SPACE(dev) + full_len, 1, &err);
 
 	if (skb == NULL) {
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS(idev, IPSTATS_MIB_OUTDISCARDS);
+#else
 		IP6_INC_STATS(IPSTATS_MIB_OUTDISCARDS);
+#endif
 		return;
 	}
 
@@ -1673,16 +1697,28 @@ static void igmp6_send(struct in6_addr *addr, struct net_device *dev, int type)
 		else
 			ICMP6_INC_STATS(idev, ICMP6_MIB_OUTGROUPMEMBRESPONSES);
 		ICMP6_INC_STATS(idev, ICMP6_MIB_OUTMSGS);
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS(idev, IPSTATS_MIB_OUTMCASTPKTS);
+#else
 		IP6_INC_STATS(IPSTATS_MIB_OUTMCASTPKTS);
+#endif
 	} else
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS(idev, IPSTATS_MIB_OUTDISCARDS);
+#else
 		IP6_INC_STATS(IPSTATS_MIB_OUTDISCARDS);
+#endif
 
 	if (likely(idev != NULL))
 		in6_dev_put(idev);
 	return;
 
 out:
+#ifdef CONFIG_IPV6_STATISTICS
+	IP6_INC_STATS(idev, IPSTATS_MIB_OUTDISCARDS);
+#else
 	IP6_INC_STATS(IPSTATS_MIB_OUTDISCARDS);
+#endif
 	kfree_skb(skb);
 }
 

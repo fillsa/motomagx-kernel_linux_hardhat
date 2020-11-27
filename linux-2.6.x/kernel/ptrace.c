@@ -19,6 +19,11 @@
 
 #include <asm/pgtable.h>
 #include <asm/uaccess.h>
+#include <asm/io.h>
+
+extern int xip_enable_debug;
+extern int find_xip_untouched_entry(struct mm_struct *mm, 
+				    unsigned long address, unsigned long *paddr);
 
 /*
  * ptrace a task: make the debugger its new parent and
@@ -45,6 +50,23 @@ static inline int pending_resume_signal(struct sigpending *pending)
 }
 
 /*
+ * Turn a tracing stop into a normal stop now, since with no tracer there
+ * would be no way to wake it up with SIGCONT or SIGKILL.  If there was a
+ * signal sent that would resume the child, but didn't because it was in
+ * TASK_TRACED, resume it now.
+ */
+void ptrace_untrace(task_t *child)
+{
+	spin_lock(&child->sighand->siglock);
+	child->state = TASK_STOPPED;
+	if (pending_resume_signal(&child->pending) ||
+	    pending_resume_signal(&child->signal->shared_pending)) {
+		signal_wake_up(child, 1);
+	}
+	spin_unlock(&child->sighand->siglock);
+}
+
+/*
  * unptrace a task: move it back to its original parent and
  * remove it from the ptrace list.
  *
@@ -55,29 +77,15 @@ void __ptrace_unlink(task_t *child)
 	if (!child->ptrace)
 		BUG();
 	child->ptrace = 0;
-	if (list_empty(&child->ptrace_list))
-		return;
-	list_del_init(&child->ptrace_list);
-	REMOVE_LINKS(child);
-	child->parent = child->real_parent;
-	SET_LINKS(child);
-
-	if (child->state == TASK_TRACED) {
-		/*
-		 * Turn a tracing stop into a normal stop now,
-		 * since with no tracer there would be no way
-		 * to wake it up with SIGCONT or SIGKILL.
-		 * If there was a signal sent that would resume the child,
-		 * but didn't because it was in TASK_TRACED, resume it now.
-		 */
-		spin_lock(&child->sighand->siglock);
-		child->state = TASK_STOPPED;
-		if (pending_resume_signal(&child->pending) ||
-		    pending_resume_signal(&child->signal->shared_pending)) {
-			signal_wake_up(child, 1);
-		}
-		spin_unlock(&child->sighand->siglock);
+	if (!list_empty(&child->ptrace_list)) {
+		list_del_init(&child->ptrace_list);
+		REMOVE_LINKS(child);
+		child->parent = child->real_parent;
+		SET_LINKS(child);
 	}
+
+	if (child->state == TASK_TRACED)
+		ptrace_untrace(child);
 }
 
 /*
@@ -207,18 +215,33 @@ int access_process_vm(struct task_struct *tsk, unsigned long addr, void *buf, in
 	while (len) {
 		int bytes, ret, offset;
 		void *maddr;
-
-		ret = get_user_pages(tsk, mm, addr, 1,
-				write, 1, &page, &vma);
-		if (ret <= 0)
-			break;
-
+		unsigned long paddr;
+		int xip = 0;
+#ifdef CONFIG_CRAMFS_XIP_DEBUGGABLE
+		if (xip_enable_debug && !write) {
+			vma = find_extend_vma(mm, addr);
+			if (vma && (vma->vm_flags & VM_XIP))
+				xip = find_xip_untouched_entry(mm, addr, &paddr);
+		}
+#endif
+		if (xip) {
+			maddr = ioremap(paddr, PAGE_SIZE);
+			if (!maddr) 
+				break;
+			page = NULL;
+		} else {
+			ret = get_user_pages(tsk, mm, addr, 1,
+					     write, 1, &page, &vma);
+			if (ret <= 0)
+				break;
+			maddr = kmap(page);
+		}
+		
 		bytes = len;
 		offset = addr & (PAGE_SIZE-1);
 		if (bytes > PAGE_SIZE-offset)
 			bytes = PAGE_SIZE-offset;
 
-		maddr = kmap(page);
 		if (write) {
 			copy_to_user_page(vma, page, addr,
 					  maddr + offset, buf, bytes);
@@ -227,8 +250,14 @@ int access_process_vm(struct task_struct *tsk, unsigned long addr, void *buf, in
 			copy_from_user_page(vma, page, addr,
 					    buf, maddr + offset, bytes);
 		}
-		kunmap(page);
-		page_cache_release(page);
+		
+		if (xip) 
+			iounmap(maddr);
+		else {
+			kunmap(page);
+			page_cache_release(page);
+		}
+
 		len -= bytes;
 		buf += bytes;
 		addr += bytes;
@@ -319,18 +348,33 @@ static int ptrace_setoptions(struct task_struct *child, long data)
 
 static int ptrace_getsiginfo(struct task_struct *child, siginfo_t __user * data)
 {
-	if (child->last_siginfo == NULL)
-		return -EINVAL;
-	return copy_siginfo_to_user(data, child->last_siginfo);
+	siginfo_t lastinfo;
+
+	spin_lock_irq(&child->sighand->siglock);
+	if (likely(child->last_siginfo != NULL)) {
+		memcpy(&lastinfo, child->last_siginfo, sizeof (siginfo_t));
+		spin_unlock_irq(&child->sighand->siglock);
+		return copy_siginfo_to_user(data, &lastinfo);
+	}
+	spin_unlock_irq(&child->sighand->siglock);
+	return -EINVAL;
 }
 
 static int ptrace_setsiginfo(struct task_struct *child, siginfo_t __user * data)
 {
-	if (child->last_siginfo == NULL)
-		return -EINVAL;
-	if (copy_from_user(child->last_siginfo, data, sizeof (siginfo_t)) != 0)
+	siginfo_t newinfo;
+
+	if (copy_from_user(&newinfo, data, sizeof (siginfo_t)) != 0)
 		return -EFAULT;
-	return 0;
+
+	spin_lock_irq(&child->sighand->siglock);
+	if (likely(child->last_siginfo != NULL)) {
+		memcpy(child->last_siginfo, &newinfo, sizeof (siginfo_t));
+		spin_unlock_irq(&child->sighand->siglock);
+		return 0;
+	}
+	spin_unlock_irq(&child->sighand->siglock);
+	return -EINVAL;
 }
 
 int ptrace_request(struct task_struct *child, long request,

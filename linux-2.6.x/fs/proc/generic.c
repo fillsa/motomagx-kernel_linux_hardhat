@@ -60,7 +60,7 @@ proc_file_read(struct file *file, char __user *buf, size_t nbytes,
 		return -ENOMEM;
 
 	while ((nbytes > 0) && !eof) {
-		count = min_t(ssize_t, PROC_BLOCK_SIZE, nbytes);
+		count = min_t(size_t, PROC_BLOCK_SIZE, nbytes);
 
 		start = NULL;
 		if (dp->get_info) {
@@ -286,7 +286,7 @@ static int xlate_proc_name(const char *name,
 }
 
 static DEFINE_IDR(proc_inum_idr);
-static spinlock_t proc_inum_lock = SPIN_LOCK_UNLOCKED; /* protects the above */
+static DEFINE_SPINLOCK(proc_inum_lock); /* protects the above */
 
 #define PROC_DYNAMIC_FIRST 0xF0000000UL
 

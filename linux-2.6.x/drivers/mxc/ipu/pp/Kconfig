@@ -1,0 +1,7 @@
+config MOT_FEAT_IPU_PP
+	tristate "MXC Post Processing Driver"
+	depends on MXC_IPU
+    default n
+	help
+        Driver for rotation, color space conversion, resizing, downsizing
+        using MXC IPU h/w

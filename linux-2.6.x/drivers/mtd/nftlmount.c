@@ -302,8 +302,6 @@ int NFTL_formatblock(struct NFTLrecord *nftl, int block)
 	struct nftl_uci1 uci;
 	struct erase_info *instr = &nftl->instr;
 
-	instr->mtd = nftl->mbd.mtd;
-
 	/* Read the Unit Control Information #1 for Wear-Leveling */
 	if (MTD_READOOB(nftl->mbd.mtd, block * nftl->EraseSize + SECTORSIZE + 8,
 			8, &retlen, (char *)&uci) < 0)
@@ -320,6 +318,7 @@ int NFTL_formatblock(struct NFTLrecord *nftl, int block)
 	memset(instr, 0, sizeof(struct erase_info));
 
 	/* XXX: use async erase interface, XXX: test return code */
+	instr->mtd = nftl->mbd.mtd;
 	instr->addr = block * nftl->EraseSize;
 	instr->len = nftl->EraseSize;
 	MTD_ERASE(nftl->mbd.mtd, instr);

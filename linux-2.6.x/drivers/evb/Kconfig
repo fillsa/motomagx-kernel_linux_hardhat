@@ -1,0 +1,21 @@
+#
+# Event Broker
+#
+
+menu "Event Broker"
+
+config EVENT_BROKER
+	bool "Event Broker"
+	help
+	  Enable Event Broker.
+	  Event Broker is a publish and subscribe eventing mechanism. 
+	  Both kernel and user-level components are allowed to define 
+	  classes of events, subscribe to events and publish events. 
+	  It is based on the one sender many receivers principle. 
+	  It also defines the concept of event groups with remote 
+          access capabilities to share events between systems.
+
+	  If in doubt, say N.
+
+endmenu
+

@@ -396,11 +396,11 @@ struct Scsi_Host {
 
 	struct list_head	eh_cmd_q;
 	struct task_struct    * ehandler;  /* Error recovery thread. */
-	struct semaphore      * eh_wait;   /* The error recovery thread waits
+	struct compat_semaphore * eh_wait; /* The error recovery thread waits
 					      on this. */
 	struct completion     * eh_notify; /* wait for eh to begin or end */
-	struct semaphore      * eh_action; /* Wait for specific actions on the
-                                          host. */
+	struct compat_semaphore * eh_action; /* Wait for specific actions on 
+						the host. */
 	unsigned int            eh_active:1; /* Indicates the eh thread is awake and active if
                                           this is true. */
 	unsigned int            eh_kill:1; /* set when killing the eh thread */

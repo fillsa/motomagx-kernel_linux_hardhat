@@ -189,7 +189,7 @@ static struct backing_dev_info shmem_backing_dev_info = {
 };
 
 static LIST_HEAD(shmem_swaplist);
-static spinlock_t shmem_swaplist_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(shmem_swaplist_lock);
 
 static void shmem_free_blocks(struct inode *inode, long pages)
 {
@@ -879,10 +879,10 @@ static struct page *shmem_swapin_async(struct shared_policy *p,
 	return page;
 }
 
-struct page *shmem_swapin(struct shmem_inode_info *info, swp_entry_t entry,
-			  unsigned long idx)
+struct page *shmem_swapin(struct address_space *mapping,
+			  swp_entry_t entry, unsigned long idx)
 {
-	struct shared_policy *p = &info->policy;
+	struct shared_policy *p = &mapping->policy;
 	int i, num;
 	struct page *page;
 	unsigned long offset;
@@ -899,35 +899,14 @@ struct page *shmem_swapin(struct shmem_inode_info *info, swp_entry_t entry,
 	return shmem_swapin_async(p, entry, idx);
 }
 
-static struct page *
-shmem_alloc_page(unsigned long gfp, struct shmem_inode_info *info,
-		 unsigned long idx)
-{
-	struct vm_area_struct pvma;
-	struct page *page;
-
-	memset(&pvma, 0, sizeof(struct vm_area_struct));
-	pvma.vm_policy = mpol_shared_policy_lookup(&info->policy, idx);
-	pvma.vm_pgoff = idx;
-	pvma.vm_end = PAGE_SIZE;
-	page = alloc_page_vma(gfp, &pvma, 0);
-	mpol_free(pvma.vm_policy);
-	return page;
-}
 #else
-static inline struct page *
-shmem_swapin(struct shmem_inode_info *info,swp_entry_t entry,unsigned long idx)
+static inline struct page *shmem_swapin(struct address_space *mapping,
+					swp_entry_t entry,unsigned long idx)
 {
 	swapin_readahead(entry, 0, NULL);
 	return read_swap_cache_async(entry, NULL, 0);
 }
 
-static inline struct page *
-shmem_alloc_page(unsigned long gfp,struct shmem_inode_info *info,
-				 unsigned long idx)
-{
-	return alloc_page(gfp);
-}
 #endif
 
 /*
@@ -989,7 +968,7 @@ repeat:
 				inc_page_state(pgmajfault);
 				*type = VM_FAULT_MAJOR;
 			}
-			swappage = shmem_swapin(info, swap, idx);
+			swappage = shmem_swapin(mapping, swap, idx);
 			if (!swappage) {
 				spin_lock(&info->lock);
 				entry = shmem_swp_alloc(info, idx, sgp);
@@ -1101,9 +1080,7 @@ repeat:
 
 		if (!filepage) {
 			spin_unlock(&info->lock);
-			filepage = shmem_alloc_page(mapping_gfp_mask(mapping),
-						    info,
-						    idx);
+			filepage = page_cache_alloc(mapping, idx);
 			if (!filepage) {
 				shmem_unacct_blocks(info->flags, 1);
 				shmem_free_blocks(inode, 1);
@@ -1164,6 +1141,8 @@ struct page *shmem_nopage(struct vm_area_struct *vma, unsigned long address, int
 	idx = (address - vma->vm_start) >> PAGE_SHIFT;
 	idx += vma->vm_pgoff;
 	idx >>= PAGE_CACHE_SHIFT - PAGE_SHIFT;
+	if (((loff_t) idx << PAGE_CACHE_SHIFT) >= i_size_read(inode))
+		return NOPAGE_SIGBUS;
 
 	error = shmem_getpage(inode, idx, &page, SGP_CACHE, type);
 	if (error)
@@ -1214,24 +1193,6 @@ static int shmem_populate(struct vm_area_struct *vma,
 	}
 	return 0;
 }
-
-#ifdef CONFIG_NUMA
-int shmem_set_policy(struct vm_area_struct *vma, struct mempolicy *new)
-{
-	struct inode *i = vma->vm_file->f_dentry->d_inode;
-	return mpol_set_shared_policy(&SHMEM_I(i)->policy, vma, new);
-}
-
-struct mempolicy *
-shmem_get_policy(struct vm_area_struct *vma, unsigned long addr)
-{
-	struct inode *i = vma->vm_file->f_dentry->d_inode;
-	unsigned long idx;
-
-	idx = ((addr - vma->vm_start) >> PAGE_SHIFT) + vma->vm_pgoff;
-	return mpol_shared_policy_lookup(&SHMEM_I(i)->policy, idx);
-}
-#endif
 
 int shmem_lock(struct file *file, int lock, struct user_struct *user)
 {
@@ -1302,7 +1263,6 @@ shmem_get_inode(struct super_block *sb, int mode, dev_t dev)
 		case S_IFREG:
 			inode->i_op = &shmem_inode_operations;
 			inode->i_fop = &shmem_file_operations;
-			mpol_shared_policy_init(&info->policy);
 			break;
 		case S_IFDIR:
 			inode->i_nlink++;
@@ -1312,11 +1272,6 @@ shmem_get_inode(struct super_block *sb, int mode, dev_t dev)
 			inode->i_fop = &simple_dir_operations;
 			break;
 		case S_IFLNK:
-			/*
-			 * Must not load anything in the rbtree,
-			 * mpol_free_shared_policy will not be called.
-			 */
-			mpol_shared_policy_init(&info->policy);
 			break;
 		}
 	} else if (sbinfo) {
@@ -2035,10 +1990,6 @@ static struct inode *shmem_alloc_inode(struct super_block *sb)
 
 static void shmem_destroy_inode(struct inode *inode)
 {
-	if ((inode->i_mode & S_IFMT) == S_IFREG) {
-		/* only struct inode is valid if it's an inline symlink */
-		mpol_free_shared_policy(&SHMEM_I(inode)->policy);
-	}
 	kmem_cache_free(shmem_inode_cachep, SHMEM_I(inode));
 }
 
@@ -2144,8 +2095,8 @@ static struct vm_operations_struct shmem_vm_ops = {
 	.nopage		= shmem_nopage,
 	.populate	= shmem_populate,
 #ifdef CONFIG_NUMA
-	.set_policy     = shmem_set_policy,
-	.get_policy     = shmem_get_policy,
+	.set_policy     = generic_file_set_policy,
+	.get_policy     = generic_file_get_policy,
 #endif
 };
 

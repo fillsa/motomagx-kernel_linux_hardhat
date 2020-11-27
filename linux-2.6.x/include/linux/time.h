@@ -80,7 +80,7 @@ mktime (unsigned int year, unsigned int mon,
 
 extern struct timespec xtime;
 extern struct timespec wall_to_monotonic;
-extern seqlock_t xtime_lock;
+extern raw_seqlock_t xtime_lock;
 
 static inline unsigned long get_seconds(void)
 { 
@@ -110,13 +110,14 @@ set_normalized_timespec (struct timespec *ts, time_t sec, long nsec)
 		nsec -= NSEC_PER_SEC;
 		++sec;
 	}
-	while (nsec < 0) {
+	while (unlikely(nsec < 0)) {
 		nsec += NSEC_PER_SEC;
 		--sec;
 	}
 	ts->tv_sec = sec;
 	ts->tv_nsec = nsec;
 }
+#define timespec_norm(a) set_normalized_timespec((a), (a)->tv_sec, (a)->tv_nsec)
 
 #endif /* __KERNEL__ */
 
@@ -164,9 +165,6 @@ struct	itimerval {
 
 #define CLOCK_SGI_CYCLE 10
 #define MAX_CLOCKS 16
-#define CLOCKS_MASK  (CLOCK_REALTIME | CLOCK_MONOTONIC | \
-                     CLOCK_REALTIME_HR | CLOCK_MONOTONIC_HR)
-#define CLOCKS_MONO (CLOCK_MONOTONIC & CLOCK_MONOTONIC_HR)
 
 /*
  * The various flags for setting POSIX.1b interval timers.

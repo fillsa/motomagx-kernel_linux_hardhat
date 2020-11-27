@@ -22,6 +22,7 @@
 #include <linux/personality.h> /* for STICKY_TIMEOUTS */
 #include <linux/file.h>
 #include <linux/fs.h>
+#include <linux/ltt-events.h>
 
 #include <asm/uaccess.h>
 
@@ -223,6 +224,10 @@ int do_select(int n, fd_set_bits *fds, long *timeout)
 				file = fget(i);
 				if (file) {
 					f_op = file->f_op;
+					ltt_ev_file_system(LTT_EV_FILE_SYSTEM_SELECT,
+							  i /*  The fd*/,
+							  __timeout,
+							  NULL);
 					mask = DEFAULT_POLLMASK;
 					if (f_op && f_op->poll)
 						mask = (*f_op->poll)(file, retval ? NULL : wait);
@@ -240,6 +245,7 @@ int do_select(int n, fd_set_bits *fds, long *timeout)
 						retval++;
 					}
 				}
+				cond_resched();
 			}
 			if (res_in)
 				*rinp = res_in;
@@ -408,6 +414,10 @@ static void do_pollfd(unsigned int num, struct pollfd * fdpage,
 			struct file * file = fget(fd);
 			mask = POLLNVAL;
 			if (file != NULL) {
+			        ltt_ev_file_system(LTT_EV_FILE_SYSTEM_POLL,
+						  fd,
+						  0,
+						  NULL);
 				mask = DEFAULT_POLLMASK;
 				if (file->f_op && file->f_op->poll)
 					mask = file->f_op->poll(file, *pwait);

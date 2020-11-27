@@ -62,6 +62,19 @@ config HW_CONSOLE
 	depends on VT && !S390 && !USERMODE
 	default y
 
+config INOTIFY
+	bool "Inotify file change notification support"
+	default y
+	---help---
+	  Say Y here to enable inotify support and the /dev/inotify character
+	  device.  Inotify is a file change notification system and a
+	  replacement for dnotify.  Inotify fixes numerous shortcomings in
+	  dnotify and introduces several new features.  It allows monitoring
+	  of both files and directories via a single open fd.  Multiple file
+	  events are supported.
+	  
+	  If unsure, say Y.
+
 config SERIAL_NONSTANDARD
 	bool "Non-standard serial port support"
 	---help---
@@ -348,9 +361,25 @@ config ISTALLION
 	  To compile this driver as a module, choose M here: the
 	  module will be called istallion.
 
+config AU1X00_GPIO
+	tristate "Alchemy Au1000 GPIO device support"
+	depends on MIPS && SOC_AU1X00
+
+config TS_AU1X00_ADS7846
+	tristate "Au1000/ADS7846 touchscreen support"
+	depends on MIPS && SOC_AU1X00
+
+config AU1X00_USB_TTY
+	tristate "Au1000 USB TTY Device support"
+	depends on MIPS && MIPS_AU1000 && AU1000_USB_DEVICE=y && AU1000_USB_DEVICE
+
+config AU1X00_USB_RAW
+	tristate "Au1000 USB Raw Device support"
+	depends on MIPS && MIPS_AU1000 && AU1000_USB_DEVICE=y && AU1000_USB_TTY!=y && AU1X00_USB_DEVICE
+
 config SERIAL_TX3912
 	bool "TX3912/PR31700 serial port support"
-	depends on SERIAL_NONSTANDARD && MIPS && BROKEN_ON_SMP
+	depends on MIPS && CPU_TX39XX=y
 	help
 	  The TX3912 is a Toshiba RISC processor based o the MIPS 3900 core;
 	  see <http://www.toshiba.com/taec/components/Generic/risc/tx3912.htm>.
@@ -364,23 +393,33 @@ config SERIAL_TX3912_CONSOLE
 	  see <http://www.toshiba.com/taec/components/Generic/risc/tx3912.htm>.
 	  Say Y here to direct console I/O to the on-board serial port.
 
-config AU1000_UART
-	bool "Enable Au1000 UART Support"
-	depends on SERIAL_NONSTANDARD && MIPS
-	help
-	  If you have an Alchemy AU1000 processor (MIPS based) and you want
-	  to use serial ports, say Y.  Otherwise, say N.
+config TXX927_SERIAL
+	bool "TXx927 SIO support"
+	depends on MIPS && CPU_TX39XX=y
 
-config AU1000_SERIAL_CONSOLE
-	bool "Enable Au1000 serial console"
-	depends on AU1000_UART
-	help
-	  If you have an Alchemy AU1000 processor (MIPS based) and you want
-	  to use a console on a serial port, say Y.  Otherwise, say N.
+config TXX927_SERIAL_CONSOLE
+	bool "TXx927 SIO Console support"
+	depends on TXX927_SERIAL
+
+config SERIAL_TXX9
+	bool "TMPTX39XX/49XX SIO support"
+	depends on MIPS && TOSHIBA_BOARDS=y
+
+config SERIAL_TXX9_CONSOLE
+	bool "TMPTX39XX/49XX SIO Console support"
+	depends on SERIAL_TXX9
+
+config SIBYTE_SB1250_DUART
+	bool "Support for BCM1xxx onchip DUART"
+	depends on MIPS && SIBYTE_SB1xxx_SOC=y
+
+config SIBYTE_SB1250_DUART_CONSOLE
+	bool "Console on BCM1xxx DUART"
+	depends on SIBYTE_SB1250_DUART
 
 config QTRONIX_KEYBOARD
 	bool "Enable Qtronix 990P Keyboard Support"
-	depends on IT8712
+	depends on MIPS && (MIPS_ITE8172 || MIPS_IVR)
 	help
 	  Images of Qtronix keyboards are at
 	  <http://www.qtronix.com/keyboard.html>.
@@ -392,7 +431,7 @@ config IT8172_CIR
 
 config IT8172_SCR0
 	bool "Enable Smart Card Reader 0 Support "
-	depends on IT8712
+	depends on MIPS && (MIPS_ITE8172 || MIPS_IVR)
 	help
 	  Say Y here to support smart-card reader 0 (SCR0) on the Integrated
 	  Technology Express, Inc. ITE8172 SBC.  Vendor page at
@@ -401,12 +440,16 @@ config IT8172_SCR0
 
 config IT8172_SCR1
 	bool "Enable Smart Card Reader 1 Support "
-	depends on IT8712
+	depends on MIPS && (MIPS_ITE8172 || MIPS_IVR) && MIPS_ITE8172
 	help
 	  Say Y here to support smart-card reader 1 (SCR1) on the Integrated
 	  Technology Express, Inc. ITE8172 SBC.  Vendor page at
 	  <http://www.ite.com.tw/ia/brief_it8172bsp.htm>; picture of the
 	  board at <http://www.mvista.com/partners/semiconductor/ite.html>.
+
+config ITE_GPIO
+	tristate "ITE GPIO"
+	depends on MIPS && MIPS_ITE8172
 
 config A2232
 	tristate "Commodore A2232 serial support (EXPERIMENTAL)"
@@ -431,6 +474,45 @@ config SGI_SNSC
 	  If you have an SGI Altix and you want to enable system
 	  controller communication from user space (you want this!),
 	  say Y.  Otherwise, say N.
+
+config MXC_MU
+	bool "MXC Messaging Unit Driver"
+	depends on ARCH_MXC
+	depends on !ARCH_MX3
+	select INPUT
+	default y
+	---help---
+	  This module is called from other modules for
+	  message transfers between MCU and DSP core.
+
+config MXC_IPC
+	bool "MXC IPC driver"
+	depends on MXC_MU && MXC_SDMA_API
+	depends on ARCH_MXC
+	depends on !ARCH_MXC91131
+	depends on !ARCH_MX3
+	default y
+	---help---
+	  This module is called from other modules for
+	  message and data transfers between MCU and DSP core.
+
+config MXC_SDMA_TTY
+	tristate "MXC SDMA TTY Driver"
+	depends on ARCH_MXC && MXC_SDMA_API
+	depends on !ARCH_MXC91131
+	depends on !ARCH_MX3
+	select INPUT
+	default y
+	---help---
+	  This module is called from other modules for
+	  data transfers between MCU and DSP core.
+
+config MXC_RTC
+	bool "Freescale MXC Real Time Clock"
+	depends on ARCH_MXC
+	default y
+	---help---
+	  Support for Freescale MXC RTC
 
 source "drivers/serial/Kconfig"
 
@@ -706,7 +788,7 @@ config NVRAM
 
 config RTC
 	tristate "Enhanced Real Time Clock Support"
-	depends on !PPC32 && !PARISC && !IA64 && !M68K
+	depends on !PPC32 && !PARISC && !IA64 && !M68K && !ARCH_SA1100 && !ARCH_PXA
 	---help---
 	  If you say Y here and create a character special file /dev/rtc with
 	  major number 10 and minor number 135 using mknod ("man mknod"), you
@@ -730,6 +812,20 @@ config RTC
 	  To compile this driver as a module, choose M here: the
 	  module will be called rtc.
 
+config RTC_HISTOGRAM
+	tristate "Real Time Clock Histogram Support"
+	depends on RTC
+	---help---
+	  If you say Y here then the kernel will track the delivery and
+	  wakeup latency of /dev/rtc using tasks and will report a
+	  histogram to the kernel log when the application closes /dev/rtc.
+
+config BLOCKER
+	tristate "Priority Inheritance Debugging (Blocker) Device Support"
+	---help---
+	  If you say Y here then a device will be created that the userspace
+	  pi_test suite uses to test and measure kernel locking primitives.
+
 config SGI_DS1286
 	tristate "SGI DS1286 RTC support"
 	depends on SGI_IP22
@@ -751,6 +847,19 @@ config SGI_IP27_RTC
 	  Every SGI has such a clock built in. It reports status information
 	  via the file /proc/rtc and its behaviour is set by various ioctls on
 	  /dev/rtc.
+
+config SA1100_RTC
+	bool "SA11x0/PXA2xx RTC support"
+	depends on ARCH_SA1100 || ARCH_PXA
+	help
+	  If you say Y here and create a character special file /dev/rtc with
+	  major number 10 and minor number 135 using mknod ("man mknod"), you
+	  will get access to the real time clock built into your SA11x0 or
+	  PXA2xx CPU. It reports status information via the file /proc/rtc
+	  and its behaviour is set by various ioctls on /dev/rtc.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called sa1100-rtc.
 
 config GEN_RTC
 	tristate "Generic /dev/rtc emulation"
@@ -780,6 +889,11 @@ config GEN_RTC_X
 config EFI_RTC
 	bool "EFI Real Time Clock Services"
 	depends on IA64
+config OMAP_RTC
+	bool "TI OMAP Real Time Clock"
+	depends on ARCH_OMAP1510 || ARCH_OMAP16XX || ARCH_OMAP730
+	help
+	  Support for TI OMAP RTC
 
 config DS1302
 	tristate "DS1302 RTC support"
@@ -1007,5 +1121,10 @@ config MMTIMER
 	  The mmtimer device allows direct userspace access to the
 	  Altix system timer.
 
-endmenu
+config FUSION_DEVICE
+	tristate "Fusion Kernel Device (for DirectFB)"
+	help
+	  The Fusion Kernel Device is needed to use DirectFB's multi
+	  application core.
 
+endmenu

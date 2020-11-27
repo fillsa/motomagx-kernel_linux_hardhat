@@ -448,7 +448,7 @@ static unsigned int snd_info_entry_poll(struct file *file, poll_table * wait)
 	return mask;
 }
 
-static inline int _snd_info_entry_ioctl(struct inode *inode, struct file *file,
+static inline long snd_info_entry_ioctl(struct file *file,
 					unsigned int cmd, unsigned long arg)
 {
 	snd_info_private_data_t *data;
@@ -467,17 +467,6 @@ static inline int _snd_info_entry_ioctl(struct inode *inode, struct file *file,
 		break;
 	}
 	return -ENOTTY;
-}
-
-/* FIXME: need to unlock BKL to allow preemption */
-static int snd_info_entry_ioctl(struct inode *inode, struct file *file,
-				unsigned int cmd, unsigned long arg)
-{
-	int err;
-	unlock_kernel();
-	err = _snd_info_entry_ioctl(inode, file, cmd, arg);
-	lock_kernel();
-	return err;
 }
 
 static int snd_info_entry_mmap(struct file *file, struct vm_area_struct *vma)
@@ -508,7 +497,7 @@ static struct file_operations snd_info_entry_operations =
 	.read =		snd_info_entry_read,
 	.write =	snd_info_entry_write,
 	.poll =		snd_info_entry_poll,
-	.ioctl =	snd_info_entry_ioctl,
+	.unlocked_ioctl = snd_info_entry_ioctl,
 	.mmap =		snd_info_entry_mmap,
 	.open =		snd_info_entry_open,
 	.release =	snd_info_entry_release,

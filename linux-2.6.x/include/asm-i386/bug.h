@@ -11,10 +11,13 @@
 
 #if 1	/* Set to zero for a slightly smaller kernel */
 #define BUG()				\
+do {					\
+printk("BUG at %s:%d!\n", __FILE__, __LINE__); \
  __asm__ __volatile__(	"ud2\n"		\
 			"\t.word %c0\n"	\
 			"\t.long %c1\n"	\
-			 : : "i" (__LINE__), "i" (__FILE__))
+			 : : "i" (__LINE__), "i" (__FILE__)); \
+} while (0)
 #else
 #define BUG() __asm__ __volatile__("ud2\n")
 #endif

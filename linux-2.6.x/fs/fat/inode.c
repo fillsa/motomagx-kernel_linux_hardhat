@@ -1,6 +1,7 @@
 /*
  *  linux/fs/fat/inode.c
  *
+ *
  *  Written 1992,1993 by Werner Almesberger
  *  VFAT extensions by Gordon Chaffee, merged with msdos fs by Henrik Storner
  *  Rewritten for the constant inumbers support by Al Viro
@@ -8,6 +9,15 @@
  *  Fixes:
  *
  *  	Max Cohan: Fixed invalid FSINFO offset when info_sector is 0
+ */
+/* 
+ * Copyright (C) 2007-2008 Motorola, Inc.
+ * 
+ * ChangeLog:
+ * (mm-dd-yyyy)  Author    Comment
+ * 10-24-2007    Motorola  Added direct sync system call to FAT
+ * 11-15-2007    Motorola  Upmerge from 6.1 (Added conditional sync dirt mark and added hidde and system attr to inode)
+ * 02-20-2008    Motorola  remove sticky mode
  */
 
 #include <linux/module.h>
@@ -22,6 +32,11 @@
 #include <linux/vfs.h>
 #include <linux/parser.h>
 #include <asm/unaligned.h>
+
+#ifdef CONFIG_MOT_FEAT_FAT_SYNC
+#include <linux/loop.h>
+#endif
+
 
 #ifndef CONFIG_FAT_DEFAULT_IOCHARSET
 /* if user don't select VFAT, this is undefined. */
@@ -167,6 +182,20 @@ static void fat_clear_inode(struct inode *inode)
 	spin_unlock(&sbi->inode_hash_lock);
 	unlock_kernel();
 }
+
+#ifdef CONFIG_MOT_FEAT_FAT_SYNC
+static int fat_sync_fs (struct super_block *sb, int wait)
+{
+	fat_clusters_flush(sb);
+	return 0;
+}
+static void fat_write_super(struct super_block *sb)
+{
+	if (!(sb->s_flags & MS_RDONLY))
+		fat_clusters_flush(sb);
+	sb->s_dirt = 0;
+}
+#endif
 
 static void fat_put_super(struct super_block *sb)
 {
@@ -775,6 +804,10 @@ static struct super_operations fat_sops = {
 	.destroy_inode	= fat_destroy_inode,
 	.write_inode	= fat_write_inode,
 	.delete_inode	= fat_delete_inode,
+#ifdef CONFIG_MOT_FEAT_FAT_SYNC
+	.write_super    = fat_write_super,
+	.sync_fs        = fat_sync_fs,
+#endif
 	.put_super	= fat_put_super,
 	.statfs		= fat_statfs,
 	.clear_inode	= fat_clear_inode,
@@ -1138,6 +1171,11 @@ fat_commit_write(struct file *file, struct page *page,
 			unsigned from, unsigned to)
 {
 	kunmap(page);
+#ifdef CONFIG_MOT_FEAT_FAT_SYNC
+        if (MAJOR(page->mapping->host->i_sb->s_dev) == LOOP_MAJOR) {
+                page->mapping->host->i_sb->s_dirt = 1;
+        }
+#endif
 	return generic_commit_write(file, page, from, to);
 }
 
@@ -1323,7 +1361,8 @@ int fat_notify_change(struct dentry * dentry, struct iattr * attr)
 		mask = sbi->options.fs_dmask;
 	else
 		mask = sbi->options.fs_fmask;
-	inode->i_mode &= S_IFMT | (S_IRWXUGO & ~mask);
+        inode->i_mode &= S_IFMT | (S_IALLUGO & ~mask);
+           mark_inode_dirty(inode);
 out:
 	unlock_kernel();
 	return error;

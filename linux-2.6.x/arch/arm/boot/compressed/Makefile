@@ -8,8 +8,12 @@ HEAD	= head.o
 OBJS	= misc.o
 FONTC	= drivers/video/console/font_acorn_8x8.c
 
-FONT = $(addprefix ../../../../drivers/video/console/, font_acorn_8x8.o)
+CFLAGS         :=$(CFLAGS:-finstrument-functions=)
 
+FONT = $(addprefix ../../../../drivers/video/console/, font_acorn_8x8.o)
+ifeq ($(CONFIG_GCOV_ALL), y)
+CFLAGS := $(CFLAGS_NOGCOV)
+endif
 #
 # Architecture dependencies
 #
@@ -47,7 +51,11 @@ OBJS		+= head-xscale.o
 endif
 
 ifeq ($(CONFIG_DEBUG_ICEDCC),y)
-OBJS            += ice-dcc.o
+OBJS		+= ice-dcc.o
+endif
+
+ifeq ($(CONFIG_MACH_OMAP_PERSEUS2),y)
+OBJS		+= head-omap.o
 endif
 
 ifeq ($(CONFIG_CPU_BIG_ENDIAN),y)

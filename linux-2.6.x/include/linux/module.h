@@ -5,6 +5,15 @@
  *
  * Rewritten by Richard Henderson <rth@tamu.edu> Dec 1996
  * Rewritten again by Rusty Russell, 2002
+ *
+ * Copyright (C) 2007 Motorola, Inc
+ * 
+ * Revision History:
+ *
+ * Date         Author    Comment
+ * ----------   --------  --------------------
+ * 03/30/2007   Motorola  Applied GCOV 2.6.16 patch
+ *
  */
 #include <linux/config.h>
 #include <linux/sched.h>
@@ -220,7 +229,16 @@ enum module_state
 	MODULE_STATE_LIVE,
 	MODULE_STATE_COMING,
 	MODULE_STATE_GOING,
+ 	MODULE_STATE_GONE,
 };
+
+#ifdef CONFIG_KGDB
+#define MAX_SECTNAME 31
+struct mod_section {
+       void *address;
+       char name[MAX_SECTNAME + 1];
+};
+#endif
 
 /* Similar stuff for section attributes. */
 #define MODULE_SECT_NAME_LEN 32
@@ -248,6 +266,13 @@ struct module
 
 	/* Unique handle for this module */
 	char name[MODULE_NAME_LEN];
+
+#ifdef CONFIG_KGDB
+	/* keep kgdb info at the begining so that gdb doesn't have a chance to
+	 * miss out any fields */
+	unsigned long num_sections;
+	struct mod_section *mod_sections;
+#endif
 
 	/* Sysfs stuff. */
 	struct module_kobject *mkobj;
@@ -321,6 +346,11 @@ struct module
 	/* The command line arguments (may be mangled).  People like
 	   keeping pointers to this stuff */
 	char *args;
+
+	#ifdef CONFIG_GCOV_PROFILE
+	const char *ctors_start;        /* Pointer to start of .ctors-section */
+	const char *ctors_end;          /* Pointer to end of .ctors-section */
+	#endif
 };
 
 /* FIXME: It'd be nice to isolate modules during init, too, so they

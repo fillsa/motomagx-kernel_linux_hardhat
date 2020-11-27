@@ -2,6 +2,7 @@
 #define _LINUX__INIT_TASK_H
 
 #include <linux/file.h>
+#include <linux/dpm.h>
 
 #define INIT_FILES \
 { 							\
@@ -38,7 +39,7 @@
 	.mm_users	= ATOMIC_INIT(2), 			\
 	.mm_count	= ATOMIC_INIT(1), 			\
 	.mmap_sem	= __RWSEM_INITIALIZER(name.mmap_sem),	\
-	.page_table_lock =  SPIN_LOCK_UNLOCKED, 		\
+	.page_table_lock = SPIN_LOCK_UNLOCKED, 			\
 	.mmlist		= LIST_HEAD_INIT(name.mmlist),		\
 	.cpu_vm_mask	= CPU_MASK_ALL,				\
 	.default_kioctx = INIT_KIOCTX(name.default_kioctx, name),	\
@@ -53,10 +54,10 @@
 	.rlim		= INIT_RLIMITS,					\
 }
 
-#define INIT_SIGHAND(sighand) {	\
-	.count		= ATOMIC_INIT(1), 		\
-	.action		= { {{NULL,}}, },		\
-	.siglock	= SPIN_LOCK_UNLOCKED, 		\
+#define INIT_SIGHAND(sighand) {						\
+	.count		= ATOMIC_INIT(1), 				\
+	.action		= { { { .sa_handler = NULL, } }, },		\
+	.siglock	= SPIN_LOCK_UNLOCKED, 				\
 }
 
 extern struct group_info init_groups;
@@ -110,8 +111,11 @@ extern struct group_info init_groups;
 	.blocked	= {{0}},					\
 	.alloc_lock	= SPIN_LOCK_UNLOCKED,				\
 	.proc_lock	= SPIN_LOCK_UNLOCKED,				\
-	.switch_lock	= SPIN_LOCK_UNLOCKED,				\
+	.switch_lock	= RAW_SPIN_LOCK_UNLOCKED,			\
 	.journal_info	= NULL,						\
+	.dpm_state	= DPM_TASK_STATE,				\
+	.delayed_put	= LIST_HEAD_INIT(tsk.delayed_put),		\
+	.pi_waiters	= LIST_HEAD_INIT(tsk.pi_waiters),		\
 }
 
 

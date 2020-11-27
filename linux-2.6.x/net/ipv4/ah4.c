@@ -128,6 +128,8 @@ static int ah_input(struct xfrm_state *x, struct xfrm_decap_state *decap, struct
 		goto out;
 
 	ah = (struct ip_auth_hdr*)skb->data;
+	if (x->props.replay_window && xfrm_replay_check(x, ah->seq_no))
+		goto out;
 	ahp = x->data;
 	ah_hlen = (ah->hdrlen + 2) << 2;
 	
@@ -171,6 +173,8 @@ static int ah_input(struct xfrm_state *x, struct xfrm_decap_state *decap, struct
 			goto out;
 		}
 	}
+	if (x->props.replay_window)
+		xfrm_replay_advance(x, ah->seq_no);
 	((struct iphdr*)work_buf)->protocol = ah->nexthdr;
 	skb->nh.raw = skb_pull(skb, ah_hlen);
 	memcpy(skb->nh.raw, work_buf, iph->ihl*4);
@@ -236,7 +240,7 @@ static int ah_init_state(struct xfrm_state *x, void *args)
 	 * we need for AH processing.  This lookup cannot fail here
 	 * after a successful crypto_alloc_tfm().
 	 */
-	aalg_desc = xfrm_aalg_get_byname(x->aalg->alg_name);
+	aalg_desc = xfrm_aalg_get_byname(x->aalg->alg_name, 0);
 	BUG_ON(!aalg_desc);
 
 	if (aalg_desc->uinfo.auth.icv_fullbits/8 !=

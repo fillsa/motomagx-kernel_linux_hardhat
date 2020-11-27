@@ -109,7 +109,7 @@
  */
 int ic_set_manually __initdata = 0;		/* IPconfig parameters set manually */
 
-int ic_enable __initdata = 0;			/* IP config enabled? */
+int ic_enable __initdata = 1;			/* IP config enabled? */
 
 /* Protocol choice */
 int ic_proto_enabled __initdata = 0
@@ -152,7 +152,7 @@ static char user_dev_name[IFNAMSIZ] __initdata = { 0, };
 static int ic_proto_have_if __initdata = 0;
 
 #ifdef IPCONFIG_DYNAMIC
-static spinlock_t ic_recv_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(ic_recv_lock);
 static volatile int ic_got_reply __initdata = 0;    /* Proto(s) that replied */
 #endif
 #ifdef IPCONFIG_DHCP
@@ -1232,7 +1232,7 @@ u32 __init root_nfs_parse_addr(char *name)
 		if (*cp == ':')
 			*cp++ = '\0';
 		addr = in_aton(name);
-		strcpy(name, cp);
+		memmove(name, cp, strlen(cp) + 1);
 	} else
 		addr = INADDR_NONE;
 
@@ -1246,6 +1246,10 @@ u32 __init root_nfs_parse_addr(char *name)
 static int __init ip_auto_config(void)
 {
 	u32 addr;
+
+#ifdef IPCONFIG_DYNAMIC
+	int retries = CONF_OPEN_RETRIES;
+#endif
 
 #ifdef CONFIG_PROC_FS
 	proc_net_fops_create("pnp", S_IRUGO, &pnp_seq_fops);
@@ -1285,8 +1289,6 @@ static int __init ip_auto_config(void)
 	    ic_first_dev->next) {
 #ifdef IPCONFIG_DYNAMIC
 	
-		int retries = CONF_OPEN_RETRIES;
-
 		if (ic_dynamic() < 0) {
 			ic_close_devs();
 

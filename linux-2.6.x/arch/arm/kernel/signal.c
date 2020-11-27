@@ -30,15 +30,21 @@
 #define SWI_SYS_RT_SIGRETURN	(0xef000000|(__NR_rt_sigreturn))
 
 /*
+ * With EABI, the syscall number has to be loaded into r7.
+ */
+#define MOV_R7_NR_SIGRETURN	(0xe3a07000 | (__NR_sigreturn - __NR_SYSCALL_BASE))
+#define MOV_R7_NR_RT_SIGRETURN	(0xe3a07000 | (__NR_rt_sigreturn - __NR_SYSCALL_BASE))
+
+/*
  * For Thumb syscalls, we pass the syscall number via r7.  We therefore
  * need two 16-bit instructions.
  */
 #define SWI_THUMB_SIGRETURN	(0xdf00 << 16 | 0x2700 | (__NR_sigreturn - __NR_SYSCALL_BASE))
 #define SWI_THUMB_RT_SIGRETURN	(0xdf00 << 16 | 0x2700 | (__NR_rt_sigreturn - __NR_SYSCALL_BASE))
 
-static const unsigned long retcodes[4] = {
-	SWI_SYS_SIGRETURN,	SWI_THUMB_SIGRETURN,
-	SWI_SYS_RT_SIGRETURN,	SWI_THUMB_RT_SIGRETURN
+static const unsigned long retcodes[7] = {
+	MOV_R7_NR_SIGRETURN,    SWI_SYS_SIGRETURN,    SWI_THUMB_SIGRETURN,
+	MOV_R7_NR_RT_SIGRETURN, SWI_SYS_RT_SIGRETURN, SWI_THUMB_RT_SIGRETURN,
 };
 
 static int do_signal(sigset_t *oldset, struct pt_regs * regs, int syscall);
@@ -249,7 +255,7 @@ struct aux_sigframe {
 struct sigframe {
 	struct sigcontext sc;
 	unsigned long extramask[_NSIG_WORDS-1];
-	unsigned long retcode;
+	unsigned long retcode[2];
 	struct aux_sigframe aux __attribute__((aligned(8)));
 };
 
@@ -258,7 +264,7 @@ struct rt_sigframe {
 	void __user *puc;
 	struct siginfo info;
 	struct ucontext uc;
-	unsigned long retcode;
+	unsigned long retcode[2];
 	struct aux_sigframe aux __attribute__((aligned(8)));
 };
 
@@ -496,12 +502,13 @@ setup_return(struct pt_regs *regs, struct k_sigaction *ka,
 	if (ka->sa.sa_flags & SA_RESTORER) {
 		retcode = (unsigned long)ka->sa.sa_restorer;
 	} else {
-		unsigned int idx = thumb;
+		unsigned int idx = thumb << 1;
 
 		if (ka->sa.sa_flags & SA_SIGINFO)
-			idx += 2;
+			idx += 3;
 
-		if (__put_user(retcodes[idx], rc))
+		if (__put_user(retcodes[idx],   rc) ||
+		    __put_user(retcodes[idx+1], rc+1))
 			return 1;
 
 		/*
@@ -509,7 +516,7 @@ setup_return(struct pt_regs *regs, struct k_sigaction *ka,
 		 * the return code written onto the stack.
 		 */
 		flush_icache_range((unsigned long)rc,
-				   (unsigned long)(rc + 1));
+				   (unsigned long)(rc + 2));
 
 		retcode = ((unsigned long)rc) + thumb;
 	}
@@ -540,7 +547,7 @@ setup_frame(int usig, struct k_sigaction *ka, sigset_t *set, struct pt_regs *reg
 	}
 
 	if (err == 0)
-		err = setup_return(regs, ka, &frame->retcode, frame, usig);
+		err = setup_return(regs, ka, frame->retcode, frame, usig);
 
 	return err;
 }
@@ -574,7 +581,7 @@ setup_rt_frame(int usig, struct k_sigaction *ka, siginfo_t *info,
 	err |= __copy_to_user(&frame->uc.uc_sigmask, set, sizeof(*set));
 
 	if (err == 0)
-		err = setup_return(regs, ka, &frame->retcode, frame, usig);
+		err = setup_return(regs, ka, frame->retcode, frame, usig);
 
 	if (err == 0) {
 		/*
@@ -680,6 +687,14 @@ static int do_signal(sigset_t *oldset, struct pt_regs *regs, int syscall)
 	siginfo_t info;
 	int signr;
 
+#ifdef CONFIG_PREEMPT_RT
+	/*
+	 * Fully-preemptible kernel does not need interrupts disabled:
+	 */
+	local_irq_enable();
+	preempt_check_resched();
+#endif
+
 	/*
 	 * We want the common case to go fast, which
 	 * is why we may in certain cases get here from
@@ -712,17 +727,33 @@ static int do_signal(sigset_t *oldset, struct pt_regs *regs, int syscall)
 	if (syscall) {
 		if (regs->ARM_r0 == -ERESTART_RESTARTBLOCK) {
 			if (thumb_mode(regs)) {
-				regs->ARM_r7 = __NR_restart_syscall;
+				regs->ARM_r7 = __NR_restart_syscall - __NR_SYSCALL_BASE;
 				regs->ARM_pc -= 2;
 			} else {
+#if defined(CONFIG_AEABI) && !defined(CONFIG_OABI_COMPAT)
+				regs->ARM_r7 = __NR_restart_syscall;
+				regs->ARM_pc -= 4;
+#else
 				u32 __user *usp;
+				u32 swival = __NR_restart_syscall;
 
 				regs->ARM_sp -= 12;
 				usp = (u32 __user *)regs->ARM_sp;
 
+				/*
+				 * Either we supports OABI only, or we have
+				 * EABI with the OABI compat layer enabled.
+				 * In the later case we don't know if user
+				 * space is EABI or not, and if not we must
+				 * not clobber r7.  Always using the OABI
+				 * syscall solves that issue and works for
+				 * all those cases.
+				 */
+				swival = swival - __NR_SYSCALL_BASE + __NR_OABI_SYSCALL_BASE;
+
 				put_user(regs->ARM_pc, &usp[0]);
 				/* swi __NR_restart_syscall */
-				put_user(0xef000000 | __NR_restart_syscall, &usp[1]);
+				put_user(0xef000000 | swival, &usp[1]);
 				/* ldr	pc, [sp], #12 */
 				put_user(0xe49df00c, &usp[2]);
 
@@ -730,6 +761,7 @@ static int do_signal(sigset_t *oldset, struct pt_regs *regs, int syscall)
 						   (unsigned long)(usp + 3));
 
 				regs->ARM_pc = regs->ARM_sp + 4;
+#endif
 			}
 		}
 		if (regs->ARM_r0 == -ERESTARTNOHAND ||

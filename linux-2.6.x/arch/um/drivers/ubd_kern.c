@@ -54,9 +54,9 @@
 #include "mem.h"
 #include "mem_kern.h"
 
-static spinlock_t ubd_io_lock = SPIN_LOCK_UNLOCKED;
-static spinlock_t ubd_lock = SPIN_LOCK_UNLOCKED;
-
+static DEFINE_SPINLOCK(ubd_io_lock);
+static DEFINE_SPINLOCK(ubd_lock);
+ 
 static void (*do_ubd)(void);
 
 static int ubd_open(struct inode * inode, struct file * filp);

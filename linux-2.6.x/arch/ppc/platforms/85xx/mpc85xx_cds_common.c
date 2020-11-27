@@ -32,6 +32,7 @@
 #include <linux/initrd.h>
 #include <linux/tty.h>
 #include <linux/serial_core.h>
+#include <linux/fsl_devices.h>
 
 #include <asm/system.h>
 #include <asm/pgtable.h>
@@ -48,8 +49,15 @@
 #include <asm/irq.h>
 #include <asm/immap_85xx.h>
 #include <asm/immap_cpm2.h>
-#include <asm/ocp.h>
+#include <asm/ppc_sys.h>
 #include <asm/kgdb.h>
+
+#ifdef CONFIG_MTD
+#include <linux/mtd/partitions.h>
+#include <linux/mtd/physmap.h>
+#include <linux/mtd/mtd.h>
+#include <linux/mtd/map.h>
+#endif
 
 #include <mm/mmu_decl.h>
 #include <syslib/cpm2_pic.h>
@@ -60,6 +68,30 @@
 #ifndef CONFIG_PCI
 unsigned long isa_io_base = 0;
 unsigned long isa_mem_base = 0;
+#endif
+
+#ifdef CONFIG_MTD
+static struct mtd_partition mpc85xx_cds_partitions[] = {
+	{
+		.name =   "flash bank 2",
+		.offset = 0,
+		.size =   0x800000,
+		.mask_flags = MTD_WRITEABLE,  /* force read-only */
+	},
+	{
+		.name =   "flash boot bank - free",
+		.offset = 0x800000,
+		.size =   0x780000,
+	},
+	{
+		.name =   "flash boot bank - firmware",
+		.offset = 0xf80000,
+		.size =   0x80000,
+		.mask_flags = MTD_WRITEABLE,  /* force read-only */
+	}
+};
+
+#define number_partitions       (sizeof(mpc85xx_cds_partitions)/sizeof(struct mtd_partition))
 #endif
 
 extern unsigned long total_memory;      /* in mm/init */
@@ -127,32 +159,6 @@ static u_char mpc85xx_cds_openpic_initsenses[] __initdata = {
 #else
         0x0,                            /* External 11: */
 #endif
-};
-
-struct ocp_gfar_data mpc85xx_tsec1_def = {
-        .interruptTransmit = MPC85xx_IRQ_TSEC1_TX,
-        .interruptError = MPC85xx_IRQ_TSEC1_ERROR,
-        .interruptReceive = MPC85xx_IRQ_TSEC1_RX,
-        .interruptPHY = MPC85xx_IRQ_EXT5,
-        .flags = (GFAR_HAS_GIGABIT | GFAR_HAS_MULTI_INTR |
-                        GFAR_HAS_PHY_INTR),
-        .phyid = 0,
-        .phyregidx = 0,
-};
-
-struct ocp_gfar_data mpc85xx_tsec2_def = {
-        .interruptTransmit = MPC85xx_IRQ_TSEC2_TX,
-        .interruptError = MPC85xx_IRQ_TSEC2_ERROR,
-        .interruptReceive = MPC85xx_IRQ_TSEC2_RX,
-        .interruptPHY = MPC85xx_IRQ_EXT5,
-        .flags = (GFAR_HAS_GIGABIT | GFAR_HAS_MULTI_INTR |
-                        GFAR_HAS_PHY_INTR),
-        .phyid = 1,
-        .phyregidx = 0,
-};
-
-struct ocp_fs_i2c_data mpc85xx_i2c1_def = {
-	.flags = FS_I2C_SEPARATE_DFSRR,
 };
 
 /* ************************************************************************ */
@@ -335,10 +341,9 @@ mpc85xx_exclude_device(u_char bus, u_char devfn)
 static void __init
 mpc85xx_cds_setup_arch(void)
 {
-        struct ocp_def *def;
-        struct ocp_gfar_data *einfo;
         bd_t *binfo = (bd_t *) __res;
         unsigned int freq;
+	struct gianfar_platform_data *pdata;
 
         /* get the core frequency */
         freq = binfo->bi_intfreq;
@@ -372,17 +377,23 @@ mpc85xx_cds_setup_arch(void)
 	invalidate_tlbcam_entry(NUM_TLBCAMS - 1);
 #endif
 
-        def = ocp_get_one_device(OCP_VENDOR_FREESCALE, OCP_FUNC_GFAR, 0);
-        if (def) {
-                einfo = (struct ocp_gfar_data *) def->additions;
-                memcpy(einfo->mac_addr, binfo->bi_enetaddr, 6);
-        }
+	/* setup the board related information for the enet controllers */
+	pdata = (struct gianfar_platform_data *) ppc_sys_get_pdata(MPC85xx_TSEC1);
+	pdata->board_flags = FSL_GIANFAR_BRD_HAS_PHY_INTR;
+	pdata->interruptPHY = MPC85xx_IRQ_EXT5;
+	pdata->phyid = 0;
+	/* fixup phy address */
+	pdata->phy_reg_addr += binfo->bi_immr_base;
+	memcpy(pdata->mac_addr, binfo->bi_enetaddr, 6);
 
-        def = ocp_get_one_device(OCP_VENDOR_FREESCALE, OCP_FUNC_GFAR, 1);
-        if (def) {
-                einfo = (struct ocp_gfar_data *) def->additions;
-                memcpy(einfo->mac_addr, binfo->bi_enet1addr, 6);
-        }
+	pdata = (struct gianfar_platform_data *) ppc_sys_get_pdata(MPC85xx_TSEC2);
+	pdata->board_flags = FSL_GIANFAR_BRD_HAS_PHY_INTR;
+	pdata->interruptPHY = MPC85xx_IRQ_EXT5;
+	pdata->phyid = 1;
+	/* fixup phy address */
+	pdata->phy_reg_addr += binfo->bi_immr_base;
+	memcpy(pdata->mac_addr, binfo->bi_enet1addr, 6);
+
 
 #ifdef CONFIG_BLK_DEV_INITRD
         if (initrd_start)
@@ -395,7 +406,13 @@ mpc85xx_cds_setup_arch(void)
                 ROOT_DEV = Root_HDA1;
 #endif
 
-	ocp_for_each_device(mpc85xx_update_paddr_ocp, &(binfo->bi_immr_base));
+#ifdef CONFIG_MTD
+	/*
+	 * Support for MTD on MPC85xx CDS. Use the generic physmap driver
+	 */
+	physmap_configure(0xff000000, 0x1000000, 2, NULL);
+	physmap_set_partitions(mpc85xx_cds_partitions, number_partitions);
+#endif
 }
 
 /* ************************************************************************ */
@@ -418,11 +435,25 @@ platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 #ifdef CONFIG_SERIAL_TEXT_DEBUG
 	{
 		bd_t *binfo = (bd_t *) __res;
+		struct uart_port p;
 
 		/* Use the last TLB entry to map CCSRBAR to allow access to DUART regs */
 		settlbcam(NUM_TLBCAMS - 1, binfo->bi_immr_base,
-			binfo->bi_immr_base, MPC85xx_CCSRBAR_SIZE, _PAGE_IO, 0);
+			  binfo->bi_immr_base, MPC85xx_CCSRBAR_SIZE, _PAGE_IO, 0);
 
+		memset(&p, 0, sizeof (p));
+		p.iotype = SERIAL_IO_MEM;
+		p.membase = (void *) binfo->bi_immr_base + MPC85xx_UART0_OFFSET;
+		p.uartclk = binfo->bi_busfreq;
+
+		gen550_init(0, &p);
+
+		memset(&p, 0, sizeof (p));
+		p.iotype = SERIAL_IO_MEM;
+		p.membase = (void *) binfo->bi_immr_base + MPC85xx_UART1_OFFSET;
+		p.uartclk = binfo->bi_busfreq;
+
+		gen550_init(1, &p);
 	}
 #endif
 
@@ -443,6 +474,8 @@ platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
                 *(char *) (r7 + KERNELBASE) = 0;
                 strcpy(cmd_line, (char *) (r6 + KERNELBASE));
         }
+
+	identify_ppc_sys_by_id(mfspr(SVR));
 
         /* setup the PowerPC module struct */
         ppc_md.setup_arch = mpc85xx_cds_setup_arch;

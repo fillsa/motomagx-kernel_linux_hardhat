@@ -15,7 +15,7 @@
  *   This is a device driver for the NAND flash device found on the
  *   TI fido board. It supports 32MiB and 64MiB cards
  *
- * $Id: toto.c,v 1.4 2004/10/05 13:50:20 gleixner Exp $
+ * $Id: toto.c,v 1.3 2004/09/16 23:27:15 gleixner Exp $
  */
 
 #include <linux/slab.h>

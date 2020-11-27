@@ -205,7 +205,7 @@ struct pcmcia_socket {
 	void 				(*zoom_video)(struct pcmcia_socket *, int);
                            
 	/* state thread */
-	struct semaphore		skt_sem;	/* protects socket h/w state */
+	struct compat_semaphore		skt_sem;	/* protects socket h/w state */
 
 	struct task_struct		*thread;
 	struct completion		thread_done;

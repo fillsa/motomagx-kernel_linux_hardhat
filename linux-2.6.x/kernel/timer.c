@@ -29,15 +29,20 @@
 #include <linux/notifier.h>
 #include <linux/thread_info.h>
 #include <linux/time.h>
+#include <linux/hrtimers.h>
 #include <linux/jiffies.h>
 #include <linux/cpu.h>
 #include <linux/syscalls.h>
+#include <linux/kallsyms.h>
+#include <linux/ltt-events.h>
+#include <linux/frd.h>
 
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
 #include <asm/div64.h>
 #include <asm/timex.h>
 #include <asm/io.h>
+#include <linux/timer-list.h>
 
 #ifdef CONFIG_TIME_INTERPOLATION
 static void time_interpolator_update(long delta_nsec);
@@ -45,36 +50,6 @@ static void time_interpolator_update(long delta_nsec);
 #define time_interpolator_update(x)
 #endif
 
-/*
- * per-CPU timer vector definitions:
- */
-#define TVN_BITS 6
-#define TVR_BITS 8
-#define TVN_SIZE (1 << TVN_BITS)
-#define TVR_SIZE (1 << TVR_BITS)
-#define TVN_MASK (TVN_SIZE - 1)
-#define TVR_MASK (TVR_SIZE - 1)
-
-typedef struct tvec_s {
-	struct list_head vec[TVN_SIZE];
-} tvec_t;
-
-typedef struct tvec_root_s {
-	struct list_head vec[TVR_SIZE];
-} tvec_root_t;
-
-struct tvec_t_base_s {
-	spinlock_t lock;
-	unsigned long timer_jiffies;
-	struct timer_list *running_timer;
-	tvec_root_t tv1;
-	tvec_t tv2;
-	tvec_t tv3;
-	tvec_t tv4;
-	tvec_t tv5;
-} ____cacheline_aligned_in_smp;
-
-typedef struct tvec_t_base_s tvec_base_t;
 
 static inline void set_running_timer(tvec_base_t *base,
 					struct timer_list *timer)
@@ -83,9 +58,9 @@ static inline void set_running_timer(tvec_base_t *base,
 	base->running_timer = timer;
 #endif
 }
-
 /* Fake initialization */
-static DEFINE_PER_CPU(tvec_base_t, tvec_bases) = { SPIN_LOCK_UNLOCKED };
+DEFINE_PER_CPU(tvec_base_t, tvec_bases) = { SPIN_LOCK_UNLOCKED };
+
 
 static void check_timer_failed(struct timer_list *timer)
 {
@@ -135,7 +110,7 @@ static void internal_add_timer(tvec_base_t *base, struct timer_list *timer)
 		 * Can happen if you add a timer with expires == jiffies,
 		 * or you set a timer to go off in the past
 		 */
-		vec = base->tv1.vec + (base->timer_jiffies & TVR_MASK);
+		handle_expired_timer(timer);
 	} else {
 		int i;
 		/* If the timeout is larger than 0xffffffff on 64-bit
@@ -151,21 +126,24 @@ static void internal_add_timer(tvec_base_t *base, struct timer_list *timer)
 	/*
 	 * Timers are FIFO:
 	 */
+  	BUMP_VST_VISIT_COUNT;		
 	list_add_tail(&timer->entry, vec);
+	timer->base = base;	
 }
 
 int __mod_timer(struct timer_list *timer, unsigned long expires)
 {
 	tvec_base_t *old_base, *new_base;
 	unsigned long flags;
-	int ret = 0;
+	int ret = 0, cpu;
 
 	BUG_ON(!timer->function);
 
 	check_timer(timer);
 
 	spin_lock_irqsave(&timer->lock, flags);
-	new_base = &__get_cpu_var(tvec_bases);
+	cpu = _smp_processor_id();
+	new_base = &per_cpu(tvec_bases, cpu);
 repeat:
 	old_base = timer->base;
 
@@ -207,7 +185,6 @@ repeat:
 	}
 	timer->expires = expires;
 	internal_add_timer(new_base, timer);
-	timer->base = new_base;
 
 	if (old_base && (new_base != old_base))
 		spin_unlock(&old_base->lock);
@@ -237,7 +214,6 @@ void add_timer_on(struct timer_list *timer, int cpu)
 
 	spin_lock_irqsave(&base->lock, flags);
 	internal_add_timer(base, timer);
-	timer->base = base;
 	spin_unlock_irqrestore(&base->lock, flags);
 }
 
@@ -353,10 +329,8 @@ del_again:
 	for_each_online_cpu(i) {
 		base = &per_cpu(tvec_bases, i);
 		if (base->running_timer == timer) {
-			while (base->running_timer == timer) {
-				cpu_relax();
-				preempt_check_resched();
-			}
+			wait_event(base->wait_for_running_timer,
+				base->running_timer != timer);
 			break;
 		}
 	}
@@ -436,11 +410,28 @@ static inline void __run_timers(tvec_base_t *base)
 	struct timer_list *timer;
 
 	spin_lock_irq(&base->lock);
+ 	BUMP_VST_VISIT_COUNT; 
 	while (time_after_eq(jiffies, base->timer_jiffies)) {
 		struct list_head work_list = LIST_HEAD_INIT(work_list);
 		struct list_head *head = &work_list;
  		int index = base->timer_jiffies & TVR_MASK;
- 
+
+		if (softirq_need_resched()) {
+			/* running_timer might be stale: */
+			set_running_timer(base, NULL);
+//			if (waitqueue_active(&base->wait_running_timer))
+				wake_up(&base->wait_for_running_timer);
+			spin_unlock_irq(&base->lock);
+			cond_resched_all();
+			cpu_relax();
+			spin_lock_irq(&base->lock);
+			/*
+			 * We can simply continue after preemption, nobody
+			 * else can touch timer_jiffies so 'index' is still
+			 * valid. Any new jiffy will be taken care of in
+			 * subsequent loops:
+			 */
+		}
 		/*
 		 * Cascade timers:
 		 */
@@ -457,6 +448,8 @@ repeat:
 			unsigned long data;
 
 			timer = list_entry(head->next,struct timer_list,entry);
+			check_for_high_res_timer(timer, &base->lock, 
+						 goto repeat);
  			fn = timer->function;
  			data = timer->data;
 
@@ -465,13 +458,25 @@ repeat:
 			smp_wmb();
 			timer->base = NULL;
 			spin_unlock_irq(&base->lock);
-			fn(data);
+			{
+				u32 preempt_count = preempt_count();
+				fn(data);
+				if (preempt_count != preempt_count()) {
+					print_symbol("BUG: unbalanced timer-handler preempt count in %s!\n", (unsigned long) fn);
+					printk("entered with %08x, exited with %08x.\n", preempt_count, preempt_count());
+					preempt_count() = preempt_count;
+				}
+			}
+			cond_resched_all();
 			spin_lock_irq(&base->lock);
 			goto repeat;
 		}
 	}
 	set_running_timer(base, NULL);
 	spin_unlock_irq(&base->lock);
+//	if (waitqueue_active(&base->wait_running_timer))
+		wake_up(&base->wait_for_running_timer);
+	done_to_high_res();
 }
 
 #ifdef CONFIG_NO_IDLE_HZ
@@ -855,14 +860,26 @@ static void update_one_process(struct task_struct *p, unsigned long user,
 /*
  * Called from the timer interrupt handler to charge one tick to the current 
  * process.  user_tick is 1 if the tick is user time, 0 for system.
+ * For VST we change to account for multiple ticks.
  */
+static unsigned process_jiffies[NR_CPUS]  = {INITIAL_JIFFIES};
+ 
 void update_process_times(int user_tick)
 {
 	struct task_struct *p = current;
-	int cpu = smp_processor_id(), system = user_tick ^ 1;
+	int cpu = smp_processor_id(), system = 0;
+	unsigned long delta_jiffies = jiffies - process_jiffies[cpu];
+
+	process_jiffies[cpu] += delta_jiffies;
+	if (user_tick) 
+		user_tick = delta_jiffies;
+	else
+		system = delta_jiffies;
 
 	update_one_process(p, user_tick, system, cpu);
 	run_local_timers();
+	if (rcu_pending(cpu))
+		rcu_check_callbacks(cpu, user_tick);
 	scheduler_tick(user_tick, system);
 }
 
@@ -871,7 +888,15 @@ void update_process_times(int user_tick)
  */
 static unsigned long count_active_tasks(void)
 {
+       /*
+	* On PREEMPT_RT, we are running in the timer softirq thread,
+	* so consider 1 less running tasks:
+	*/
+#ifdef CONFIG_PREEMPT_RT
+	return (nr_running()-1 + nr_uninterruptible()) * FIXED_1;
+#else
 	return (nr_running() + nr_uninterruptible()) * FIXED_1;
+#endif
 }
 
 /*
@@ -911,21 +936,10 @@ unsigned long wall_jiffies = INITIAL_JIFFIES;
  * playing with xtime and avenrun.
  */
 #ifndef ARCH_HAVE_XTIME_LOCK
-seqlock_t xtime_lock __cacheline_aligned_in_smp = SEQLOCK_UNLOCKED;
+DECLARE_RAW_SEQLOCK(xtime_lock);
 
 EXPORT_SYMBOL(xtime_lock);
 #endif
-
-/*
- * This function runs timers and the timer-tq in bottom half context.
- */
-static void run_timer_softirq(struct softirq_action *h)
-{
-	tvec_base_t *base = &__get_cpu_var(tvec_bases);
-
-	if (time_after_eq(jiffies, base->timer_jiffies))
-		__run_timers(base);
-}
 
 /*
  * Called by the local, per-CPU timer interrupt on SMP.
@@ -936,31 +950,65 @@ void run_local_timers(void)
 }
 
 /*
- * Called by the timer interrupt. xtime_lock must already be taken
- * by the timer IRQ!
+ * Time of day handling:
  */
 static inline void update_times(void)
 {
-	unsigned long ticks;
+	unsigned long ticks = 0;
+	/*
+	 * First test outside the lock for performance reasons:
+	 */
+	if (jiffies != wall_jiffies) {
+		unsigned long flags;
 
-	ticks = jiffies - wall_jiffies;
-	if (ticks) {
-		wall_jiffies += ticks;
-		update_wall_time(ticks);
+		write_seqlock_irqsave(&xtime_lock, flags);
+		while (jiffies != wall_jiffies) {
+			wall_jiffies++;
+			ticks++;
+			update_wall_time(1);
+			/*
+			 * Unlock unconditionally, to make sure
+			 * we dont keep irqs off for a long time!
+			 */
+			write_sequnlock_irqrestore(&xtime_lock, flags);
+			cond_resched_softirq();
+			write_seqlock_irqsave(&xtime_lock, flags);
+		}
+		calc_load(ticks);
+		write_sequnlock_irqrestore(&xtime_lock, flags);
 	}
-	calc_load(ticks);
 }
   
+/*
+ * This function runs timers and the timer-tq in bottom half context.
+ */
+static void run_timer_softirq(struct softirq_action *h)
+{
+	tvec_base_t *base = &__get_cpu_var(tvec_bases);
+
+	ltt_ev(LTT_EV_KERNEL_TIMER, NULL);
+
+	update_times();
+	if (time_after_eq(jiffies, base->timer_jiffies))
+		__run_timers(base);
+}
+
 /*
  * The 64-bit jiffies value is not atomic - you MUST NOT read it
  * without sampling the sequence number in xtime_lock.
  * jiffies is defined in the linker script...
  */
+void (*check_frd_func_ptr)(void) = NULL;
+EXPORT_SYMBOL(check_frd_func_ptr);
+
 
 void do_timer(struct pt_regs *regs)
 {
 	jiffies_64++;
-	update_times();
+#if defined CONFIG_FRD_USE_TIMER_IRQ
+	if (check_frd_func_ptr)
+		check_frd_func_ptr();
+#endif
 }
 
 #ifdef __ARCH_WANT_SYS_ALARM
@@ -1081,6 +1129,7 @@ asmlinkage long sys_getegid(void)
 
 static void process_timeout(unsigned long __data)
 {
+	ltt_ev_timer(LTT_EV_TIMER_EXPIRED, 0, 0, 0);
 	wake_up_process((task_t *)__data);
 }
 
@@ -1324,6 +1373,8 @@ static void __devinit init_timers_cpu(int cpu)
        
 	base = &per_cpu(tvec_bases, cpu);
 	spin_lock_init(&base->lock);
+	init_waitqueue_head(&base->wait_for_running_timer);
+
 	for (j = 0; j < TVN_SIZE; j++) {
 		INIT_LIST_HEAD(base->tv5.vec + j);
 		INIT_LIST_HEAD(base->tv4.vec + j);
@@ -1334,6 +1385,7 @@ static void __devinit init_timers_cpu(int cpu)
 		INIT_LIST_HEAD(base->tv1.vec + j);
 
 	base->timer_jiffies = jiffies;
+	process_jiffies[cpu] = jiffies;
 }
 
 #ifdef CONFIG_HOTPLUG_CPU
@@ -1349,7 +1401,6 @@ static int migrate_timer_list(tvec_base_t *new_base, struct list_head *head)
 			return 0;
 		list_del(&timer->entry);
 		internal_add_timer(new_base, timer);
-		timer->base = new_base;
 		spin_unlock(&timer->lock);
 	}
 	return 1;
@@ -1432,13 +1483,14 @@ void __init init_timers(void)
 				(void *)(long)smp_processor_id());
 	register_cpu_notifier(&timers_nb);
 	open_softirq(TIMER_SOFTIRQ, run_timer_softirq, NULL);
+	init_hrtimers();
 }
 
 #ifdef CONFIG_TIME_INTERPOLATION
 
 struct time_interpolator *time_interpolator;
 static struct time_interpolator *time_interpolator_list;
-static spinlock_t time_interpolator_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(time_interpolator_lock);
 
 static inline u64 time_interpolator_get_cycles(unsigned int src)
 {

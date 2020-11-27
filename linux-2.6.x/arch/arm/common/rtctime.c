@@ -8,6 +8,13 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Copyright 2006 Motorola, Inc.
+ * 
+ * Date     Author    Comment
+ * 10/2006  Motorola  Fix added to allow rtc_next_alarm_time() function to 
+ *                    set alarm greater than 2 days in the future
+ *
  */
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -28,7 +35,7 @@ static struct fasync_struct *rtc_async_queue;
 /*
  * rtc_lock protects rtc_irq_data
  */
-static spinlock_t rtc_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_RAW_SPINLOCK(rtc_lock);
 static unsigned long rtc_irq_data;
 
 /*
@@ -94,24 +101,29 @@ void rtc_time_to_tm(unsigned long time, struct rtc_time *tm)
 EXPORT_SYMBOL(rtc_time_to_tm);
 
 /*
- * Convert Gregorian date to seconds since 01-01-1970 00:00:00.
+ * Does the rtc_time represent a valid date/time?
  */
-int rtc_tm_to_time(struct rtc_time *tm, unsigned long *time)
+int rtc_valid_tm(struct rtc_time *tm)
 {
-	unsigned int yrs = tm->tm_year + 1900;
-
-	*time = 0;
-
-	if (yrs < 1970 ||
+	if (tm->tm_year < 70 ||
 	    tm->tm_mon >= 12 ||
 	    tm->tm_mday < 1 ||
-	    tm->tm_mday > month_days(tm->tm_mon, yrs) ||
+	    tm->tm_mday > month_days(tm->tm_mon, tm->tm_year + 1900) ||
 	    tm->tm_hour >= 24 ||
 	    tm->tm_min >= 60 ||
 	    tm->tm_sec >= 60)
 		return -EINVAL;
 
-	*time = mktime(yrs, tm->tm_mon + 1, tm->tm_mday,
+	return 0;
+}
+EXPORT_SYMBOL(rtc_valid_tm);
+
+/*
+ * Convert Gregorian date to seconds since 01-01-1970 00:00:00.
+ */
+int rtc_tm_to_time(struct rtc_time *tm, unsigned long *time)
+{
+	*time = mktime(tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
 		       tm->tm_hour, tm->tm_min, tm->tm_sec);
 
 	return 0;
@@ -121,30 +133,48 @@ EXPORT_SYMBOL(rtc_tm_to_time);
 /*
  * Calculate the next alarm time given the requested alarm time mask
  * and the current time.
- *
- * FIXME: for now, we just copy the alarm time because we're lazy (and
- * is therefore buggy - setting a 10am alarm at 8pm will not result in
- * the alarm triggering.)
  */
 void rtc_next_alarm_time(struct rtc_time *next, struct rtc_time *now, struct rtc_time *alrm)
 {
+#ifdef CONFIG_MOT_WFN419
+	*next = *alrm;
+#else
+	unsigned long next_time;
+	unsigned long now_time;
+
 	next->tm_year = now->tm_year;
 	next->tm_mon = now->tm_mon;
 	next->tm_mday = now->tm_mday;
 	next->tm_hour = alrm->tm_hour;
 	next->tm_min = alrm->tm_min;
 	next->tm_sec = alrm->tm_sec;
+
+	rtc_tm_to_time(now, &now_time);
+	rtc_tm_to_time(next, &next_time);
+
+	if (next_time < now_time) {
+		/* Advance one day */
+		next_time += 60 * 60 * 24;
+		rtc_time_to_tm(next_time, next);
+	}
+#endif
 }
 
-static inline void rtc_read_time(struct rtc_ops *ops, struct rtc_time *tm)
+static inline int rtc_read_time(struct rtc_ops *ops, struct rtc_time *tm)
 {
 	memset(tm, 0, sizeof(struct rtc_time));
-	ops->read_time(tm);
+	return ops->read_time(tm);
 }
 
 static inline int rtc_set_time(struct rtc_ops *ops, struct rtc_time *tm)
 {
-	return ops->set_time(tm);
+	int ret;
+
+	ret = rtc_valid_tm(tm);
+	if (ret == 0)
+		ret = ops->set_time(tm);
+
+	return ret;
 }
 
 static inline int rtc_read_alarm(struct rtc_ops *ops, struct rtc_wkalrm *alrm)
@@ -152,8 +182,7 @@ static inline int rtc_read_alarm(struct rtc_ops *ops, struct rtc_wkalrm *alrm)
 	int ret = -EINVAL;
 	if (ops->read_alarm) {
 		memset(alrm, 0, sizeof(struct rtc_wkalrm));
-		ops->read_alarm(alrm);
-		ret = 0;
+		ret = ops->read_alarm(alrm);
 	}
 	return ret;
 }
@@ -262,17 +291,13 @@ static int rtc_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 		}
 		alrm.enabled = 0;
 		alrm.pending = 0;
-		alrm.time.tm_mday = -1;
-		alrm.time.tm_mon = -1;
-		alrm.time.tm_year = -1;
-		alrm.time.tm_wday = -1;
-		alrm.time.tm_yday = -1;
-		alrm.time.tm_isdst = -1;
 		ret = rtc_set_alarm(ops, &alrm);
 		break;
 
 	case RTC_RD_TIME:
-		rtc_read_time(ops, &tm);
+		ret = rtc_read_time(ops, &tm);
+		if (ret)
+			break;
 		ret = copy_to_user(uarg, &tm, sizeof(tm));
 		if (ret)
 			ret = -EFAULT;
@@ -412,17 +437,16 @@ static int rtc_read_proc(char *page, char **start, off_t off, int count, int *eo
 	struct rtc_wkalrm alrm;
 	struct rtc_time tm;
 	char *p = page;
-	int len;
 
-	rtc_read_time(ops, &tm);
-
-	p += sprintf(p,
-		"rtc_time\t: %02d:%02d:%02d\n"
-		"rtc_date\t: %04d-%02d-%02d\n"
-		"rtc_epoch\t: %04lu\n",
-		tm.tm_hour, tm.tm_min, tm.tm_sec,
-		tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-		rtc_epoch);
+	if (rtc_read_time(ops, &tm) == 0) {
+		p += sprintf(p,
+			"rtc_time\t: %02d:%02d:%02d\n"
+			"rtc_date\t: %04d-%02d-%02d\n"
+			"rtc_epoch\t: %04lu\n",
+			tm.tm_hour, tm.tm_min, tm.tm_sec,
+			tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+			rtc_epoch);
+	}
 
 	if (rtc_read_alarm(ops, &alrm) == 0) {
 		p += sprintf(p, "alrm_time\t: ");
@@ -461,13 +485,7 @@ static int rtc_read_proc(char *page, char **start, off_t off, int count, int *eo
 	if (ops->proc)
 		p += ops->proc(p);
 
-	len = (p - page) - off;
-	if (len < 0)
-		len = 0;
-	*eof = len <= count;
-	*start = page + off;
-
-	return len;
+	return p - page;
 }
 
 int register_rtc(struct rtc_ops *ops)

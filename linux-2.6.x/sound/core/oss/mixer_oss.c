@@ -360,15 +360,11 @@ static int snd_mixer_oss_ioctl1(snd_mixer_oss_file_t *fmixer, unsigned int cmd, 
 }
 
 /* FIXME: need to unlock BKL to allow preemption */
-int snd_mixer_oss_ioctl(struct inode *inode, struct file *file,
-			unsigned int cmd, unsigned long arg)
+static long snd_mixer_oss_ioctl(struct file *file,
+			       unsigned int cmd, unsigned long arg)
 {
-	int err;
-	/* FIXME: need to unlock BKL to allow preemption */
-	unlock_kernel();
-	err = snd_mixer_oss_ioctl1((snd_mixer_oss_file_t *) file->private_data, cmd, arg);
-	lock_kernel();
-	return err;
+
+	return snd_mixer_oss_ioctl1((snd_mixer_oss_file_t *) file->private_data, cmd, arg);
 }
 
 int snd_mixer_oss_ioctl_card(snd_card_t *card, unsigned int cmd, unsigned long arg)
@@ -393,7 +389,7 @@ static struct file_operations snd_mixer_oss_f_ops =
 	.owner =	THIS_MODULE,
 	.open =		snd_mixer_oss_open,
 	.release =	snd_mixer_oss_release,
-	.ioctl =	snd_mixer_oss_ioctl,
+	.unlocked_ioctl = snd_mixer_oss_ioctl,
 };
 
 static snd_minor_t snd_mixer_oss_reg =

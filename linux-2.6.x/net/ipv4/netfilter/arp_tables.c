@@ -74,7 +74,18 @@ struct arpt_table_info {
 
 static LIST_HEAD(arpt_target);
 static LIST_HEAD(arpt_tables);
-#define ADD_COUNTER(c,b,p) do { (c).bcnt += (b); (c).pcnt += (p); } while(0)
+/*
+ * Protect with a lock because on PREEMPT_RT the same table might
+ * be used on two CPUs at once:
+ */
+static DEFINE_SPINLOCK(counter_lock);
+#define ADD_COUNTER(c,b,p) do { 			\
+	unsigned long flags;				\
+	spin_lock_irqsave(&counter_lock, flags);	\
+	(c).bcnt += b;					\
+	(c).pcnt += p;					\
+	spin_unlock_irqrestore(&counter_lock, flags);	\
+} while(0)
 
 #ifdef CONFIG_SMP
 #define TABLE_OFFSET(t,p) (SMP_ALIGN((t)->size)*(p))

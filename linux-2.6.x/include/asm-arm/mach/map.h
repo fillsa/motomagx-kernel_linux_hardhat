@@ -25,6 +25,7 @@ struct meminfo;
 #define MT_HIGH_VECTORS	4
 #define MT_MEMORY	5
 #define MT_ROM		6
+#define MT_NONSHARED_DEVICE	8
 
 extern void create_memmap_holes(struct meminfo *);
 extern void memtable_init(struct meminfo *);

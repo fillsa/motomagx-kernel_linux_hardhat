@@ -22,3 +22,12 @@ obj-$(CONFIG_LEDS) += $(led-y)
 
 # Misc features
 obj-$(CONFIG_PM) += pm.o sleep.o
+
+ifeq ($(CONFIG_PXA27x),y)
+obj-$(CONFIG_PM) += standby.o
+endif
+
+obj-$(CONFIG_KGDB_PXA_SERIAL) += kgdb-serial.o
+obj-$(CONFIG_HIGH_RES_TIMERS) += hrtime.o
+obj-$(CONFIG_DPM) += bulverde_dpm.o  bulverde_freq.o bulverde_voltage.o
+obj-$(CONFIG_GPIO) += gpio.o

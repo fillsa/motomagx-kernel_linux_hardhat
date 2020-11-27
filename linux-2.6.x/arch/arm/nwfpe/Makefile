@@ -1,6 +1,9 @@
 #
 # Copyright (C) 1998, 1999, 2001 Philip Blundell
 #
+ifeq ($(CONFIG_GCOV_ALL),y)
+CFLAGS := $(CFLAGS_NOGCOV)
+endif
 
 obj-$(CONFIG_FPE_NWFPE)		+= nwfpe.o
 

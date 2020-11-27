@@ -3,6 +3,12 @@
  *
  *  Copyright (C) 1995-1999 Russell King
  *
+ *  Copyright 2006 Motorola, Inc.
+ *
+ * Date         Author          Comment
+ * 10/2006      Motorola        Added a __KERNEL_HZ constant & based HZ on 
+ *				__KERNEL_HZ
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
@@ -13,8 +19,12 @@
 #ifdef __KERNEL__
 # include <asm/arch/param.h>		/* for kernel version of HZ */
 
+# ifndef __KERNEL_HZ
+#  define __KERNEL_HZ	100
+# endif
+
 # ifndef HZ
-#  define HZ		100		/* Internal kernel timer frequency */
+#  define HZ		__KERNEL_HZ	/* Internal kernel timer frequency */
 # endif
 
 # define USER_HZ	100		/* User interfaces are in "ticks" */

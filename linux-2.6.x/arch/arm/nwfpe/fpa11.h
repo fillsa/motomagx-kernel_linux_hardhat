@@ -57,7 +57,7 @@ typedef union tagFPREG {
 #else
 	int padding[3];
 #endif
-} FPREG;
+} __attribute__ ((packed,aligned(4))) FPREG;
 
 /*
  * FPA11 device model.
@@ -84,7 +84,7 @@ typedef struct tagFPA11 {
 				   so we can use it to detect whether this
 				   instance of the emulator needs to be
 				   initialised. */
-} FPA11;
+} __attribute__ ((packed,aligned(4))) FPA11;
 
 extern void SetRoundingMode(const unsigned int);
 extern void SetRoundingPrecision(const unsigned int);

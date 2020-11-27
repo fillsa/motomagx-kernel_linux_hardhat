@@ -6,6 +6,7 @@
 #include <asm/errno.h>
 #include <asm/hardware.h>
 #include <asm/arch/irqs.h>
+#include <asm/arch/entry-macro.S>
 
 #ifndef MODE_SVC
 #define MODE_SVC 0x13
@@ -96,6 +97,10 @@
 	.endm
 
 	.macro	restore_user_regs
+#if __LINUX_ARM_ARCH__ >= 6
+	mov	ip, #0
+	mcr     p15, 0, ip, c7, c5, 6           @ Clear BTAC / BTB
+#endif
 	ldr	r1, [sp, #S_PSR]		@ Get calling cpsr
 	disable_irq ip				@ disable IRQs
 	ldr	lr, [sp, #S_PC]!		@ Get PC
@@ -110,6 +115,10 @@
  * Must be called with IRQs already disabled.
  */
 	.macro	fast_restore_user_regs
+#if __LINUX_ARM_ARCH__ >= 6
+	mov	ip, #0
+	mcr     p15, 0, ip, c7, c5, 6           @ Clear BTAC / BTB
+#endif
 	ldr	r1, [sp, #S_OFF + S_PSR]	@ get calling cpsr
 	ldr	lr, [sp, #S_OFF + S_PC]!	@ get pc
 	msr	spsr_cxsf, r1			@ save in spsr_svc
@@ -123,6 +132,10 @@
  * Must be called with IRQs already disabled.
  */
 	.macro	slow_restore_user_regs
+#if __LINUX_ARM_ARCH__ >= 6
+	mov	ip, #0
+	mcr     p15, 0, ip, c7, c5, 6           @ Clear BTAC / BTB
+#endif
 	ldr	r1, [sp, #S_PSR]		@ get calling cpsr
 	ldr	lr, [sp, #S_PC]!		@ get pc
 	msr	spsr_cxsf, r1			@ save in spsr_svc

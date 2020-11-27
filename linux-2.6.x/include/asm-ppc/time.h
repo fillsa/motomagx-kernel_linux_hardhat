@@ -47,7 +47,12 @@ static __inline__ unsigned int get_dec(void)
 static __inline__ void set_dec(unsigned int val)
 {
 #if defined(CONFIG_40x)
+#ifndef CONFIG_HIGH_RES_TIMERS
 	return;		/* Have to let it auto-reload */
+#else
+	/* With HRT, we don't use auto-reload, so load the caller's value */
+	mtspr(SPRN_PIT, val);
+#endif
 #elif defined(CONFIG_8xx_CPU6)
 	set_dec_cpu6(val);
 #else

@@ -1,9 +1,22 @@
 /* 
- * $Id: mtd.h,v 1.56 2004/08/09 18:46:04 dmarlin Exp $
+ * $Id: mtd.h,v 1.58 2005/04/01 01:59:54 nico Exp $
  *
+ * Copyright (C) 2006-2007 Motorola, Inc.
  * Copyright (C) 1999-2003 David Woodhouse <dwmw2@infradead.org> et al.
  *
  * Released under GPL
+ *
+ * ChangeLog:
+ * (mm-dd-yyyy) Author    Comment
+ * 04-10-2006	Motorola  feature CONFIG_MOT_FEAT_NAND_RDDIST added.
+ *	  		  added two functions and two structures to support NAND read 
+ *			  disturb detection and corrrection functionality.
+ *
+ * 10-20-2006   Motorola  feature CONFIG_MOT_FEAT_MTD_AUTO_BBM added.
+ *
+ * 04-15-2007   Motorola  add reason code to CONFIG_MOT_FEAT_NAND_RDDIST
+ *
+ * 06-15-2007   Motorola  update read disturb max value for threshold from 2^8 to 2^16.
  */
 
 #ifndef __MTD_MTD_H__
@@ -18,13 +31,14 @@
 #include <linux/types.h>
 #include <linux/module.h>
 #include <linux/uio.h>
+#include <linux/notifier.h>
 
 #include <linux/mtd/compatmac.h>
 #include <mtd/mtd-abi.h>
 
 #define MTD_CHAR_MAJOR 90
 #define MTD_BLOCK_MAJOR 31
-#define MAX_MTD_DEVICES 16
+#define MAX_MTD_DEVICES 32
 
 #define MTD_ERASE_PENDING      	0x01
 #define MTD_ERASING		0x02
@@ -54,6 +68,7 @@ struct mtd_erase_region_info {
 	u_int32_t offset;			/* At which this region starts, from the beginning of the MTD */
 	u_int32_t erasesize;		/* For this region */
 	u_int32_t numblocks;		/* Number of blocks of erasesize in this region */
+	unsigned long *lockmap;		/* If keeping bitmap of locks */
 };
 
 struct mtd_info {
@@ -69,10 +84,19 @@ struct mtd_info {
 
 	u_int32_t oobblock;  // Size of OOB blocks (e.g. 512)
 	u_int32_t oobsize;   // Amount of OOB data per block (e.g. 16)
-	u_int32_t oobavail;  // Number of bytes in OOB area available for fs 
 	u_int32_t ecctype;
 	u_int32_t eccsize;
-	
+
+	/*
+	 * Reuse some of the above unused fields in the case of NOR flash
+	 * with configurable programming regions to avoid modifying the
+	 * user visible structure layout/size.  Only valid when the
+	 * MTD_PROGRAM_REGIONS flag is set.
+	 * (Maybe we should have an union for those?)
+	 */
+#define MTD_PROGREGION_SIZE(mtd)  (mtd)->oobblock
+#define MTD_PROGREGION_CTRLMODE_VALID(mtd)  (mtd)->oobsize
+#define MTD_PROGREGION_CTRLMODE_INVALID(mtd)  (mtd)->ecctype
 
 	// Kernel-only stuff starts here.
 	char *name;
@@ -80,6 +104,7 @@ struct mtd_info {
 
 	// oobinfo is a nand_oobinfo structure, which can be set by iotcl (MEMSETOOBINFO)
 	struct nand_oobinfo oobinfo;
+	u_int32_t oobavail;  // Number of bytes in OOB area available for fs 
 
 	/* Data for variable erase regions. If numeraseregions is zero,
 	 * it means that the whole device has erasesize as given above. 
@@ -113,12 +138,12 @@ struct mtd_info {
 	 * flash devices. The user data is one time programmable but the
 	 * factory data is read only. 
 	 */
-	int (*read_user_prot_reg) (struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char *buf);
-
+	int (*get_fact_prot_info) (struct mtd_info *mtd, struct otp_info *buf, size_t len);
 	int (*read_fact_prot_reg) (struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char *buf);
-
-	/* This function is not yet implemented */
+	int (*get_user_prot_info) (struct mtd_info *mtd, struct otp_info *buf, size_t len);
+	int (*read_user_prot_reg) (struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char *buf);
 	int (*write_user_prot_reg) (struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char *buf);
+	int (*lock_user_prot_reg) (struct mtd_info *mtd, loff_t from, size_t len);
 
 	/* kvec-based read/write methods. We need these especially for NAND flash,
 	   with its limited number of write cycles per erase.
@@ -146,6 +171,16 @@ struct mtd_info {
 	/* Bad block management functions */
 	int (*block_isbad) (struct mtd_info *mtd, loff_t ofs);
 	int (*block_markbad) (struct mtd_info *mtd, loff_t ofs);
+#ifdef CONFIG_MOT_FEAT_NAND_RDDIST
+	/* NAND read disturb block fix */
+	int (*read_distfix) (struct mtd_info *mtd, int block, int reason_code);
+	uint32_t (*get_part_offset) (struct mtd_info *mtd);
+#endif
+#ifdef CONFIG_MOT_FEAT_MTD_AUTO_BBM
+	/* get block replacement from reserve pool */
+	int (*block_replace) (struct mtd_info *mtd, loff_t ofs, int lock);
+#endif
+	struct notifier_block reboot_notifier;  /* default mode before reboot */
 
 	void *priv;
 
@@ -171,6 +206,25 @@ struct mtd_notifier {
 };
 
 
+#ifdef CONFIG_MOT_FEAT_NAND_RDDIST
+#define RDDIST_BITERR   0x01
+#define RDDIST_CNTFIX   0x02
+struct nand_rddist_info {
+        int numblocks;
+	u16 *blk_tbl[2];
+	u16 threshold;
+	u8 threshold_flag;
+};
+#endif
+
+#ifdef CONFIG_MOT_FEAT_NAND_BLKCNT_TEST
+struct nand_test_info {
+	u16 *blk_tbl;
+	u16 threshold;
+	u8 threshold_flag;
+};
+#endif
+
 extern void register_mtd_user (struct mtd_notifier *new);
 extern int unregister_mtd_user (struct mtd_notifier *old);
 
@@ -193,7 +247,6 @@ int default_mtd_readv(struct mtd_info *mtd, struct kvec *vecs,
 #define MTD_WRITEOOB(mtd, args...) (*(mtd->write_oob))(mtd, args)
 #define MTD_SYNC(mtd) do { if (mtd->sync) (*(mtd->sync))(mtd);  } while (0) 
 
-
 #ifdef CONFIG_MTD_PARTITIONS
 void mtd_erase_callback(struct erase_info *instr);
 #else
@@ -204,13 +257,37 @@ static inline void mtd_erase_callback(struct erase_info *instr)
 }
 #endif
 
+
+#ifdef CONFIG_MOT_FEAT_MTD_FS
 /*
  * Debugging macro and defines
  */
-#define MTD_DEBUG_LEVEL0	(0)	/* Quiet   */
-#define MTD_DEBUG_LEVEL1	(1)	/* Audible */
-#define MTD_DEBUG_LEVEL2	(2)	/* Loud    */
-#define MTD_DEBUG_LEVEL3	(3)	/* Noisy   */
+#define MTD_DEBUG_LEVEL0	(1)	/* Quiet   */
+#define MTD_DEBUG_LEVEL1	(2)	/* Audible */
+#define MTD_DEBUG_LEVEL2	(3)	/* Loud    */
+#define MTD_DEBUG_LEVEL3	(4)	/* Noisy   */
+
+extern int mtd_fs_runtime_info;
+
+#ifdef CONFIG_MTD_DEBUG
+#define DEBUG(n, args...)				\
+ 	do {						\
+		if (n <= mtd_fs_runtime_info)	        \
+			printk(KERN_INFO args);		\
+	} while(0)
+#else 
+#define DEBUG(n, args...) do { } while(0)
+#endif /* CONFIG_MTD_DEBUG */
+
+#else /* CONFIG_MOT_FEAT_MTD_FS */
+
+/*
+ * Debugging macro and defines
+ */
+  #define MTD_DEBUG_LEVEL0        (0)     /* Quiet   */
+  #define MTD_DEBUG_LEVEL1        (1)     /* Audible */
+  #define MTD_DEBUG_LEVEL2        (2)     /* Loud    */
+  #define MTD_DEBUG_LEVEL3        (3)     /* Noisy   */
 
 #ifdef CONFIG_MTD_DEBUG
 #define DEBUG(n, args...)				\
@@ -222,5 +299,7 @@ static inline void mtd_erase_callback(struct erase_info *instr)
 #define DEBUG(n, args...) do { } while(0)
 
 #endif /* CONFIG_MTD_DEBUG */
+
+#endif /* CONFIG_MOT_FEAT_MTD_FS */
 
 #endif /* __MTD_MTD_H__ */

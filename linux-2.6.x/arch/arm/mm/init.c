@@ -2,10 +2,22 @@
  *  linux/arch/arm/mm/init.c
  *
  *  Copyright (C) 1995-2002 Russell King
+ *  Copyright (C) 2006-2008 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Revision History:
+ *
+ * Date         Author    Comment
+ * ----------   --------  -------------------
+ * 11/16/2006   Motorola  Hardware Config Framework
+ * 01/20/2007   Motorola  Added support for dynamic IPU memory pool size.
+ * 10/15/2007   Motorola  FIQ related modified.
+ * 04/23/2008   Motorola  Added IPU memory for new display
+ * 08/28/2008   Motorola  Increase IPU reserved memory
+ *
  */
 #include <linux/config.h>
 #include <linux/kernel.h>
@@ -15,6 +27,7 @@
 #include <linux/init.h>
 #include <linux/bootmem.h>
 #include <linux/mman.h>
+#include <linux/nodemask.h>
 #include <linux/initrd.h>
 
 #include <asm/mach-types.h>
@@ -25,6 +38,10 @@
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
 
+#ifdef CONFIG_MOT_FEAT_BOOTINFO
+#include <asm/bootinfo.h>
+#endif /* CONFIG_MOT_FEAT_BOOTINFO */
+
 #define TABLE_SIZE	(2 * PTRS_PER_PTE * sizeof(pte_t))
 
 DEFINE_PER_CPU(struct mmu_gather, mmu_gathers);
@@ -33,6 +50,21 @@ extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 extern void _stext, _text, _etext, __data_start, _end, __init_begin, __init_end;
 extern unsigned long phys_initrd_start;
 extern unsigned long phys_initrd_size;
+
+#ifdef CONFIG_MOT_FEAT_DEVICE_TREE
+extern u32 phys_flat_dev_tree_address;
+extern u32 phys_flat_dev_tree_size;
+#endif /* CONFIG_MOT_FEAT_DEVICE_TREE */
+
+#ifdef CONFIG_MOT_FEAT_IPU_MEM_ADDR
+extern unsigned long ipu_mem_addr;
+#ifdef CONFIG_MOT_FEAT_DISPLAY_EPSON
+unsigned long ipu_mem_size = (SZ_1M + SZ_1M + SZ_1M + SZ_1M + SZ_1M + SZ_1M + SZ_1M + SZ_1M + SZ_1M);
+#else
+unsigned long ipu_mem_size = (SZ_1M + SZ_1M);
+#endif
+int ipu_dynamic_pool = 0;
+#endif /* CONFIG_MOT_FEAT_IPU_MEM_ADDR */
 
 /*
  * The sole use of this is to pass memory configuration
@@ -270,6 +302,47 @@ static int __init check_initrd(struct meminfo *mi)
 	return initrd_node;
 }
 
+#ifdef CONFIG_MOT_FEAT_DEVICE_TREE
+static int __init check_flat_dev_tree(struct meminfo *mi)
+{
+    int flat_dev_tree_node = -2;
+    u32 end = phys_flat_dev_tree_address + phys_flat_dev_tree_size;
+
+    /*
+     * Make sure that the flat device tree address is within a valid area of
+     * memory.
+     */
+    if (phys_flat_dev_tree_size) {
+        unsigned int i;
+
+        flat_dev_tree_node = -1;
+
+        for (i = 0; i < mi->nr_banks; i++) {
+            unsigned long bank_end;
+
+            bank_end = mi->bank[i].start + mi->bank[i].size;
+
+            if ( (mi->bank[i].start <= phys_flat_dev_tree_address)
+                 && (end <= bank_end) )
+            {
+                flat_dev_tree_node = mi->bank[i].node;
+                /* break; */
+            }
+        }
+    }
+
+    if (flat_dev_tree_node == -1) {
+        printk(KERN_ERR
+               "flat dev tree (0x%08X - 0x%08X) "
+               "extends beyond physical memory\n",
+               phys_flat_dev_tree_address, end);
+        phys_flat_dev_tree_address = phys_flat_dev_tree_size = 0;
+    }
+
+    return flat_dev_tree_node;
+}
+#endif /* CONFIG_MOT_FEAT_DEVICE_TREE */
+
 /*
  * Reserve the various regions of node 0
  */
@@ -354,10 +427,16 @@ static void __init bootmem_init(struct meminfo *mi)
 	struct node_info node_info[MAX_NUMNODES], *np = node_info;
 	unsigned int bootmap_pages, bootmap_pfn, map_pg;
 	int node, initrd_node;
+#ifdef CONFIG_MOT_FEAT_DEVICE_TREE
+	int flat_dev_tree_node;
+#endif
 
 	bootmap_pages = find_memend_and_nodes(mi, np);
 	bootmap_pfn   = find_bootmap_pfn(0, mi, bootmap_pages);
 	initrd_node   = check_initrd(mi);
+#ifdef CONFIG_MOT_FEAT_DEVICE_TREE
+	flat_dev_tree_node   = check_flat_dev_tree(mi);
+#endif /* CONFIG_MOT_FEAT_DEVICE_TREE */
 
 	map_pg = bootmap_pfn;
 
@@ -417,6 +496,21 @@ static void __init bootmem_init(struct meminfo *mi)
 	}
 #endif
 
+#ifdef CONFIG_MOT_FEAT_DEVICE_TREE
+        if ((phys_flat_dev_tree_size) && (flat_dev_tree_node >= 0))
+        {
+            void * addr = (void *) __phys_to_virt(phys_flat_dev_tree_address);
+            reserve_bootmem_node(NODE_DATA(flat_dev_tree_node),
+                                 phys_flat_dev_tree_address,
+                                 phys_flat_dev_tree_size);
+            mot_set_flat_dev_tree_address((u32)addr);
+        }
+        else
+        {
+            mot_set_flat_dev_tree_address(0);
+        }
+#endif /* CONFIG_MOT_FEAT_DEVICE_TREE */
+
 	BUG_ON(map_pg != bootmap_pfn + bootmap_pages);
 }
 
@@ -444,7 +538,7 @@ void __init paging_init(struct meminfo *mi, struct machine_desc *mdesc)
 	memtable_init(mi);
 	if (mdesc->map_io)
 		mdesc->map_io();
-	flush_tlb_all();
+	local_flush_tlb_all();
 
 	/*
 	 * initialise the zones within each node
@@ -533,6 +627,23 @@ static inline void free_area(unsigned long addr, unsigned long end, char *s)
 		printk(KERN_INFO "Freeing %s memory: %dK\n", s, size);
 }
 
+#ifdef CONFIG_MOT_FEAT_IPU_MEM_ADDR
+static int __init ipu_mem_setup(char *str)
+{
+	char *cp;
+	ipu_mem_size =  memparse(str, &cp);
+	if (*cp == '@')
+		ipu_mem_addr = memparse(cp + 1, &cp);
+	else
+		ipu_mem_addr = PHYS_OFFSET + SDRAM_MEM_SIZE - DSP_MEM_SIZE - ipu_mem_size;
+
+	ipu_dynamic_pool = 1;
+        return 1;
+}
+
+__setup("ipu_mem=", ipu_mem_setup);
+#endif
+
 /*
  * mem_init() marks the free areas in the mem_map and tells us how much
  * memory is free.  This is done after various parts of the system have
@@ -551,6 +662,15 @@ void __init mem_init(void)
 	max_mapnr   = virt_to_page(high_memory) - mem_map;
 #endif
 
+#ifdef CONFIG_PREEMPT_RT
+	for_each_online_cpu(i)
+		sema_init(&per_cpu(mmu_gathers, i).gather_sem, 1);
+#endif
+
+#ifdef CONFIG_MOT_FEAT_IPU_MEM_ADDR
+	if (ipu_dynamic_pool)
+		reserve_bootmem(ipu_mem_addr, ipu_mem_size);
+#endif /* CONFIG_MOT_FEAT_IPU_MEM_ADDR */
 	/*
 	 * We may have non-contiguous memory.
 	 */
@@ -607,6 +727,13 @@ void free_initmem(void)
 			  "init");
 	}
 }
+
+#ifdef CONFIG_MOT_FEAT_DEVICE_TREE
+void __init mot_free_flat_dev_tree_mem(unsigned long start)
+{
+    free_area(start, start + phys_flat_dev_tree_size, "flat dev tree");
+}
+#endif /* CONFIG_MOT_FEAT_DEVICE_TREE */
 
 #ifdef CONFIG_BLK_DEV_INITRD
 

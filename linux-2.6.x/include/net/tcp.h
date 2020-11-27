@@ -15,6 +15,13 @@
  *		as published by the Free Software Foundation; either version
  *		2 of the License, or (at your option) any later version.
  */
+
+/*
+ * Copyright (c) 2007 Motorola, Inc. 
+ * 03/09/2007         change 'TCP_RETR2' to 5, 'TCP_RTO_MAX' to 60. This will reduce TCP
+ *                    retrans expire time. 
+ */
+
 #ifndef _TCP_H
 #define _TCP_H
 
@@ -411,7 +418,7 @@ static __inline__ int tcp_sk_listen_hashfn(struct sock *sk)
 				 * to ~3sec-8min depending on RTO.
 				 */
 
-#define TCP_RETR2	15	/*
+#define TCP_RETR2	5	/*
 				 * This should take at least
 				 * 90 minutes to time out.
 				 * RFC1122 says that the limit is 100 sec.
@@ -447,7 +454,7 @@ static __inline__ int tcp_sk_listen_hashfn(struct sock *sk)
 #define TCP_DELACK_MIN	4U
 #define TCP_ATO_MIN	4U
 #endif
-#define TCP_RTO_MAX	((unsigned)(120*HZ))
+#define TCP_RTO_MAX	((unsigned)(60*HZ))
 #define TCP_RTO_MIN	((unsigned)(HZ/5))
 #define TCP_TIMEOUT_INIT ((unsigned)(3*HZ))	/* RFC 1122 initial RTO value	*/
 

@@ -1,6 +1,7 @@
 /*
  *  linux/drivers/char/serial_core.h
  *
+ *  Copyright (C) 2006-2007 Motorola, Inc
  *  Copyright (C) 2000 Deep Blue Solutions Ltd.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -16,6 +17,17 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ * Date        Author            Comment
+ * ==========  ================  ========================
+ * 09/26/2006  Motorola          Initialization.
+ * 10/03/2006  Motorola          Add precompiler command
+ * 10/25/2006  Motorola          Added CONFIG_MOT_FEAT_SERIAL
+ * 05/02/2007  Motorola          Modify compliance issues in hardhat source files
+ * 06/28/2007  Motorola          Modify compliance issues in hardhat source files
+ * 08/01/2007  Motorola          Add comments for oss compliance.
+ * 08/11/2007  Motorola          Add comments.
+ *
  */
 #ifndef LINUX_SERIAL_CORE_H
 #define LINUX_SERIAL_CORE_H
@@ -99,6 +111,12 @@
 
 /* Motorola i.MX SoC */
 #define PORT_IMX	62
+
+/* Marvell MPSC */
+#define PORT_MPSC	63
+
+/* Freescale Semiconductor MXC UART type number. */
+#define PORT_MXC        70
 
 #ifdef __KERNEL__
 
@@ -350,6 +368,17 @@ int uart_remove_one_port(struct uart_driver *reg, struct uart_port *port);
  */
 int uart_suspend_port(struct uart_driver *reg, struct uart_port *port);
 int uart_resume_port(struct uart_driver *reg, struct uart_port *port);
+
+#ifdef CONFIG_MOT_FEAT_SERIAL 
+int uart_pm_functions(struct tty_struct *tty,  unsigned int cmd, unsigned long arg);
+
+/* 
+ * This defines the state of UART PM.
+ * 0 stands for resume and values greater than 0 currently stand for different suspend states.
+ */  
+#define UART_STATE_SUSPEND 3
+#define UART_STATE_RESUME  0
+#endif
 
 #define uart_circ_empty(circ)		((circ)->head == (circ)->tail)
 #define uart_circ_clear(circ)		((circ)->head = (circ)->tail = 0)

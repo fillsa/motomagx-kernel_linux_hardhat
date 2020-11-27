@@ -87,12 +87,37 @@
   Deepak Saxena     : dsaxena@plexity.net
                     : Intel IXDP2x01 (XScale ixp2x00 NPU) platform support
 
+  Motorola          : 10/04/2006
+                    : Added support for setting Ethernet MAC address to EEPROM
+                    : Made use of Ethernet interrupt API for various boards
+
+  Motorola          : 11/03/2006
+                    : Adjusted ArgonLV-related definitions.
 */
+
+/*
+ * Copyright 2004 Freescale Semiconductor, Inc. All Rights Reserved.
+ * Copyright 2006 Motorola, Inc.
+ */
+
+/*!
+ * @file cs89x0.c
+ * @brief Driver for CS8900A Ethernet LAN Controller Chip.
+ *
+ * This driver is ported to MXC Boards.
+ *
+ * @ingroup CS8900A
+ *
+ */
 
 /* Always include 'config.h' first in case the user wants to turn on
    or override something. */
 #include <linux/config.h>
 #include <linux/module.h>
+
+#if defined(CONFIG_MOT_FEAT_GPIO_API_ETHERNET)
+#include <asm/mot-gpio.h>
+#endif /* CONFIG_MOT_FEAT_GPIO_API_ETHERNET */
 
 /*
  * Set this to zero to disable DMA code
@@ -110,7 +135,7 @@
  * Set this to zero to remove all the debug statements via
  * dead code elimination
  */
-#define DEBUGGING	1
+#define DEBUGGING	0
 
 /*
   Sources:
@@ -138,6 +163,9 @@
 #include <linux/bitops.h>
 
 #include <asm/system.h>
+#ifdef CONFIG_MOT_FEAT_BRDREV
+#include <asm/boardrev.h>
+#endif /* CONFIG_MOT_FEAT_BRDREV */
 #include <asm/io.h>
 #if ALLOW_DMA
 #include <asm/dma.h>
@@ -173,6 +201,18 @@ static unsigned int cs8900_irq_map[] = {1,0,0,0};
 #include <asm/irq.h>
 static unsigned int netcard_portlist[] __initdata = {IXDP2X01_CS8900_VIRT_BASE, 0};
 static unsigned int cs8900_irq_map[] = {IRQ_IXDP2X01_CS8900, 0, 0, 0};
+#elif defined(CONFIG_ARCH_MXC)
+/*! Null terminated portlist used to probe for the CS8900A device on ISA Bus */
+static unsigned int netcard_portlist[] = {CS8900A_BASE_ADDRESS, 0};
+/*!
+ * The CS8900A has 4 IRQ pins, which is software selectable, CS8900A interrupt
+ * pin 0 is used for interrupt generation.
+ */
+#if defined(CONFIG_MOT_FEAT_GPIO_API_ETHERNET)
+static unsigned int cs8900_irq_map[] = {0xDEADBEEF, 0, 0, 0};   
+#else
+static unsigned int cs8900_irq_map[] = {CS8900AIRQ, 0, 0, 0};   
+#endif /* ! CONFIG_MOT_FEAT_GPIO_API_ETHERNET */
 #else
 static unsigned int netcard_portlist[] __initdata =
    { 0x300, 0x320, 0x340, 0x360, 0x200, 0x220, 0x240, 0x260, 0x280, 0x2a0, 0x2c0, 0x2e0, 0};
@@ -196,6 +236,45 @@ static unsigned int net_debug = DEBUGGING;
 #define FORCE_AUTO	0x0010    /* pick one of these three */
 #define FORCE_HALF	0x0020
 #define FORCE_FULL	0x0030
+
+#ifdef CONFIG_MOT_FEAT_SET_MAC
+
+/* Configuration data defines */
+#define START_CONFIG	0
+#define CONFIG_LEN	2
+
+/* E-Fuse offsets */
+#define X_COORD_OFF	0x1004
+#define Y_COORD_OFF	0x1008
+#define WAFER_NO_OFF	0x1010
+
+/* Configuration data for the EEPROM */
+const static unsigned short eeprom_reset_config[] = { 0xa002, 0x5e00 };
+
+static unsigned short eeprom_data[] = {
+        0x0008, /*1C - MAC address 0,1 */
+        0x003E, /*1D - MAC address 2,3 */
+        0x0000, /*1E - MAC address 4,5 */
+        0x0000, /*1F - ISA config */
+        0x0000, /*20 - PP memory base */
+        0x0000, /*21 - Boot PROM base */
+        0x0000, /*22 - Boot PROM mask */
+        0x8040, /*23 - Tx control: full duplex, media not required */
+        0x0021, /*24 - Adapter type: 10Base-T, 10Base-T circuitry */
+        0x0001, /*25 - EEPROM rev: 1.0 */
+        0x0000, /*26 - Reserved  */
+        0x0a2d, /*27 - Manufacture date */
+        0x0008, /*28 - MAC address 0,1 again */
+        0x003E, /*29 - MAC address 2,3 again */
+        0x0000, /*2A - MAC address 4,5 again */
+        0x0000, /*2B - reserved */
+        0x0000, /*2C - reserved */
+        0x0000, /*2D - reerved */
+        0x0000, /*2E - reserved */
+        0x0000, /*2F - checksum */
+};
+
+#endif /* CONFIG_MOT_FEAT_SET_MAC */
 
 /* Information that need to be kept for each board. */
 struct net_local {
@@ -236,6 +315,10 @@ static int net_close(struct net_device *dev);
 static struct net_device_stats *net_get_stats(struct net_device *dev);
 static void reset_chip(struct net_device *dev);
 static int get_eeprom_data(struct net_device *dev, int off, int len, int *buffer);
+#ifdef CONFIG_MOT_FEAT_SET_MAC
+static void init_eeprom(struct net_device *dev);
+static int set_eeprom_data(struct net_device *dev, int off, int len, int *buffer);
+#endif
 static int get_eeprom_cksum(int off, int len, int *buffer);
 static int set_mac_address(struct net_device *dev, void *addr);
 static void count_rx_errors(int status, struct net_local *lp);
@@ -275,7 +358,7 @@ static int __init media_fn(char *str)
 
 __setup("cs89x0_media=", media_fn);
 
-
+
 /* Check for a network adaptor of this type, and return '0' iff one exists.
    If dev->base_addr == 0, probe all likely locations.
    If dev->base_addr == 1, always return failure.
@@ -295,6 +378,13 @@ struct net_device * __init cs89x0_probe(int unit)
 	if (!dev)
 		return ERR_PTR(-ENODEV);
 
+#if defined(CONFIG_MACH_BUTEREF) && defined(CONFIG_MOT_FEAT_BRDREV)
+        if( boardrev() >= BOARDREV_P4A ) {
+                err = -ENODEV;
+                goto out;
+        }
+#endif /* CONFIG_MACH_BUTEREF && CONFIG_MOT_FEAT_BRDREV */
+    
 	sprintf(dev->name, "eth%d", unit);
 	netdev_boot_setup_check(dev);
 	io = dev->base_addr;
@@ -371,6 +461,40 @@ wait_eeprom_ready(struct net_device *dev)
 	return 0;
 }
 
+#ifdef CONFIG_MOT_FEAT_SET_MAC
+
+static int __init
+set_eeprom_data(struct net_device *dev, int off, int len, int *buffer)
+{
+	int i=0;
+
+        unsigned short *cbuf = (unsigned short *)buffer;
+
+	if (net_debug > 3) printk("EEPROM data from %x for %x:\n",off,len);
+
+	for (i = 0; i < len; i++) {
+		if (wait_eeprom_ready(dev) < 0) return -1;
+
+		writereg(dev, PP_EECMD, EEPROM_WRITE_EN);/* unlock the eeprom */
+		if (wait_eeprom_ready(dev) < 0) return -1;
+
+		if (net_debug > 3) printk("%04x ", cbuf[i]);
+
+		writereg(dev, PP_EEData, cbuf[i]); /* place the data in the buffer */
+		if (wait_eeprom_ready(dev) < 0) return -1;
+
+		writereg(dev, PP_EECMD, (off + i) | EEPROM_WRITE_CMD); /* issue the write command */
+		if (wait_eeprom_ready(dev) < 0) return -1;
+
+		writereg(dev, PP_EECMD, EEPROM_WRITE_DIS); /* lock the eeprom */
+	}
+	if (net_debug > 3) printk("\n");
+
+        return 0;
+}
+
+#endif
+
 static int __init
 get_eeprom_data(struct net_device *dev, int off, int len, int *buffer)
 {
@@ -403,10 +527,99 @@ get_eeprom_cksum(int off, int len, int *buffer)
 	return -1;
 }
 
+#ifdef CONFIG_NET_POLL_CONTROLLER
+/*
+ * Polling receive - used by netconsole and other diagnostic tools
+ * to allow network i/o with interrupts disabled.
+ */
+static void cs89x0_poll_controller(struct net_device *dev)
+{
+	disable_irq(dev->irq);
+	net_interrupt(dev->irq, dev, NULL);
+	enable_irq(dev->irq);
+}
+#endif
+
+#ifdef CONFIG_MOT_FEAT_SET_MAC
+
+/* Init eeprom is only called when a bad chscksum is discovered in the EEPROM.
+   It reinitialized the data and sets the MAC address based on the processor 
+   unique id as follows:
+   0x08, 0x00, 0x3e, die x coordinate, die y coordinate, wafer number
+*/
+   
+static void __init init_eeprom(struct net_device *dev)
+{
+        int i, wsize = sizeof(eeprom_data) / 2;  /* word size */
+        unsigned char *dptr = (unsigned char *)eeprom_data;
+	int cksum_buff[CHKSUM_LEN]; 
+        unsigned long cktmp;
+
+        unsigned char *efuse_base = (unsigned char *)IO_ADDRESS(IIM_BASE_ADDR);
+
+        unsigned int x_coord  = *(volatile unsigned int *)(efuse_base + X_COORD_OFF);
+        unsigned int y_coord  = *(volatile unsigned int *)(efuse_base + Y_COORD_OFF);
+        unsigned int wafer_no = *(volatile unsigned int *)(efuse_base + WAFER_NO_OFF);
+
+        /* See if EEPROM data is valid.  If so, don't write to it */
+	if (get_eeprom_data(dev, START_EEPROM_DATA, CHKSUM_LEN, cksum_buff) == 0) {
+            if (get_eeprom_cksum(START_EEPROM_DATA, CHKSUM_LEN, cksum_buff) == 0) {
+                return;
+            }
+            else
+            {
+                printk(KERN_WARNING "cs89x0: EEPROM checksum bad: Rewriting the EEPROM\n");
+            }
+        }
+        else
+        {
+            printk(KERN_WARNING "cs89x0: EEPROM read failed. Cannot update the EEPROM.\n");
+            return;
+        }
+           
+        /* Read the e-fuse data. */
+        dptr[3] = dptr[27] = x_coord;
+        dptr[4] = dptr[28] = y_coord;
+        dptr[5] = dptr[29] = wafer_no;
+
+        /* Calculate checksum */
+        cktmp = 0;
+        for (i = 0; i < wsize-1; i++) {
+                cktmp += eeprom_data[i];
+        }
+        cktmp = (~cktmp + 1) & 0xFFFF;
+        eeprom_data[wsize-1] = cktmp;
+
+        /* Program the EEPROM */
+
+        /* Reset config block first */
+        set_eeprom_data(dev, START_CONFIG, CONFIG_LEN, (int *)eeprom_reset_config);
+
+        /* Driver config block data write */
+        set_eeprom_data(dev, START_EEPROM_DATA, wsize, (int *)eeprom_data);
+
+        return;
+}
+
+#endif /* CONFIG_MOT_FEAT_SET_MAC */
+
 /* This is the real probe routine.  Linux has a history of friendly device
    probes on the ISA bus.  A good device probes avoids doing writes, and
    verifies that the correct device exists and functions.
    Return 0 on success.
+ */
+
+/*! Device probe function which probes for the device on ISA bus. If
+ * required device found, ioregion will be allocated. If EEPROM is not 
+ * found on the board(or if it fails) then it will call setup_default_data().
+ * For MXC : Only ioaddr has changed accordingly with Memory map.
+ *           Setting up of default Mac address and media type used.
+ *
+ * @param dev device structure to get information of device.
+ * @param ioaddr I/O base address to probe
+ * @param modular Used only for external modules
+ *
+ * @return 0 on Success and \b Errorval if error.
  */
 
 static int __init
@@ -480,6 +693,12 @@ printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
 
 	/* Fill in the 'dev' fields. */
 	dev->base_addr = ioaddr;
+
+#ifdef CONFIG_MOT_FEAT_SET_MAC
+
+        init_eeprom(dev);/* Make sure we have valid EEPROM data set */
+
+#endif
 
 	/* get the chip type */
 	rev_type = readreg(dev, PRODUCT_ID_ADD);
@@ -677,7 +896,7 @@ printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
 	} else {
 		i = lp->isa_config & INT_NO_MASK;
 		if (lp->chip_type == CS8900) {
-#ifdef CONFIG_ARCH_IXDP2X01
+#if defined(CONFIG_ARCH_IXDP2X01) || defined(CONFIG_ARCH_MXC)
 		        i = cs8900_irq_map[0];
 #else
 			/* Translate the IRQ using the IRQ mapping table. */
@@ -730,6 +949,9 @@ printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
 	dev->get_stats		= net_get_stats;
 	dev->set_multicast_list = set_multicast_list;
 	dev->set_mac_address 	= set_mac_address;
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	dev->poll_controller	= cs89x0_poll_controller;
+#endif
 
 	printk("\n");
 	if (net_debug)
@@ -741,7 +963,7 @@ out1:
 	return retval;
 }
 
-
+
 /*********************************
  * This page contains DMA routines
 **********************************/
@@ -900,6 +1122,7 @@ skip_this_frame:
 
 void  __init reset_chip(struct net_device *dev)
 {
+#if !defined(CONFIG_ARCH_MXC)
 #ifndef CONFIG_ARCH_IXDP2X01
 	struct net_local *lp = netdev_priv(dev);
 	int ioaddr = dev->base_addr;
@@ -929,9 +1152,10 @@ void  __init reset_chip(struct net_device *dev)
 	reset_start_time = jiffies;
 	while( (readreg(dev, PP_SelfST) & INIT_DONE) == 0 && jiffies - reset_start_time < 2)
 		;
+#endif
 }
 
-
+
 static void
 control_dc_dc(struct net_device *dev, int on_not_off)
 {
@@ -1107,7 +1331,7 @@ detect_bnc(struct net_device *dev)
 		return DETECTED_NONE;
 }
 
-
+
 static void
 write_irq(struct net_device *dev, int chip_type, int irq)
 {
@@ -1176,7 +1400,7 @@ net_open(struct net_device *dev)
 	else
 #endif
 	{
-#ifndef CONFIG_ARCH_IXDP2X01
+#if !defined(CONFIG_ARCH_IXDP2X01) && !defined(CONFIG_ARCH_MXC)
 		if (((1 << dev->irq) & lp->irq_map) == 0) {
 			printk(KERN_ERR "%s: IRQ %d is not in our map of allowable IRQs, which is %x\n",
                                dev->name, dev->irq, lp->irq_map);
@@ -1191,7 +1415,11 @@ net_open(struct net_device *dev)
 		writereg(dev, PP_BusCTL, ENABLE_IRQ | MEMORY_ON);
 #endif
 		write_irq(dev, lp->chip_type, dev->irq);
+#if defined(CONFIG_MOT_FEAT_GPIO_API_ETHERNET)
+		ret = enet_request_irq(&net_interrupt, 0, dev->name, dev);
+#else
 		ret = request_irq(dev->irq, &net_interrupt, 0, dev->name, dev);
+#endif
 		if (ret) {
 			if (net_debug)
 				printk(KERN_DEBUG "cs89x0: request_irq(%d) failed\n", dev->irq);
@@ -1268,7 +1496,12 @@ net_open(struct net_device *dev)
 		release_dma_buff(lp);
 #endif
                 writereg(dev, PP_LineCTL, readreg(dev, PP_LineCTL) & ~(SERIAL_TX_ON | SERIAL_RX_ON));
+
+#if defined(CONFIG_MOT_FEAT_GPIO_API_ETHERNET)
+                enet_free_irq(dev);
+#else
                 free_irq(dev->irq, dev);
+#endif
 		ret = -EAGAIN;
 		goto bad_out;
 	}
@@ -1432,7 +1665,7 @@ static int net_send_packet(struct sk_buff *skb, struct net_device *dev)
 
 	return 0;
 }
-
+
 /* The typical workload of the driver:
    Handle the network interface interrupts. */
    
@@ -1456,6 +1689,9 @@ static irqreturn_t net_interrupt(int irq, void *dev_id, struct pt_regs * regs)
 	while ((status = readword(dev, ISQ_PORT))) {
 		if (net_debug > 4)printk("%s: event=%04x\n", dev->name, status);
 		handled = 1;
+#if defined(CONFIG_MOT_FEAT_GPIO_API_ETHERNET)
+                enet_clear_int();
+#endif
 		switch(status & ISQ_EVENT_MASK) {
 		case ISQ_RECEIVER_EVENT:
 			/* Got a packet(s). */
@@ -1609,7 +1845,11 @@ net_close(struct net_device *dev)
 	writereg(dev, PP_BufCFG, 0);
 	writereg(dev, PP_BusCTL, 0);
 
+#if defined(CONFIG_MOT_FEAT_GPIO_API_ETHERNET)
+	enet_free_irq(dev);
+#else
 	free_irq(dev->irq, dev);
+#endif
 
 #if ALLOW_DMA
 	if (lp->use_dma && lp->dma) {
@@ -1854,7 +2094,7 @@ cleanup_module(void)
 	free_netdev(dev_cs89x0);
 }
 #endif /* MODULE */
-
+
 /*
  * Local variables:
  *  version-control: t

@@ -1021,7 +1021,7 @@ static int snd_ctl_set_power_state(snd_card_t *card, unsigned int power_state)
 }
 #endif
 
-static inline int _snd_ctl_ioctl(struct inode *inode, struct file *file,
+static inline long snd_ctl_ioctl(struct file *file,
 				 unsigned int cmd, unsigned long arg)
 {
 	snd_ctl_file_t *ctl;
@@ -1093,17 +1093,6 @@ static inline int _snd_ctl_ioctl(struct inode *inode, struct file *file,
 	up_read(&snd_ioctl_rwsem);
 	snd_printd("unknown ioctl = 0x%x\n", cmd);
 	return -ENOTTY;
-}
-
-/* FIXME: need to unlock BKL to allow preemption */
-static int snd_ctl_ioctl(struct inode *inode, struct file *file,
-			 unsigned int cmd, unsigned long arg)
-{
-	int err;
-	unlock_kernel();
-	err = _snd_ctl_ioctl(inode, file, cmd, arg);
-	lock_kernel();
-	return err;
 }
 
 static ssize_t snd_ctl_read(struct file *file, char __user *buffer, size_t count, loff_t * offset)
@@ -1241,7 +1230,7 @@ static struct file_operations snd_ctl_f_ops =
 	.open =		snd_ctl_open,
 	.release =	snd_ctl_release,
 	.poll =		snd_ctl_poll,
-	.ioctl =	snd_ctl_ioctl,
+	.unlocked_ioctl = snd_ctl_ioctl,
 	.fasync =	snd_ctl_fasync,
 };
 

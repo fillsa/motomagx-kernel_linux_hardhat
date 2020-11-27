@@ -2,6 +2,7 @@
  *  linux/drivers/char/vt.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *  Copyright 2006 Motorola, Inc.
  */
 
 /*
@@ -72,6 +73,14 @@
  *
  * Removed console_lock, enabled interrupts across all console operations
  * 13 March 2001, Andrew Morton
+ *
+ * Revision History:
+ *
+ * Date         Author    Comment
+ * ----------   --------  ---------------------------
+ * 07/10/2006   Motorola  Added code to prevent ftbconsole from
+ *                        overwriting the Bootup logo
+ *
  */
 
 #include <linux/module.h>
@@ -660,8 +669,17 @@ void redraw_screen(int new_console, int is_switch)
 			update_attr(currcons);
 			clear_buffer_attributes(currcons);
 		}
+#ifdef CONFIG_MOT_FEAT_POWERUP_LOGO
+                {
+                        extern signed char con2fb_map[];
+                        extern struct fb_info *registered_fb[];
+                        if(!registered_fb[con2fb_map[currcons]])
+#endif
 		if (update && vcmode != KD_GRAPHICS)
 			do_update_region(currcons, origin, screenbuf_size/2);
+#ifdef CONFIG_MOT_FEAT_POWERUP_LOGO
+                }
+#endif
 	}
 	set_cursor(currcons);
 	if (is_switch) {
@@ -2174,6 +2192,13 @@ void vt_console_print(struct console *co, const char *b, unsigned count)
 	if (vcmode != KD_TEXT)
 		goto quit;
 
+	/*
+	 * Skip kernel message from within a critical section going
+	 * to a preemptible console (such as fbcon).
+	 */
+	if (in_atomic_rt() && sw->con_preemptible)
+		goto quit;
+
 	/* undraw cursor first */
 	if (IS_FG)
 		hide_cursor(currcons);
@@ -2817,8 +2842,8 @@ void do_blank_screen(int entering_gfx)
 		return;
 
 	if (vesa_off_interval) {
-		blank_state = blank_vesa_wait,
-		mod_timer(&console_timer, jiffies + vesa_off_interval);
+		blank_state = blank_vesa_wait;
+//		mod_timer(&console_timer, jiffies + vesa_off_interval);
 	}
 
     	if (vesa_blank_mode)
@@ -2848,7 +2873,10 @@ void do_unblank_screen(int leaving_gfx)
 		return; /* but leave console_blanked != 0 */
 
 	if (blankinterval) {
-		mod_timer(&console_timer, jiffies + blankinterval);
+#ifdef CONFIG_PREEMPT_RT
+		local_irq_enable();
+#endif
+//		mod_timer(&console_timer, jiffies + blankinterval);
 		blank_state = blank_normal_wait;
 	}
 
@@ -2880,7 +2908,10 @@ void unblank_screen(void)
  */
 static void blank_screen_t(unsigned long dummy)
 {
+#if !defined(CONFIG_MOT_FEAT_PM)
+	/* Disable console 10 minute timeout when PM is enabled */
 	blank_timer_expired = 1;
+#endif
 	schedule_work(&console_work);
 }
 
@@ -2899,8 +2930,8 @@ void poke_blanked_console(void)
 	if (console_blanked)
 		unblank_screen();
 	else if (blankinterval) {
-		mod_timer(&console_timer, jiffies + blankinterval);
-		blank_state = blank_normal_wait;
+//		mod_timer(&console_timer, jiffies + blankinterval);
+//		blank_state = blank_normal_wait;
 	}
 }
 

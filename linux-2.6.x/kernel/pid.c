@@ -60,7 +60,7 @@ typedef struct pidmap {
 static pidmap_t pidmap_array[PIDMAP_ENTRIES] =
 	 { [ 0 ... PIDMAP_ENTRIES-1 ] = { ATOMIC_INIT(BITS_PER_PAGE), NULL } };
 
-static spinlock_t pidmap_lock __cacheline_aligned_in_smp = SPIN_LOCK_UNLOCKED;
+static  __cacheline_aligned_in_smp DEFINE_SPINLOCK(pidmap_lock);
 
 fastcall void free_pidmap(int pid)
 {
@@ -250,8 +250,13 @@ void switch_exec_pids(task_t *leader, task_t *thread)
 /*
  * The pid hash table is scaled according to the amount of memory in the
  * machine.  From a minimum of 16 slots up to 4096 slots at one gigabyte or
- * more.
+ * more.  KGDB needs to know if this function has been called already,
+ * since we might have entered KGDB very early.
  */
+#ifdef CONFIG_KGDB
+int pidhash_init_done;
+#endif
+
 void __init pidhash_init(void)
 {
 	int i, j, pidhash_size;
@@ -273,6 +278,10 @@ void __init pidhash_init(void)
 		for (j = 0; j < pidhash_size; j++)
 			INIT_HLIST_HEAD(&pid_hash[i][j]);
 	}
+
+#ifdef CONFIG_KGDB
+	pidhash_init_done = 1;
+#endif
 }
 
 void __init pidmap_init(void)

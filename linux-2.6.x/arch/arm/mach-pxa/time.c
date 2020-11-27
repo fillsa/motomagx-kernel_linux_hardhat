@@ -29,6 +29,24 @@
 #include <asm/mach/time.h>
 #include <asm/arch/pxa-regs.h>
 
+#ifdef CONFIG_KFI
+/* nanoseconds per mpu tick */
+#define NSEC_PER_MPUTICK 308
+
+/* os timer state flag */
+static int os_timer_initialized = 0;
+
+unsigned long __noinstrument machinecycles_to_usecs(unsigned long mputicks)
+{
+	return (mputicks * NSEC_PER_MPUTICK * 2 + 1) / (1000*2);
+}
+
+unsigned long __noinstrument do_getmachinecycles(void)
+{
+	return (os_timer_initialized ? OSCR : 0);
+}
+#endif /* CONFIG_KFI */
+
 
 static inline unsigned long pxa_get_rtc_time(void)
 {
@@ -124,6 +142,10 @@ static void __init pxa_timer_init(void)
 	setup_irq(IRQ_OST0, &pxa_timer_irq);
 	OIER |= OIER_E0;	/* enable match on timer 0 to cause interrupts */
 	OSCR = 0;		/* initialize free-running timer, force first match */
+
+#ifdef CONFIG_KFI
+	os_timer_initialized = 1;
+#endif
 }
 
 #ifdef CONFIG_PM

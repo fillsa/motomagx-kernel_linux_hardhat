@@ -147,6 +147,8 @@
 #define INT_1610_SoSSI		(9 + IH2_BASE)
 #define INT_1610_SoSSI_MATCH	(19 + IH2_BASE)
 #define INT_1610_McBSP2RX_OF	(31 + IH2_BASE)
+#define INT_1610_STI		(32 + IH2_BASE)
+#define INT_1610_STI_WAKEUP	(33 + IH2_BASE)
 #define INT_1610_GPIO_BANK2	(40 + IH2_BASE)
 #define INT_1610_GPIO_BANK3	(41 + IH2_BASE)
 #define INT_1610_MMC2		(42 + IH2_BASE)
@@ -238,6 +240,11 @@ extern void omap_init_irq(void);
  * included via hardware.h
  */
 #include <asm/arch/hardware.h>
+
+/* 
+ * Define the timer interrupt for PREEMPT_RT case
+ */
+#define ARCH_TIMER_IRQ	30
 
 #ifndef NR_IRQS
 #define NR_IRQS                 IH_BOARD_BASE

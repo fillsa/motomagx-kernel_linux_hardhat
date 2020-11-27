@@ -16,6 +16,9 @@
 #include <linux/cpu.h>
 #include <linux/kthread.h>
 #include <linux/rcupdate.h>
+#include <linux/kallsyms.h>
+#include <linux/syscalls.h>
+#include <linux/ltt-events.h>
 
 #include <asm/irq.h>
 /*
@@ -45,6 +48,8 @@ static struct softirq_action softirq_vec[32] __cacheline_aligned_in_smp;
 
 static DEFINE_PER_CPU(struct task_struct *, ksoftirqd);
 
+#include <linux/dpm.h>
+
 /*
  * we cannot loop indefinitely here to avoid userspace starvation,
  * but we also don't want to introduce a worst case 1/HZ latency
@@ -71,7 +76,7 @@ static inline void wakeup_softirqd(void)
  */
 #define MAX_SOFTIRQ_RESTART 10
 
-asmlinkage void __do_softirq(void)
+asmlinkage void ___do_softirq(void)
 {
 	struct softirq_action *h;
 	__u32 pending;
@@ -80,7 +85,6 @@ asmlinkage void __do_softirq(void)
 
 	pending = local_softirq_pending();
 
-	local_bh_disable();
 	cpu = smp_processor_id();
 restart:
 	/* Reset the pending bitmask before enabling irqs */
@@ -92,8 +96,18 @@ restart:
 
 	do {
 		if (pending & 1) {
-			h->action(h);
+			{
+				u32 preempt_count = preempt_count();
+				ltt_ev_soft_irq(LTT_EV_SOFT_IRQ_SOFT_IRQ, (h - softirq_vec));
+				h->action(h);
+				if (preempt_count != preempt_count()) {
+					print_symbol("softirq preempt bug: exited %s with wrong preemption count!\n", (unsigned long) h->action);
+					printk("entered with %08x, exited with %08x.\n", preempt_count, preempt_count());
+					preempt_count() = preempt_count;
+				}
+			}
 			rcu_bh_qsctr_inc(cpu);
+			cond_resched_all();
 		}
 		h++;
 		pending >>= 1;
@@ -107,9 +121,50 @@ restart:
 
 	if (pending)
 		wakeup_softirqd();
-
-	__local_bh_enable();
 }
+
+asmlinkage void __do_softirq(void)
+{
+	unsigned long p_flags;
+
+#ifdef CONFIG_PREEMPT_SOFTIRQS
+	/*
+	 * 'preempt harder'. Push all softirq processing off to ksoftirqd.
+	 */
+	if (softirq_preemption) {
+		if (local_softirq_pending())
+			wakeup_softirqd();
+		return;
+	}
+#endif
+	/*
+	 * 'immediate' softirq execution:
+	 */
+	local_bh_disable();
+	p_flags = current->flags & PF_HARDIRQ;
+	current->flags &= ~PF_HARDIRQ;
+
+	___do_softirq();
+	__local_bh_enable();
+
+	current->flags |= p_flags;
+}
+
+/*
+ * 'delayed' softirq execution. Does not disable bhs and thus
+ * makes most of the softirq handlers preemptable - as long as
+ * they are not executed 'directly'.
+ */
+asmlinkage void _do_softirq(void)
+{
+	local_irq_disable();
+	if (!softirq_preemption)
+		__do_softirq();
+	else
+		___do_softirq();
+	local_irq_enable();
+}
+
 
 #ifndef __ARCH_HAS_DO_SOFTIRQ
 
@@ -135,6 +190,8 @@ EXPORT_SYMBOL(do_softirq);
 
 #endif
 
+#ifndef CONFIG_PREEMPT_RT
+
 void local_bh_enable(void)
 {
 	WARN_ON(irqs_disabled());
@@ -142,7 +199,7 @@ void local_bh_enable(void)
 	 * Keep preemption disabled until we are done with
 	 * softirq processing:
  	 */
-	preempt_count() -= SOFTIRQ_OFFSET - 1;
+ 	sub_preempt_count(SOFTIRQ_OFFSET - 1);
 
 	if (unlikely(!in_interrupt() && local_softirq_pending()))
 		do_softirq();
@@ -151,6 +208,25 @@ void local_bh_enable(void)
 	preempt_check_resched();
 }
 EXPORT_SYMBOL(local_bh_enable);
+
+#endif
+
+#ifdef __ARCH_IRQ_EXIT_IRQS_DISABLED
+# define invoke_softirq()	__do_softirq()
+#else
+# define invoke_softirq()	do_softirq()
+#endif
+
+/*
+ * Exit an interrupt context. Process softirqs if needed and possible:
+ */
+void irq_exit(void)
+{
+	sub_preempt_count(IRQ_EXIT_OFFSET);
+	if (!in_interrupt() && local_softirq_pending())
+		invoke_softirq();
+	preempt_enable_no_resched();
+}
 
 /*
  * This function must run with irqs disabled!
@@ -246,6 +322,7 @@ static void tasklet_action(struct softirq_action *a)
 			if (!atomic_read(&t->count)) {
 				if (!test_and_clear_bit(TASKLET_STATE_SCHED, &t->state))
 					BUG();
+				ltt_ev_soft_irq(LTT_EV_SOFT_IRQ_TASKLET_ACTION, (unsigned long) (t->func));
 				t->func(t->data);
 				tasklet_unlock(t);
 				continue;
@@ -279,6 +356,7 @@ static void tasklet_hi_action(struct softirq_action *a)
 			if (!atomic_read(&t->count)) {
 				if (!test_and_clear_bit(TASKLET_STATE_SCHED, &t->state))
 					BUG();
+				ltt_ev_soft_irq(LTT_EV_SOFT_IRQ_TASKLET_HI_ACTION, (unsigned long) (t->func));
 				t->func(t->data);
 				tasklet_unlock(t);
 				continue;
@@ -331,10 +409,22 @@ void __init softirq_init(void)
 
 static int ksoftirqd(void * __bind_cpu)
 {
-	set_user_nice(current, 19);
-	current->flags |= PF_NOFREEZE;
+	struct sched_param param = { .sched_priority = 24 };
+
+	printk("ksoftirqd started up.\n");
+
+#ifdef CONFIG_PREEMPT_SOFTIRQS
+	printk("softirq RT prio: %d.\n", param.sched_priority);
+	sys_sched_setscheduler(current->pid, SCHED_FIFO, &param);
+#else
+	set_user_nice(current, -10);
+#endif
+	current->flags |= PF_NOFREEZE | PF_SOFTIRQ;
 
 	set_current_state(TASK_INTERRUPTIBLE);
+
+	/* Identify as a system task for DPM purposes */
+        current->dpm_state = DPM_NO_STATE;
 
 	while (!kthread_should_stop()) {
 		if (!local_softirq_pending())
@@ -349,8 +439,8 @@ static int ksoftirqd(void * __bind_cpu)
 			preempt_disable();
 			if (cpu_is_offline((long)__bind_cpu))
 				goto wait_to_die;
-			do_softirq();
 			preempt_enable();
+			_do_softirq();
 			cond_resched();
 		}
 
@@ -401,7 +491,7 @@ void tasklet_kill_immediate(struct tasklet_struct *t, unsigned int cpu)
 	BUG();
 }
 
-static void takeover_tasklets(unsigned int cpu)
+void takeover_tasklets(unsigned int cpu)
 {
 	struct tasklet_struct **i;
 
@@ -432,8 +522,12 @@ static int __devinit cpu_callback(struct notifier_block *nfb,
 
 	switch (action) {
 	case CPU_UP_PREPARE:
-		BUG_ON(per_cpu(tasklet_vec, hotcpu).list);
-		BUG_ON(per_cpu(tasklet_hi_vec, hotcpu).list);
+		/* We may have tasklets already scheduled on
+		   processor 0, so don't check there. */
+		if (hotcpu != 0) {
+			BUG_ON(per_cpu(tasklet_vec, hotcpu).list);
+			BUG_ON(per_cpu(tasklet_hi_vec, hotcpu).list);
+		}
 		p = kthread_create(ksoftirqd, hcpu, "ksoftirqd/%d", hotcpu);
 		if (IS_ERR(p)) {
 			printk("ksoftirqd for %i failed\n", hotcpu);
@@ -472,3 +566,33 @@ __init int spawn_ksoftirqd(void)
 	register_cpu_notifier(&cpu_nfb);
 	return 0;
 }
+
+#ifdef CONFIG_PREEMPT_SOFTIRQS
+
+int softirq_preemption = 1;
+
+EXPORT_SYMBOL(softirq_preemption);
+
+/*
+ * Real-Time Preemption depends on softirq threading:
+ */
+#ifndef CONFIG_PREEMPT_RT
+
+static int __init softirq_preempt_setup (char *str)
+{
+	if (!strncmp(str, "off", 3))
+		softirq_preemption = 0;
+	else
+		get_option(&str, &softirq_preemption);
+	if (!softirq_preemption)
+		printk("turning off softirq preemption!\n");
+
+	return 1;
+}
+
+__setup("softirq-preempt=", softirq_preempt_setup);
+
+#endif
+
+#endif
+

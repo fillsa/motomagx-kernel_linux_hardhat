@@ -19,7 +19,7 @@ struct hpsb_tlabel_pool {
 	spinlock_t lock;
 	u8 next;
 	u32 allocations;
-	struct semaphore count;
+	struct compat_semaphore count;
 };
 
 #define HPSB_TPOOL_INIT(_tp)			\
@@ -28,7 +28,7 @@ do {						\
 	spin_lock_init(&(_tp)->lock);		\
 	(_tp)->next = 0;			\
 	(_tp)->allocations = 0;			\
-	sema_init(&(_tp)->count, 63);		\
+	sema_init(&(_tp)->count, 63);	\
 } while (0)
 
 

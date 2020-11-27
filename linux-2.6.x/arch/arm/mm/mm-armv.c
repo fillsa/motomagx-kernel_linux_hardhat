@@ -15,6 +15,7 @@
 #include <linux/init.h>
 #include <linux/bootmem.h>
 #include <linux/highmem.h>
+#include <linux/nodemask.h>
 
 #include <asm/pgalloc.h>
 #include <asm/page.h>
@@ -35,6 +36,8 @@ static unsigned int ecc_mask __initdata = 0;
 pgprot_t pgprot_kernel;
 
 EXPORT_SYMBOL(pgprot_kernel);
+
+pmd_t *top_pmd;
 
 struct cachepolicy {
 	const char	policy[16];
@@ -141,6 +144,16 @@ __setup("noalign", noalign_setup);
 
 #define FIRST_KERNEL_PGD_NR	(FIRST_USER_PGD_NR + USER_PTRS_PER_PGD)
 
+static inline pmd_t *pmd_off(pgd_t *pgd, unsigned long virt)
+{
+	return pmd_offset(pgd, virt);
+}
+
+static inline pmd_t *pmd_off_k(unsigned long virt)
+{
+	return pmd_off(pgd_offset_k(virt), virt);
+}
+
 /*
  * need to get a 16k page for level 1
  */
@@ -156,7 +169,14 @@ pgd_t *get_pgd_slow(struct mm_struct *mm)
 
 	memzero(new_pgd, FIRST_KERNEL_PGD_NR * sizeof(pgd_t));
 
+	/*
+	 * Copy over the kernel and IO PGD entries
+	 */
 	init_pgd = pgd_offset_k(0);
+	memcpy(new_pgd + FIRST_KERNEL_PGD_NR, init_pgd + FIRST_KERNEL_PGD_NR,
+		       (PTRS_PER_PGD - FIRST_KERNEL_PGD_NR) * sizeof(pgd_t));
+
+	clean_dcache_area(new_pgd, PTRS_PER_PGD * sizeof(pgd_t));
 
 	if (!vectors_high()) {
 		/*
@@ -185,14 +205,6 @@ pgd_t *get_pgd_slow(struct mm_struct *mm)
 		spin_unlock(&mm->page_table_lock);
 	}
 
-	/*
-	 * Copy over the kernel and IO PGD entries
-	 */
-	memcpy(new_pgd + FIRST_KERNEL_PGD_NR, init_pgd + FIRST_KERNEL_PGD_NR,
-		       (PTRS_PER_PGD - FIRST_KERNEL_PGD_NR) * sizeof(pgd_t));
-
-	clean_dcache_area(new_pgd, PTRS_PER_PGD * sizeof(pgd_t));
-
 	return new_pgd;
 
 no_pte:
@@ -219,7 +231,7 @@ void free_pgd_slow(pgd_t *pgd)
 		return;
 
 	/* pgd is always present and good */
-	pmd = (pmd_t *)pgd;
+	pmd = pmd_off(pgd, 0);
 	if (pmd_none(*pmd))
 		goto free;
 	if (pmd_bad(*pmd)) {
@@ -239,18 +251,36 @@ free:
 
 /*
  * Create a SECTION PGD between VIRT and PHYS in domain
- * DOMAIN with protection PROT
+ * DOMAIN with protection PROT.  This operates on half-
+ * pgdir entry increments.
  */
 static inline void
 alloc_init_section(unsigned long virt, unsigned long phys, int prot)
 {
-	pmd_t *pmdp;
+	pmd_t *pmdp = pmd_off_k(virt);
 
-	pmdp = pmd_offset(pgd_offset_k(virt), virt);
 	if (virt & (1 << 20))
 		pmdp++;
 
-	set_pmd(pmdp, __pmd(phys | prot));
+	*pmdp = __pmd(phys | prot);
+	flush_pmd_entry(pmdp);
+}
+
+/*
+ * Create a SUPER SECTION PGD between VIRT and PHYS with protection PROT
+ */
+static inline void
+alloc_init_supersection(unsigned long virt, unsigned long phys, int prot)
+{
+	int i;
+
+	for (i = 0; i < 16; i += 1) {
+		alloc_init_section(virt, phys & SUPERSECTION_MASK,
+				   prot | PMD_SECT_SUPER);
+
+		virt += (PGDIR_SIZE / 2);
+		phys += (PGDIR_SIZE / 2);
+	}
 }
 
 /*
@@ -263,20 +293,14 @@ alloc_init_section(unsigned long virt, unsigned long phys, int prot)
 static inline void
 alloc_init_page(unsigned long virt, unsigned long phys, unsigned int prot_l1, pgprot_t prot)
 {
-	pmd_t *pmdp;
+	pmd_t *pmdp = pmd_off_k(virt);
 	pte_t *ptep;
 
-	pmdp = pmd_offset(pgd_offset_k(virt), virt);
-
 	if (pmd_none(*pmdp)) {
-		unsigned long pmdval;
 		ptep = alloc_bootmem_low_pages(2 * PTRS_PER_PTE *
 					       sizeof(pte_t));
 
-		pmdval = __pa(ptep) | prot_l1;
-		pmdp[0] = __pmd(pmdval);
-		pmdp[1] = __pmd(pmdval + 256 * sizeof(pte_t));
-		flush_pmd_entry(pmdp);
+		__pmd_populate(pmdp, __pa(ptep) | prot_l1);
 	}
 	ptep = pte_offset_kernel(pmdp, virt);
 
@@ -290,7 +314,7 @@ alloc_init_page(unsigned long virt, unsigned long phys, unsigned int prot_l1, pg
  */
 static inline void clear_mapping(unsigned long virt)
 {
-	pmd_clear(pmd_offset(pgd_offset_k(virt), virt));
+	pmd_clear(pmd_off_k(virt));
 }
 
 struct mem_types {
@@ -336,6 +360,12 @@ static struct mem_types mem_types[] __initdata = {
 	[MT_ROM] = {
 		.prot_sect = PMD_TYPE_SECT,
 		.domain    = DOMAIN_KERNEL,
+	},
+	[MT_NONSHARED_DEVICE] = {
+		.prot_l1   = PMD_TYPE_TABLE,
+		.prot_sect = PMD_TYPE_SECT | PMD_SECT_NONSHARED_DEV |
+				PMD_SECT_AP_WRITE,
+		.domain    = DOMAIN_IO,
 	}
 };
 
@@ -346,6 +376,7 @@ static void __init build_mem_type_table(void)
 {
 	struct cachepolicy *cp;
 	unsigned int cr = get_cr();
+	unsigned int user_pgprot;
 	int cpu_arch = cpu_architecture();
 	int i;
 
@@ -371,6 +402,9 @@ static void __init build_mem_type_table(void)
 		}
 	}
 
+	cp = &cache_policies[cachepolicy];
+	user_pgprot = cp->pte;
+
 	/*
 	 * ARMv6 and above have extended page tables.
 	 */
@@ -382,14 +416,19 @@ static void __init build_mem_type_table(void)
 		mem_types[MT_MEMORY].prot_sect &= ~PMD_BIT4;
 		mem_types[MT_ROM].prot_sect &= ~PMD_BIT4;
 		/*
-		 * Mark cache clean areas read only from SVC mode
-		 * and no access from userspace.
+		 * Mark cache clean areas and XIP ROM read only
+		 * from SVC mode and no access from userspace.
 		 */
+		mem_types[MT_ROM].prot_sect |= PMD_SECT_APX|PMD_SECT_AP_WRITE;
 		mem_types[MT_MINICLEAN].prot_sect |= PMD_SECT_APX|PMD_SECT_AP_WRITE;
 		mem_types[MT_CACHECLEAN].prot_sect |= PMD_SECT_APX|PMD_SECT_AP_WRITE;
-	}
 
-	cp = &cache_policies[cachepolicy];
+		/*
+		 * User pages need to be mapped with the ASID
+		 * (iow, non-global)
+		 */
+		user_pgprot |= L_PTE_ASID;
+	}
 
 	if (cpu_arch >= CPU_ARCH_ARMv5) {
 		mem_types[MT_LOW_VECTORS].prot_pte |= cp->pte & PTE_CACHEABLE;
@@ -407,7 +446,7 @@ static void __init build_mem_type_table(void)
 
 	for (i = 0; i < 16; i++) {
 		unsigned long v = pgprot_val(protection_map[i]);
-		v &= (~(PTE_BUFFERABLE|PTE_CACHEABLE)) | cp->pte;
+		v = (v & ~(PTE_BUFFERABLE|PTE_CACHEABLE)) | user_pgprot;
 		protection_map[i] = __pgprot(v);
 	}
 
@@ -434,7 +473,8 @@ static void __init build_mem_type_table(void)
  * Create the page directory entries and any necessary
  * page tables for the mapping specified by `md'.  We
  * are able to cope here with varying sizes and address
- * offsets, and we take full advantage of sections.
+ * offsets, and we take full advantage of sections and
+ * supersections.
  */
 static void __init create_mapping(struct map_desc *md)
 {
@@ -481,6 +521,33 @@ static void __init create_mapping(struct map_desc *md)
 		length -= PAGE_SIZE;
 	}
 
+	/* N.B.	ARMv6 supersections are only defined to work with domain 0.
+	 *	Since domain assignments can in fact be arbitrary, the
+	 *	'domain == 0' check below is required to insure that ARMv6
+	 *	supersections are only allocated for domain 0 regardless
+	 *	of the actual domain assignments in use.
+	 */
+	if (cpu_architecture() >= CPU_ARCH_ARMv6 && domain == 0) {
+		/* Align to supersection boundary */
+		while ((virt & ~SUPERSECTION_MASK || (virt + off) &
+			~SUPERSECTION_MASK) && length >= (PGDIR_SIZE / 2)) {
+			alloc_init_section(virt, virt + off, prot_sect);
+
+			virt   += (PGDIR_SIZE / 2);
+			length -= (PGDIR_SIZE / 2);
+		}
+
+		while (length >= SUPERSECTION_SIZE) {
+			alloc_init_supersection(virt, virt + off, prot_sect);
+
+			virt   += SUPERSECTION_SIZE;
+			length -= SUPERSECTION_SIZE;
+		}
+	}
+
+	/*
+	 * A section mapping covers half a "pgdir" entry.
+	 */
 	while (length >= (PGDIR_SIZE / 2)) {
 		alloc_init_section(virt, virt + off, prot_sect);
 
@@ -520,8 +587,10 @@ void setup_mm_for_reboot(char mode)
 			 PMD_TYPE_SECT;
 		if (cpu_arch <= CPU_ARCH_ARMv5)
 			pmdval |= PMD_BIT4;
-		pmd = pmd_offset(pgd + i, i << PGDIR_SHIFT);
-		set_pmd(pmd, __pmd(pmdval));
+		pmd = pmd_off(pgd, i << PGDIR_SHIFT);
+		pmd[0] = __pmd(pmdval);
+		pmd[1] = __pmd(pmdval + (1 << (PGDIR_SHIFT - 1)));
+		flush_pmd_entry(pmd);
 	}
 }
 
@@ -614,7 +683,9 @@ void __init memtable_init(struct meminfo *mi)
 	}
 
 	flush_cache_all();
-	flush_tlb_all();
+	local_flush_tlb_all();
+
+	top_pmd = pmd_off_k(0xffff0000);
 }
 
 /*

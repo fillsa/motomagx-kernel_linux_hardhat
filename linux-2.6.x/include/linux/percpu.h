@@ -8,12 +8,27 @@
 
 /* Enough to cover all DEFINE_PER_CPUs in kernel, including modules. */
 #ifndef PERCPU_ENOUGH_ROOM
-#define PERCPU_ENOUGH_ROOM 32768
+#define PERCPU_ENOUGH_ROOM 65536
 #endif
 
 /* Must be an lvalue. */
 #define get_cpu_var(var) (*({ preempt_disable(); &__get_cpu_var(var); }))
 #define put_cpu_var(var) preempt_enable()
+
+/*
+ * Per-CPU data structures with an additional lock - useful for
+ * PREEMPT_RT code that wants to reschedule but also wants
+ * per-CPU data structures. 
+ *
+ * NOTE: on normal !PREEMPT_RT kernels these per-CPU variables
+ * are the same as the normal per-CPU variables.
+ */
+#define get_cpu_var_locked(var, cpu) \
+		(*({ spin_lock(&__get_cpu_lock(var, cpu)); \
+		&__get_cpu_var_locked(var, cpu); }))
+
+#define put_cpu_var_locked(var, cpu) \
+		 do { (void)cpu; spin_unlock(&__get_cpu_lock(var, cpu)); } while (0)
 
 #ifdef CONFIG_SMP
 

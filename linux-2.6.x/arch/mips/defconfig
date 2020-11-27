@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
-# Linux kernel version: 2.6.10-rc2
-# Sun Nov 21 14:11:54 2004
+# Linux kernel version: 2.6.10
+# Mon Dec 27 19:10:50 2004
 #
 CONFIG_MIPS=y
 # CONFIG_MIPS64 is not set
@@ -92,10 +92,9 @@ CONFIG_DMA_NONCOHERENT=y
 # CONFIG_CPU_LITTLE_ENDIAN is not set
 CONFIG_IRQ_CPU=y
 CONFIG_SWAP_IO_SPACE=y
+CONFIG_ARC32=y
 CONFIG_BOOT_ELF32=y
 CONFIG_MIPS_L1_CACHE_SHIFT=5
-CONFIG_ARC32=y
-# CONFIG_FB is not set
 CONFIG_ARC_CONSOLE=y
 CONFIG_ARC_PROMLIB=y
 
@@ -176,6 +175,7 @@ CONFIG_PREVENT_FIRMWARE_BUILD=y
 # CONFIG_BLK_DEV_LOOP is not set
 # CONFIG_BLK_DEV_NBD is not set
 # CONFIG_BLK_DEV_RAM is not set
+CONFIG_BLK_DEV_RAM_COUNT=16
 CONFIG_INITRAMFS_SOURCE=""
 # CONFIG_LBD is not set
 CONFIG_CDROM_PKTCDVD=m
@@ -229,7 +229,6 @@ CONFIG_SCSI_SPI_ATTRS=m
 #
 CONFIG_SGIWD93_SCSI=y
 # CONFIG_SCSI_SATA is not set
-# CONFIG_SCSI_QLOGIC_1280_1040 is not set
 # CONFIG_SCSI_DEBUG is not set
 
 #
@@ -627,7 +626,6 @@ CONFIG_SGI_DS1286=m
 #
 # Ftape, the floppy tape device driver
 #
-# CONFIG_AGP is not set
 # CONFIG_DRM is not set
 CONFIG_RAW_DRIVER=m
 CONFIG_MAX_RAW_DEVS=256
@@ -659,6 +657,7 @@ CONFIG_MAX_RAW_DEVS=256
 #
 # Graphics support
 #
+# CONFIG_FB is not set
 
 #
 # Console display driver support
@@ -689,9 +688,18 @@ CONFIG_LOGO_SGI_CLUT224=y
 # CONFIG_USB_ARCH_HAS_OHCI is not set
 
 #
+# NOTE: USB_STORAGE enables SCSI, and 'SCSI disk support' may also be needed; see USB_STORAGE Help for more information
+#
+
+#
 # USB Gadget Support
 #
 # CONFIG_USB_GADGET is not set
+
+#
+# MMC/SD Card support
+#
+# CONFIG_MMC is not set
 
 #
 # File systems
@@ -798,7 +806,7 @@ CONFIG_SMB_NLS_REMOTE="cp437"
 CONFIG_CIFS=m
 # CONFIG_CIFS_STATS is not set
 # CONFIG_CIFS_XATTR is not set
-# CONFIG_CIFS_POSIX is not set
+# CONFIG_CIFS_EXPERIMENTAL is not set
 # CONFIG_NCP_FS is not set
 CONFIG_CODA_FS=m
 # CONFIG_CODA_FS_OLD_API is not set
@@ -867,6 +875,11 @@ CONFIG_NLS_ISO8859_15=m
 CONFIG_NLS_KOI8_R=m
 CONFIG_NLS_KOI8_U=m
 CONFIG_NLS_UTF8=m
+
+#
+# Profiling support
+#
+# CONFIG_PROFILING is not set
 
 #
 # Kernel hacking

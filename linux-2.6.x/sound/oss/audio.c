@@ -77,6 +77,8 @@ int audio_open(int dev, struct file *file)
 	const struct audio_driver *driver;
 	const struct coproc_operations *coprocessor;
 
+	mode &= 0x3;
+
 	dev = dev >> 4;
 
 	if (dev_type == SND_DEV_DSP16)

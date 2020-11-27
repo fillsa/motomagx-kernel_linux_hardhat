@@ -159,6 +159,7 @@ ENTRY(ret_from_fork)
 ret_from_exception:
 	preempt_stop
 ret_from_intr:
+	call latency_check
 	GET_THREAD_INFO(%ebp)
 	movl EFLAGS(%esp), %eax		# mix EFLAGS and CS
 	movb CS(%esp), %al
@@ -176,6 +177,9 @@ ENTRY(resume_userspace)
 
 #ifdef CONFIG_PREEMPT
 ENTRY(resume_kernel)
+	cli
+	cmpl $0, kernel_preemption
+	jz restore_all
 	cmpl $0,TI_preempt_count(%ebp)	# non-zero preempt_count ?
 	jnz restore_all
 need_resched:
@@ -184,11 +188,8 @@ need_resched:
 	jz restore_all
 	testl $IF_MASK,EFLAGS(%esp)     # interrupts off (exception path) ?
 	jz restore_all
-	movl $PREEMPT_ACTIVE,TI_preempt_count(%ebp)
-	sti
-	call schedule
 	cli
-	movl $0,TI_preempt_count(%ebp)
+	call preempt_schedule_irq
 	jmp need_resched
 #endif
 
@@ -220,6 +221,11 @@ sysenter_past_esp:
 
 	pushl %eax
 	SAVE_ALL
+#ifdef CONFIG_LATENCY_TRACE
+	pushl %edx; pushl %ecx; pushl %ebx; pushl %eax
+	call sys_call
+	popl %eax; popl %ebx; popl %ecx; popl %edx
+#endif
 	GET_THREAD_INFO(%ebp)
 
 	testb $(_TIF_SYSCALL_TRACE|_TIF_SYSCALL_AUDIT),TI_flags(%ebp)
@@ -232,6 +238,11 @@ sysenter_past_esp:
 	movl TI_flags(%ebp), %ecx
 	testw $_TIF_ALLWORK_MASK, %cx
 	jne syscall_exit_work
+#ifdef CONFIG_LATENCY_TRACE
+	pushl %eax
+	call sys_ret
+	popl %eax
+#endif
 /* if something modifies registers it must also disable sysexit */
 	movl EIP(%esp), %edx
 	movl OLDESP(%esp), %ecx
@@ -244,6 +255,11 @@ sysenter_past_esp:
 ENTRY(system_call)
 	pushl %eax			# save orig_eax
 	SAVE_ALL
+#ifdef CONFIG_LATENCY_TRACE
+	pushl %edx; pushl %ecx; pushl %ebx; pushl %eax
+	call sys_call
+	popl %eax; popl %ebx; popl %ecx; popl %edx
+#endif
 	GET_THREAD_INFO(%ebp)
 					# system call tracing in operation
 	testb $(_TIF_SYSCALL_TRACE|_TIF_SYSCALL_AUDIT),TI_flags(%ebp)
@@ -251,9 +267,27 @@ ENTRY(system_call)
 	cmpl $(nr_syscalls), %eax
 	jae syscall_badsys
 syscall_call:
+#if (CONFIG_LTT)                                                               
+	movl syscall_entry_trace_active, %eax
+	cmpl $1, %eax                   # are we tracing system call entries 
+	jne no_syscall_entry_trace
+	movl %esp, %eax                 # copy the stack pointer
+	pushl %eax                      # pass the stack pointer copy
+	call trace_real_syscall_entry                                           
+	addl $4,%esp                    # return stack to state before pass
+no_syscall_entry_trace:
+	movl ORIG_EAX(%esp),%eax        # restore eax to it's original content
+#endif
 	call *sys_call_table(,%eax,4)
 	movl %eax,EAX(%esp)		# store the return value
 syscall_exit:
+#if (CONFIG_LTT)
+	movl syscall_exit_trace_active, %eax
+	cmpl $1, %eax                   # are we tracing system call exits
+	jne no_syscall_exit_trace
+	call trace_real_syscall_exit
+no_syscall_exit_trace:
+#endif
 	cli				# make sure we don't miss an interrupt
 					# setting need_resched or sigpending
 					# between sampling and the iret
@@ -261,6 +295,19 @@ syscall_exit:
 	testw $_TIF_ALLWORK_MASK, %cx	# current->work
 	jne syscall_exit_work
 restore_all:
+#ifdef CONFIG_CRITICAL_TIMING
+	call touch_critical_timing
+#endif
+#if defined(CONFIG_CRITICAL_IRQSOFF_TIMING) || defined(CONFIG_LATENCY_TRACE)
+	pushl %eax
+#ifdef CONFIG_CRITICAL_IRQSOFF_TIMING
+	call trace_irqs_on
+#endif
+#ifdef CONFIG_LATENCY_TRACE
+	call sys_ret
+#endif
+	popl %eax
+#endif
 	RESTORE_ALL
 
 	# perform work that needs to be done immediately before resumption
@@ -269,8 +316,9 @@ work_pending:
 	testb $_TIF_NEED_RESCHED, %cl
 	jz work_notifysig
 work_resched:
-	call schedule
-	cli				# make sure we don't miss an interrupt
+	cli
+	call __schedule
+					# make sure we don't miss an interrupt
 					# setting need_resched or sigpending
 					# between sampling and the iret
 	movl TI_flags(%ebp), %ecx
@@ -317,6 +365,11 @@ syscall_trace_entry:
 syscall_exit_work:
 	testb $(_TIF_SYSCALL_TRACE|_TIF_SYSCALL_AUDIT|_TIF_SINGLESTEP), %cl
 	jz work_pending
+#ifdef CONFIG_CRITICAL_IRQSOFF_TIMING
+	pushl %eax
+	call trace_irqs_on
+	popl %eax
+#endif
 	sti				# could let do_syscall_trace() call
 					# schedule() instead
 	movl %esp, %eax
@@ -357,9 +410,16 @@ ENTRY(irq_entries_start)
 vector=vector+1
 .endr
 
+#ifdef CONFIG_CRITICAL_IRQSOFF_TIMING
+# define TRACE_IRQS_OFF call trace_irqs_off_lowlevel;
+#else
+# define TRACE_IRQS_OFF
+#endif
+
 	ALIGN
 common_interrupt:
 	SAVE_ALL
+	TRACE_IRQS_OFF
 	movl %esp,%eax
 	call do_IRQ
 	jmp ret_from_intr
@@ -368,6 +428,7 @@ common_interrupt:
 ENTRY(name)				\
 	pushl $nr-256;			\
 	SAVE_ALL			\
+	TRACE_IRQS_OFF			\
 	movl %esp,%eax;			\
 	call smp_/**/name;		\
 	jmp ret_from_intr;
@@ -867,3 +928,108 @@ ENTRY(sys_call_table)
 	.long sys_keyctl
 
 syscall_table_size=(.-sys_call_table)
+
+#	Here we do call frames.  We cheat a bit as we only really need
+#	correct frames at locations we can actually look at from a
+#	debugger.  Since the break instruction trap actually goes thru
+#	some of this code, we don't really need info on those areas, but
+#	only after the fact.  I.e. if we can not step or break in a
+#	location or end up with a return address pointing at the
+#	location, we don't need a correct call frame for it.
+
+#ifdef CONFIG_KGDB
+
+#include <linux/dwarf2-lang.h>
+/*
+ * The register numbers as known by gdb
+ */
+	
+#define _EAX 0
+#define _ECX 1
+#define _EDX 2
+#define _EBX 3
+#define _ESP 4
+#define _EBP 5
+#define _ESI 6
+#define _EDI 7
+#define _PC  8 
+#define _EIP 8 
+#define _PS  9
+#define _EFLAGS  9
+#define _CS 10
+#define _SS 11
+#define _DS 12
+#define _ES 13
+#define _FS 14
+#define _GS 15
+	/*
+	 * This code uses macros defined in linux/dwarf2-lang.h
+	 * They attempt to follow the dwarf2 naming conventions... sort of..
+	 */
+ENTRY(end_of_stack_stop_unwind_function)
+	.long 	end_of_stack_stop_unwind_function+1
+
+	.text
+	
+	CFI_preamble(c1,_PC,1,1)
+	CFA_define_reference(_ESP,OLDESP)	/* Stack pointer */
+	CFA_expression(_EIP)
+	   CFA_exp_OP_dup			/* copy old esp */
+ 	   CFA_exp_OP_consts(CS-OLDESP)		/* offset to CS address */
+ 	   CFA_exp_OP_plus			/* should be CS address */
+	   CFA_exp_OP_deref			/* get the CS */
+	   CFA_exp_OP_const4s(VM_MASK|3)	/* prepare to mask it */
+	   CFA_exp_OP_and			/* mask it, zero means kernel */
+	   CFA_exp_OP_bra(eip_user_rtn)		/* branch if user */
+	   CFA_exp_OP_const4s(EIP-OLDESP)	/* offset to return address */
+	   CFA_exp_OP_plus			/* add that in */
+	   CFA_exp_OP_skip(eip_end)		/* done if kernel, skip out */
+eip_user_rtn:	
+	   CFA_exp_OP_addr(end_of_stack_stop_unwind_function)/*dummy function */
+eip_end:	
+	   CFA_expression_end
+	CFA_define_offset(_EBX,EBX-OLDESP)	
+	CFA_define_offset(_ECX,ECX-OLDESP)	
+	CFA_define_offset(_EDX,EDX-OLDESP)	
+	CFA_define_offset(_ESI,ESI-OLDESP)	
+	CFA_define_offset(_EDI,EDI-OLDESP)	
+	CFA_define_offset(_EBP,EBP-OLDESP)	
+	CFA_define_offset(_EAX,EAX-OLDESP)	
+	CFA_define_offset(_EFLAGS,EFLAGS-OLDESP)	
+	CFI_postamble()
+	
+/*
+ * This provides an uwind for our dummy end of unwind function.
+ * Current convention is to provied an undefined return address.	
+ */				
+	CFI_preamble(c2,_PC,1,1)
+	CFA_define_reference(_ESP,0)	/* Stack pointer */
+	CFA_undefine_reg(_EIP)	
+	CFI_postamble()
+	
+	FDE_preamble(c2,end_of_stack_stop_unwind_function,
+	                end_of_stack_stop_unwind_function+5)
+	FDE_postamble()
+	/*
+         * This is VERY sloppy.  At this point all we want to do is get
+         * the frame right for back tracing.  It will not be good if
+         * you try to single step.  We use already defined labels.
+         * We want to cover all call outs.
+         * We could also recode this as just one FDE, but this works and
+         * I want to get it out.
+	 */
+	FDE_preamble(c1,ret_from_fork,ret_from_exception)
+	CFA_define_cfa_offset(4)		/* one extra word on stack */
+	FDE_postamble()	
+
+	FDE_preamble(c1,ret_from_exception,device_not_available_emulate)
+	FDE_postamble()	
+
+		FDE_preamble(c1,device_not_available_emulate,debug)
+	CFA_define_cfa_offset(4)		/* one extra word on stack */
+	FDE_postamble()	
+
+	FDE_preamble(c1, debug,spurious_interrupt_bug)
+	FDE_postamble()	
+
+#endif

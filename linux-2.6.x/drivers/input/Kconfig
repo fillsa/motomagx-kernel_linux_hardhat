@@ -87,7 +87,7 @@ config INPUT_JOYDEV
 	  module will be called joydev.
 
 config INPUT_TSDEV
-	tristate "Touchscreen interface"
+	tristate "Compaq Touchscreen interface"
 	depends on INPUT
 	---help---
 	  Say Y here if you have an application that only can understand the
@@ -108,6 +108,10 @@ config INPUT_TSDEV_SCREEN_Y
 	int "Vertical screen resolution"
 	depends on INPUT_TSDEV
 	default "320"
+
+config INPUT_TSLIBDEV
+	tristate "TSLIB Touchscreen interface"
+	depends on INPUT
 
 config INPUT_EVDEV
 	tristate "Event interface"

@@ -18,6 +18,16 @@
  * subsequently hacked by Paul Mackerras.
  */
 
+/*
+ * Copyright 2006 Motorola, Inc.
+ */
+
+/*
+ * DATE          AUTHOR         COMMMENT
+ * ----          ------         --------
+ * 10/04/2006    Motorola       Added support for PPPIOCGIDLE ioctl.
+ */
+
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/skbuff.h>
@@ -65,7 +75,7 @@ struct asyncppp {
 	struct tasklet_struct tsk;
 
 	atomic_t	refcnt;
-	struct semaphore dead_sem;
+	struct compat_semaphore dead_sem;
 	struct ppp_channel chan;	/* interface to generic ppp layer */
 	unsigned char	obuf[OBUFSIZE];
 };
@@ -126,7 +136,7 @@ static struct ppp_channel_ops async_ops = {
  * FIXME: this is no longer true. The _close path for the ldisc is 
  * now guaranteed to be sane. 
  */
-static rwlock_t disc_data_lock = RW_LOCK_UNLOCKED;
+static DEFINE_RWLOCK(disc_data_lock);
 
 static struct asyncppp *ap_get(struct tty_struct *tty)
 {
@@ -281,6 +291,9 @@ ppp_asynctty_ioctl(struct tty_struct *tty, struct file *file,
 		   unsigned int cmd, unsigned long arg)
 {
 	struct asyncppp *ap = ap_get(tty);
+#ifdef CONFIG_MOT_FEAT_PPP_EZX_COMPAT
+    	struct ppp_idle idle;
+#endif
 	int err, val;
 	int __user *p = (int __user *)arg;
 
@@ -326,6 +339,16 @@ ppp_asynctty_ioctl(struct tty_struct *tty, struct file *file,
 			break;
 		err = 0;
 		break;
+
+#ifdef CONFIG_MOT_FEAT_PPP_EZX_COMPAT
+	case PPPIOCGIDLE:
+              if( 0!= ppp_idle_time( (&ap->chan), &idle ) )
+                     break;
+		if (copy_to_user((void *) arg, &idle, sizeof(idle)))
+			break;
+		err = 0;
+		break;
+#endif
 
 	default:
 		err = -ENOIOCTLCMD;
@@ -1000,7 +1023,7 @@ static void async_lcp_peek(struct asyncppp *ap, unsigned char *data,
 	data += 4;
 	dlen -= 4;
 	/* data[0] is code, data[1] is length */
-	while (dlen >= 2 && dlen >= data[1]) {
+	while (dlen >= 2 && dlen >= data[1] && data[1] >= 2) {
 		switch (data[0]) {
 		case LCP_MRU:
 			val = (data[2] << 8) + data[3];

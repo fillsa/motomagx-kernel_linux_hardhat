@@ -29,16 +29,17 @@ enum {
 char *defconfig_file;
 
 static int indent = 1;
+static int mvl_default_new = 0;
 static int valid_stdin = 1;
 static int conf_cnt;
-static signed char line[128];
+static char line[128];
 static struct menu *rootEntry;
 
 static char nohelp_text[] = "Sorry, no help available for this option yet.\n";
 
-static void strip(signed char *str)
+static void strip(char *str)
 {
-	signed char *p = str;
+	char *p = str;
 	int l;
 
 	while ((isspace(*p)))
@@ -84,7 +85,7 @@ static void conf_askvalue(struct symbol *sym, const char *def)
 	switch (input_mode) {
 	case ask_new:
 	case ask_silent:
-		if (sym_has_value(sym)) {
+		if (sym_has_value(sym) || mvl_default_new) {
 			printf("%s\n", def);
 			return;
 		}
@@ -339,7 +340,7 @@ static int conf_choice(struct menu *menu)
 		switch (input_mode) {
 		case ask_new:
 		case ask_silent:
-			if (!is_new) {
+			if (!is_new || mvl_default_new) {
 				cnt = def;
 				printf("%d\n", cnt);
 				break;
@@ -492,6 +493,10 @@ int main(int ac, char **av)
 		switch (av[i++][1]) {
 		case 'o':
 			input_mode = ask_new;
+			break;
+		case 'V':
+			input_mode = ask_new;
+			mvl_default_new = 1;
 			break;
 		case 's':
 			input_mode = ask_silent;

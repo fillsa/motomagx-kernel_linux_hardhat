@@ -1,6 +1,8 @@
 /* defines for inline arch setup functions */
 
 #include <asm/apic.h>
+#include <asm/i8259.h>
+#include <mach_ipi.h>
 
 /**
  * do_timer_interrupt_hook - hook into timer tick
@@ -15,8 +17,42 @@
 
 static inline void do_timer_interrupt_hook(struct pt_regs *regs)
 {
+	write_seqlock(&xtime_lock);
+	cur_timer->mark_offset();
+#ifdef CONFIG_HIGH_RES_TIMERS
+	{ 
+		long arch_cycles = get_arch_cycles(jiffies);
+
+		/*
+		 * We use unsigned here to correct a little problem when
+		 * the TSC is reset during the SMP sync TSC stuff at
+		 * boot time.  The unsigned on the compare will force
+		 * the code into a loop updating the "stake"
+		 * (last_update) until we get a positive result.  By
+		 * using unsigned we don't incure any additional over
+		 * head while still traping the problem of a negative
+		 * return.
+		 */
+		if ((unsigned)arch_cycles < arch_cycles_per_jiffy) { 
+			do_hr_timer_int();
+			write_sequnlock(&xtime_lock);
+			return;
+		}
+		discipline_PIT_timer();
+		do{
+			do_timer(regs);
+			stake_cpuctr();
+		}while ((unsigned)get_arch_cycles(jiffies) > arch_cycles_per_jiffy);
+	}
+#else
 	do_timer(regs);
-#ifndef CONFIG_SMP
+#endif
+	write_sequnlock(&xtime_lock);
+#if defined(CONFIG_SMP) && defined(CONFIG_HIGH_RES_TIMERS)
+	send_IPI_allbutself(LOCAL_TIMER_IPI_VECTOR);
+	irq_stat[smp_processor_id()].apic_timer_irqs++;
+#endif
+#if defined(CONFIG_HIGH_RES_TIMERS) || !defined(CONFIG_SMP)
 	update_process_times(user_mode(regs));
 #endif
 /*

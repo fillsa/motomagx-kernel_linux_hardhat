@@ -1,0 +1,24 @@
+/*
+ * linux/include/asm-arm/arch-pnx4008/memory.h
+ *
+ * Copyright (c) 2005 Philips Semiconductors
+ * Copyright (c) 2005 MontaVista Software, Inc.
+ *
+ *  This program is free software; you can redistribute  it and/or modify it
+ *  under  the terms of  the GNU General  Public License as published by the
+ *  Free Software Foundation;  either version 2 of the  License, or (at your
+ *  option) any later version.
+ */
+
+#ifndef __ASM_ARCH_MEMORY_H
+#define __ASM_ARCH_MEMORY_H
+
+/*
+ * Physical DRAM offset on the L7200 SDB.
+ */
+#define PHYS_OFFSET     (0x80000000UL)
+
+#define __virt_to_bus(x) __virt_to_phys(x)
+#define __bus_to_virt(x) __phys_to_virt(x)
+
+#endif

@@ -1,17 +1,60 @@
 /*
  * JFFS2 -- Journalling Flash File System, Version 2.
  *
+ * Copyright (C) 2007 Motorola Inc.
  * Copyright (C) 2001-2003 Red Hat, Inc.
  *
- * Created by David Woodhouse <dwmw2@redhat.com>
+ * Created by David Woodhouse <dwmw2@infradead.org>
  *
- * For licensing information, see the file 'LICENCE' in this directory.
+ * This file is part of JFFS2, the Journalling Flash File System v2.
  *
- * $Id: fs.c,v 1.46 2004/07/13 08:56:54 dwmw2 Exp $
+ *       Copyright (C) 2001, 2002 Red Hat, Inc.
+ *
+ * JFFS2 is free software; you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 or (at your option) any later 
+ * version.
+ *
+ * JFFS2 is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with JFFS2; if not, write to the Free Software Foundation, Inc.,
+ * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA.
+ *
+ * As a special exception, if other files instantiate templates or use
+ * macros or inline functions from these files, or you compile these
+ * files and link them with other works to produce a work based on these
+ * files, these files do not by themselves cause the resulting work to be
+ * covered by the GNU General Public License. However the source code for
+ * these files must still be made available in accordance with section (3)
+ * of the GNU General Public License.
+ *
+ * This exception does not invalidate any other reasons why a work based on
+ * this file might be covered by the GNU General Public License.
+ *
+ * For information on obtaining alternative licences for JFFS2, see 
+ * http://sources.redhat.com/jffs2/jffs2-licence.html
+ *
+ *
+ * $Id: fs.c,v 1.55 2005/03/18 10:17:18 gleixner Exp $
  *
  */
 
-#include <linux/version.h>
+/* ChangeLog:
+ * (mm-dd-yyyy)  Author      Comment
+ * 03-23-2007    Motorola    Give more accurate available space with statfs.
+ * 06-25-2007    Motorola    Update EM regarding new Driver release.
+ * 06-28-2007    Motorola    Modify compliance issues in hardhat source files.
+ * 08-02-2007    Motorola    Add comments for oss compliance.
+ * 08-07-2007	 Mororola    Fix a bug in jffs2 to prevent kernel panic.
+ * 08-10-2007    Motorola    Add comments.
+ * 11-06-2007    Motorola    Upmerge from 6.1.  (Change inode blocks when update)
+ * 11-13-2007    Motorola    Fix deadlock problem in JFFS2.
+ */
+
 #include <linux/config.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
@@ -20,10 +63,12 @@
 #include <linux/mtd/mtd.h>
 #include <linux/pagemap.h>
 #include <linux/slab.h>
+#include <linux/vmalloc.h>
 #include <linux/vfs.h>
 #include <linux/crc32.h>
 #include "nodelist.h"
 
+static int jffs2_flash_setup(struct jffs2_sb_info *c);
 
 static int jffs2_do_setattr (struct inode *inode, struct iattr *iattr)
 {
@@ -172,6 +217,9 @@ static int jffs2_do_setattr (struct inode *inode, struct iattr *iattr)
 	if (ivalid & ATTR_SIZE && inode->i_size > iattr->ia_size)
 		vmtruncate(inode, iattr->ia_size);
 
+        /* update inode blocks */
+        inode->i_blocks = (inode->i_size + 511) >> 9;
+
 	return 0;
 }
 
@@ -200,9 +248,41 @@ int jffs2_statfs(struct super_block *sb, struct kstatfs *buf)
 	else
 		avail = 0;
 
+#ifdef CONFIG_MOT_FEAT_MTD_FS 
+	/* It is possible to have the avail space greater than zero and not be able to 
+     * write data due to differences in the algorithms to get available space 
+     * between jffs2_statfs and jffs2_reserve_space function.
+	 *
+	 * It is really confusing to user that 'df' shows the available space,
+	 * but when user tries to write, it fails. We are using the algorithm similar 
+	 * to jffs2_reserve_space to give more accurate available space information
+	 * to user.  The jffs2_reserve_space function has comments of this
+	 * calculation.
+	 */
+
+	if (avail && (c->nr_free_blocks + c->nr_erasing_blocks < c->resv_blocks_write)) {
+
+		unsigned long dirty, avail_space;
+
+		dirty= c->dirty_size + c->erasing_size - (c->nr_erasing_blocks * c->sector_size) +
+			   c->unchecked_size;
+
+		if (dirty < c->nospc_dirty_size) {
+			avail=0;
+		}
+
+		avail_space = c->free_size + c->dirty_size + c->erasing_size + c->unchecked_size;
+		if ( avail &&
+		   ((avail_space / c->sector_size) <= c->resv_blocks_write) ) {
+
+			avail=0; 
+		}
+	}
+#endif
+
 	buf->f_bavail = buf->f_bfree = avail >> PAGE_SHIFT;
 
-	D1(jffs2_dump_block_lists(c));
+	D2(jffs2_dump_block_lists(c));
 
 	spin_unlock(&c->erase_completion_lock);
 
@@ -236,7 +316,8 @@ void jffs2_read_inode (struct inode *inode)
 	c = JFFS2_SB_INFO(inode->i_sb);
 
 	jffs2_init_inode_info(f);
-	
+	down(&f->sem);
+			
 	ret = jffs2_do_read_inode(c, f, inode->i_ino, &latest_node);
 
 	if (ret) {
@@ -402,6 +483,7 @@ struct inode *jffs2_new_inode (struct inode *dir_i, int mode, struct jffs2_raw_i
 
 	f = JFFS2_INODE_INFO(inode);
 	jffs2_init_inode_info(f);
+	down(&f->sem);
 
 	memset(ri, 0, sizeof(*ri));
 	/* Set OS-specific defaults for new inodes */
@@ -426,7 +508,7 @@ struct inode *jffs2_new_inode (struct inode *dir_i, int mode, struct jffs2_raw_i
 	inode->i_mode = jemode_to_cpu(ri->mode);
 	inode->i_gid = je16_to_cpu(ri->gid);
 	inode->i_uid = je16_to_cpu(ri->uid);
-	inode->i_atime = inode->i_ctime = inode->i_mtime = CURRENT_TIME;
+	inode->i_atime = inode->i_ctime = inode->i_mtime = CURRENT_TIME_SEC;
 	ri->atime = ri->mtime = ri->ctime = cpu_to_je32(I_SEC(inode->i_mtime));
 
 	inode->i_blksize = PAGE_SIZE;
@@ -448,9 +530,13 @@ int jffs2_do_fill_super(struct super_block *sb, void *data, int silent)
 
 	c = JFFS2_SB_INFO(sb);
 
-#ifndef CONFIG_JFFS2_FS_NAND
+#ifndef CONFIG_JFFS2_FS_WRITEBUFFER
 	if (c->mtd->type == MTD_NANDFLASH) {
 		printk(KERN_ERR "jffs2: Cannot operate on NAND flash unless jffs2 NAND support is compiled in.\n");
+		return -EINVAL;
+	}
+	if (c->mtd->type == MTD_DATAFLASH) {
+		printk(KERN_ERR "jffs2: Cannot operate on DataFlash unless jffs2 DataFlash support is compiled in.\n");
 		return -EINVAL;
 	}
 #endif
@@ -463,11 +549,13 @@ int jffs2_do_fill_super(struct super_block *sb, void *data, int silent)
 	 */
 	c->sector_size = c->mtd->erasesize; 
 	blocks = c->flash_size / c->sector_size;
-	while ((blocks * sizeof (struct jffs2_eraseblock)) > (128 * 1024)) {
-		blocks >>= 1;
-		c->sector_size <<= 1;
-	}	
-	
+	if (!(c->mtd->flags & MTD_NO_VIRTBLOCKS)) {
+		while ((blocks * sizeof (struct jffs2_eraseblock)) > (128 * 1024)) {
+			blocks >>= 1;
+			c->sector_size <<= 1;
+		}	
+	}
+
 	/*
 	 * Size alignment check
 	 */
@@ -518,14 +606,13 @@ int jffs2_do_fill_super(struct super_block *sb, void *data, int silent)
 	if (!sb->s_root)
 		goto out_root_i;
 
-#if LINUX_VERSION_CODE >= 0x20403
 	sb->s_maxbytes = 0xFFFFFFFF;
-#endif
 	sb->s_blocksize = PAGE_CACHE_SIZE;
 	sb->s_blocksize_bits = PAGE_CACHE_SHIFT;
 	sb->s_magic = JFFS2_SUPER_MAGIC;
 	if (!(sb->s_flags & MS_RDONLY))
 		jffs2_start_garbage_collect_thread(c);
+
 	return 0;
 
  out_root_i:
@@ -533,7 +620,10 @@ int jffs2_do_fill_super(struct super_block *sb, void *data, int silent)
  out_nodes:
 	jffs2_free_ino_caches(c);
 	jffs2_free_raw_node_refs(c);
-	kfree(c->blocks);
+	if (c->mtd->flags & MTD_NO_VIRTBLOCKS)
+		vfree(c->blocks);
+	else
+		kfree(c->blocks);
  out_inohash:
 	kfree(c->inocache_list);
  out_wbuf:
@@ -619,8 +709,15 @@ unsigned char *jffs2_gc_fetch_page(struct jffs2_sb_info *c,
 	struct inode *inode = OFNI_EDONI_2SFFJ(f);
 	struct page *pg;
 
-	pg = read_cache_page(inode->i_mapping, offset >> PAGE_CACHE_SHIFT, 
-			     (void *)jffs2_do_readpage_unlock, inode);
+	/* read_cache_page_async_trylock will return -EBUSY
+	 * if it is not possible to lock the cache page. If we
+	 * get -EBUSY, then avoid a deadlock between
+	 * cache page locks and f->sem.
+	 */
+	pg = read_cache_page_async_trylock(inode->i_mapping,
+					   offset >> PAGE_CACHE_SHIFT,
+					   (void *)jffs2_do_readpage_unlock,
+					   inode);
 	if (IS_ERR(pg))
 		return (void *)pg;
 	
@@ -638,7 +735,7 @@ void jffs2_gc_release_page(struct jffs2_sb_info *c,
 	page_cache_release(pg);
 }
 
-int jffs2_flash_setup(struct jffs2_sb_info *c) {
+static int jffs2_flash_setup(struct jffs2_sb_info *c) {
 	int ret = 0;
 	
 	if (jffs2_cleanmarker_oob(c)) {
@@ -649,6 +746,26 @@ int jffs2_flash_setup(struct jffs2_sb_info *c) {
 	}
 
 	/* add setups for other bizarre flashes here... */
+	if (jffs2_nor_ecc(c)) {
+		ret = jffs2_nor_ecc_flash_setup(c);
+		if (ret)
+			return ret;
+	}
+	
+	/* and Dataflash */
+	if (jffs2_dataflash(c)) {
+		ret = jffs2_dataflash_setup(c);
+		if (ret)
+			return ret;
+	}
+
+	/* and Intel "Sibley" flash */
+	if (jffs2_nor_wbuf_flash(c)) {
+		ret = jffs2_nor_wbuf_flash_setup(c);
+		if (ret)
+			return ret;
+	}
+
 	return ret;
 }
 
@@ -659,4 +776,17 @@ void jffs2_flash_cleanup(struct jffs2_sb_info *c) {
 	}
 
 	/* add cleanups for other bizarre flashes here... */
+	if (jffs2_nor_ecc(c)) {
+		jffs2_nor_ecc_flash_cleanup(c);
+	}
+	
+	/* and DataFlash */
+	if (jffs2_dataflash(c)) {
+		jffs2_dataflash_cleanup(c);
+	}
+
+	/* and Intel "Sibley" flash */
+	if (jffs2_nor_wbuf_flash(c)) {
+		jffs2_nor_wbuf_flash_cleanup(c);
+	}
 }

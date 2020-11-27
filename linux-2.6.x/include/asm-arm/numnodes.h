@@ -10,10 +10,14 @@
 #ifndef __ASM_ARM_NUMNODES_H
 #define __ASM_ARM_NUMNODES_H
 
-#ifdef CONFIG_ARCH_LH7A40X
+#include <asm/arch/memory.h>
+
+#ifndef NODES_SHIFT
+#if defined(CONFIG_ARCH_LH7A40X) || defined(CONFIG_ARCH_OMAP)
 # define NODES_SHIFT	4	/* Max 16 nodes for the Sharp CPUs */
 #else
 # define NODES_SHIFT	2	/* Normally, Max 4 Nodes */
+#endif
 #endif
 
 #endif

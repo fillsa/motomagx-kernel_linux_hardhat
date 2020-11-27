@@ -1,0 +1,93 @@
+# @(#) balden@seth2.belcarratech.com|otg/functions/msc/Kconfig|20051116204958|16988
+#
+# Copyright (c) 2006 - 2007 Motorola, Inc.
+#
+# Changelog:
+# Date               Author           Comment
+# -----------------------------------------------------------------------------
+# 03/16/2006         Motorola         Initial distribution 
+# 10/18/2006         Motorola         Add Open Src Software language
+# 12/11/2006         Motorola         Changes for Open src compliance.
+# 03/07/2007         Motorola         Changes for 32K Transfer rate.
+# 08/24/2007         Motorola         Changes for Open src compliance.
+#
+# This Program is distributed in the hope that it will
+# be useful, but WITHOUT ANY WARRANTY;
+# without even the implied warranty of
+# MERCHANTIBILITY or FITNESS FOR A
+# PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+
+# This program is free software; you can redistribute it
+# and/or modify it under the terms of the GNU General
+# Public License as published by the Free Software
+# Foundation; either version 2 of the License, or (at
+# your option) any later version.  You should have
+# received a copy of the GNU General Public License
+# along with this program; if not, write to the Free
+# Software Foundation, Inc., 675 Mass Ave,
+# Cambridge, MA 02139, USA
+
+menu "OTG Mass Storage function"
+	depends on OTG
+
+config OTG_MSC
+        tristate "  Mass Storage Function"
+        depends on OTG
+
+menu "OTG Mass Storage function options"
+	depends on OTG && OTG_MSC
+
+config OTG_MSC_VENDORID
+        hex "VendorID (hex value)"
+        depends on OTG && OTG_MSC
+        default "0x15ec"
+
+config OTG_MSC_PRODUCTID
+        hex "ProductID (hex value)"
+        depends on OTG && OTG_MSC
+        default "0xf006"
+
+config OTG_MSC_BCDDEVICE
+        hex "bcdDevice (binary-coded decimal)"
+        depends on OTG && OTG_MSC
+        default "0x0100"
+
+config OTG_MSC_MANUFACTURER
+        string "iManufacturer (string)"
+        depends on OTG && OTG_MSC
+        default "Motorola"
+
+config OTG_MSC_PRODUCT_NAME
+        string "iProduct (string)"
+        depends on OTG && OTG_MSC
+        default "Mass Storage Class - Bulk Only"
+
+#config OTG_MSC_INTF
+#        string "MSC Bulk Only iInterface (string)"
+#        depends on OTG && OTG_MSC
+#        default "MSC BO Data Intf"
+
+config OTG_MSC_DESC
+        string "Data Interface iConfiguration (string)"
+        depends on OTG && OTG_MSC
+        default "MSC BO Configuration"
+
+config OTG_MSC_HOTPLUG
+        depends on OTG_MSC && OTG
+        bool "start mass storage hotplug"
+        default TRUE
+
+config OTG_MSC_REGISTER_TRACE
+        bool "  MSC Tracing"
+        depends on OTG && OTG_MSC
+        default n
+
+config OTG_MSC_NUM_PAGES
+        hex "MSC Number of pages per write"
+        depends on OTG && OTG_MSC
+        default "0x01"
+        
+endmenu
+
+endmenu

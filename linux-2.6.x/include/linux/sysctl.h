@@ -24,6 +24,7 @@
 #include <linux/compiler.h>
 
 struct file;
+struct completion;
 
 #define CTL_MAXNAME 10		/* how many path components do we allow in a
 				   call to sysctl?   In other words, what is
@@ -134,6 +135,8 @@ enum
 	KERN_SPARC_SCONS_PWROFF=64, /* int: serial console power-off halt */
 	KERN_HZ_TIMER=65,	/* int: hz timer on or off */
 	KERN_UNKNOWN_NMI_PANIC=66, /* int: unknown nmi panic flag */
+  	KERN_VST,               /* VST table */
+	KERN_IDLE,              /* IDLE table */
 };
 
 
@@ -871,6 +874,8 @@ struct ctl_table_header
 {
 	ctl_table *ctl_table;
 	struct list_head ctl_entry;
+	int used;
+	struct completion *unregistering;
 };
 
 struct ctl_table_header * register_sysctl_table(ctl_table * table, 

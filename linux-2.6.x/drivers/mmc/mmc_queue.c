@@ -6,7 +6,13 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
- *
+ */
+/*
+ * Copyright (C) 2007 Motorola
+ * Date		Author			Comment
+ * 03/08/2007	Motorola		Turn off sdhc clock when card isn't used.
+ * 07/04/2007	Motorola		Modify the sdhc clock control.
+ * 09/05/2007	Motorola		Fix mmcqd thread not wakeup bug.
  */
 #include <linux/module.h>
 #include <linux/blkdev.h>
@@ -59,6 +65,7 @@ static int mmc_queue_thread(void *d)
 {
 	struct mmc_queue *mq = d;
 	struct request_queue *q = mq->queue;
+
 	DECLARE_WAITQUEUE(wait, current);
 
 	/*
@@ -75,7 +82,8 @@ static int mmc_queue_thread(void *d)
 	add_wait_queue(&mq->thread_wq, &wait);
 	do {
 		struct request *req = NULL;
-
+		
+		mq->req = NULL;
 		spin_lock_irq(q->queue_lock);
 		set_current_state(TASK_INTERRUPTIBLE);
 		if (!blk_queue_plugged(q))
@@ -88,12 +96,14 @@ static int mmc_queue_thread(void *d)
 			up(&mq->thread_sem);
 			schedule();
 			down(&mq->thread_sem);
+
 			continue;
 		}
 		set_current_state(TASK_RUNNING);
 
 		mq->issue_fn(mq, req);
 	} while (1);
+	set_current_state(TASK_RUNNING);
 	remove_wait_queue(&mq->thread_wq, &wait);
 	up(&mq->thread_sem);
 
@@ -143,6 +153,7 @@ int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card, spinlock_t *lock
 	blk_queue_max_phys_segments(mq->queue, host->max_phys_segs);
 	blk_queue_max_hw_segments(mq->queue, host->max_hw_segs);
 	blk_queue_max_segment_size(mq->queue, host->max_seg_size);
+	mq->queue->backing_dev_info.ra_pages = (128*1024)/PAGE_CACHE_SIZE;
 
 	mq->queue->queuedata = mq;
 	mq->req = NULL;

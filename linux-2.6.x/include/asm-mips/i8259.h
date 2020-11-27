@@ -19,7 +19,7 @@
 
 #include <asm/io.h>
 
-extern spinlock_t i8259A_lock;
+extern raw_spinlock_t i8259A_lock;
 
 extern void init_i8259_irqs(void);
 

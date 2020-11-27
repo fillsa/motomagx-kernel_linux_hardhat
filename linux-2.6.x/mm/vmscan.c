@@ -39,6 +39,11 @@
 
 #include <linux/swapops.h>
 
+#ifdef CONFIG_PRIORITIZED_OOM_KILL
+#include <linux/proc_fs.h>
+#include <linux/oom.h>
+#endif
+
 /* possible outcome of pageout() */
 typedef enum {
 	/* failed to write page out, page is locked */
@@ -361,6 +366,8 @@ static int shrink_list(struct list_head *page_list, struct scan_control *sc)
 		int may_enter_fs;
 		int referenced;
 
+		cond_resched();
+
 		page = lru_to_page(page_list);
 		list_del(&page->lru);
 
@@ -369,13 +376,13 @@ static int shrink_list(struct list_head *page_list, struct scan_control *sc)
 
 		BUG_ON(PageActive(page));
 
-		if (PageWriteback(page))
-			goto keep_locked;
-
 		sc->nr_scanned++;
 		/* Double the slab pressure for mapped and swapcache pages */
 		if (page_mapped(page) || PageSwapCache(page))
 			sc->nr_scanned++;
+
+		if (PageWriteback(page))
+			goto keep_locked;
 
 		referenced = page_referenced(page, 1, sc->priority <= 0);
 		/* In active use or really unfreeable?  Activate it. */
@@ -710,6 +717,7 @@ refill_inactive_zone(struct zone *zone, struct scan_control *sc)
 		reclaim_mapped = 1;
 
 	while (!list_empty(&l_hold)) {
+		cond_resched();
 		page = lru_to_page(&l_hold);
 		list_del(&page->lru);
 		if (page_mapped(page)) {
@@ -1235,6 +1243,42 @@ static int __devinit cpu_callback(struct notifier_block *nfb,
 static int __init kswapd_init(void)
 {
 	pg_data_t *pgdat;
+#ifdef CONFIG_PRIORITIZED_OOM_KILL
+	static struct proc_dir_entry *root_oom_dir;
+	static struct proc_dir_entry *oom_proc;
+	int i;
+
+	printk("Setting up prioritized oom_kill functions\n");
+	oom_dontkill.next = NULL;
+	oom_killable.next = NULL;
+	for (i = 0; i < PROC_NAME_SIZE; i++) {
+		oom_dontkill.name[i] = oom_killable.name[i] = '\0';
+	}
+	/* create /proc/sys/kernel/oom */
+	root_oom_dir = proc_mkdir("sys/kernel/oom", 0);
+	if (!root_oom_dir) {
+		printk("couldn't make sys/kernel/oom\n");
+		return 0;
+	}
+	/* create /proc/sys/kernel/oom/killable */
+	oom_proc = create_proc_entry("killable", 0600, root_oom_dir);
+	if (!oom_proc) {
+		printk("couldn't make killable proc file\n");
+		return 0;
+	}
+	oom_proc->read_proc = (read_proc_t *)killable_read_proc;
+	oom_proc->write_proc = (write_proc_t *)killable_write_proc;
+        /* create /proc/sys/kernel/oom/dontkill */
+        oom_proc = create_proc_entry("dontkill", 0600, root_oom_dir);
+
+        if (!oom_proc) {
+		printk("couldn't make dontkill proc file\n");
+        	return 0;
+	}
+        oom_proc->read_proc = (read_proc_t *)dontkill_read_proc;
+        oom_proc->write_proc = (write_proc_t *)dontkill_write_proc;
+#endif /* CONFIG_PRIORITIZED_OOM_KILL */
+
 	swap_setup();
 	for_each_pgdat(pgdat)
 		pgdat->kswapd

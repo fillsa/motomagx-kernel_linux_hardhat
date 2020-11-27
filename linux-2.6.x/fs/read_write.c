@@ -2,6 +2,14 @@
  *  linux/fs/read_write.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *
+ *  Copyright 2006 Motorola, Inc.
+ *
+ */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 31-Oct-2006  Motorola        Added inotify
  */
 
 #include <linux/slab.h> 
@@ -10,10 +18,16 @@
 #include <linux/file.h>
 #include <linux/uio.h>
 #include <linux/smp_lock.h>
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+#include <linux/fsnotify.h>
+#else
 #include <linux/dnotify.h>
+#endif
 #include <linux/security.h>
 #include <linux/module.h>
 #include <linux/syscalls.h>
+#include <linux/pagemap.h>
+#include <linux/ltt-events.h>
 
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
@@ -142,6 +156,12 @@ asmlinkage off_t sys_lseek(unsigned int fd, off_t offset, unsigned int origin)
 		if (res != (loff_t)retval)
 			retval = -EOVERFLOW;	/* LFS: should only happen on 32 bit platforms */
 	}
+
+	ltt_ev_file_system(LTT_EV_FILE_SYSTEM_SEEK,
+			  fd,
+			  offset,
+			  NULL);
+
 	fput_light(file, fput_needed);
 bad:
 	return retval;
@@ -169,6 +189,11 @@ asmlinkage long sys_llseek(unsigned int fd, unsigned long offset_high,
 	offset = vfs_llseek(file, ((loff_t) offset_high << 32) | offset_low,
 			origin);
 
+	ltt_ev_file_system(LTT_EV_FILE_SYSTEM_SEEK,
+			  fd,
+			  offset,
+			  NULL);
+
 	retval = (int)offset;
 	if (offset >= 0) {
 		retval = -EFAULT;
@@ -181,6 +206,38 @@ bad:
 	return retval;
 }
 #endif
+
+/*
+ * rw_verify_area doesn't like huge counts. We limit
+ * them to something that fits in "int" so that others
+ * won't have to do range checks all the time.
+ */
+#define MAX_RW_COUNT (INT_MAX & PAGE_CACHE_MASK)
+
+int rw_verify_area(int read_write, struct file *file, loff_t *ppos, size_t count)
+{
+	struct inode *inode;
+	loff_t pos;
+
+	if (unlikely((ssize_t) count < 0))
+		goto Einval;
+	pos = *ppos;
+	if (unlikely((pos < 0) || (loff_t) (pos + count) < 0))
+		goto Einval;
+
+	inode = file->f_dentry->d_inode;
+	if (inode->i_flock && MANDATORY_LOCK(inode)) {
+		int retval = locks_mandatory_area(
+			read_write == READ ? FLOCK_VERIFY_READ : FLOCK_VERIFY_WRITE,
+			inode, file, pos, count);
+		if (retval < 0)
+			return retval;
+	}
+	return count > MAX_RW_COUNT ? MAX_RW_COUNT : count;
+
+Einval:
+	return -EINVAL;
+}
 
 ssize_t do_sync_read(struct file *filp, char __user *buf, size_t len, loff_t *ppos)
 {
@@ -200,16 +257,18 @@ EXPORT_SYMBOL(do_sync_read);
 
 ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
 {
-	struct inode *inode = file->f_dentry->d_inode;
 	ssize_t ret;
 
 	if (!(file->f_mode & FMODE_READ))
 		return -EBADF;
 	if (!file->f_op || (!file->f_op->read && !file->f_op->aio_read))
 		return -EINVAL;
+	if (unlikely(!access_ok(VERIFY_WRITE, buf, count)))
+		return -EFAULT;
 
-	ret = locks_verify_area(FLOCK_VERIFY_READ, inode, file, *pos, count);
-	if (!ret) {
+	ret = rw_verify_area(READ, file, pos, count);
+	if (ret >= 0) {
+		count = ret;
 		ret = security_file_permission (file, MAY_READ);
 		if (!ret) {
 			if (file->f_op->read)
@@ -217,7 +276,16 @@ ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
 			else
 				ret = do_sync_read(file, buf, count, pos);
 			if (ret > 0)
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+			{
+				struct dentry *dentry = file->f_dentry;
+				fsnotify_access(dentry, dentry->d_inode,
+						dentry->d_name.name);
+			}
+
+#else
 				dnotify_parent(file->f_dentry, DN_ACCESS);
+#endif
 		}
 	}
 
@@ -244,16 +312,18 @@ EXPORT_SYMBOL(do_sync_write);
 
 ssize_t vfs_write(struct file *file, const char __user *buf, size_t count, loff_t *pos)
 {
-	struct inode *inode = file->f_dentry->d_inode;
 	ssize_t ret;
 
 	if (!(file->f_mode & FMODE_WRITE))
 		return -EBADF;
 	if (!file->f_op || (!file->f_op->write && !file->f_op->aio_write))
 		return -EINVAL;
+	if (unlikely(!access_ok(VERIFY_READ, buf, count)))
+		return -EFAULT;
 
-	ret = locks_verify_area(FLOCK_VERIFY_WRITE, inode, file, *pos, count);
-	if (!ret) {
+	ret = rw_verify_area(WRITE, file, pos, count);
+	if (ret >= 0) {
+		count = ret;
 		ret = security_file_permission (file, MAY_WRITE);
 		if (!ret) {
 			if (file->f_op->write)
@@ -261,7 +331,15 @@ ssize_t vfs_write(struct file *file, const char __user *buf, size_t count, loff_
 			else
 				ret = do_sync_write(file, buf, count, pos);
 			if (ret > 0)
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+			{
+				struct dentry *dentry = file->f_dentry;
+				fsnotify_modify(dentry, dentry->d_inode,
+						dentry->d_name.name);
+			}
+#else
 				dnotify_parent(file->f_dentry, DN_MODIFY);
+#endif
 		}
 	}
 
@@ -289,6 +367,10 @@ asmlinkage ssize_t sys_read(unsigned int fd, char __user * buf, size_t count)
 	file = fget_light(fd, &fput_needed);
 	if (file) {
 		loff_t pos = file_pos_read(file);
+ 	 	ltt_ev_file_system(LTT_EV_FILE_SYSTEM_READ,
+ 				  fd,
+ 				  count,
+ 				  NULL); 
 		ret = vfs_read(file, buf, count, &pos);
 		file_pos_write(file, pos);
 		fput_light(file, fput_needed);
@@ -307,6 +389,10 @@ asmlinkage ssize_t sys_write(unsigned int fd, const char __user * buf, size_t co
 	file = fget_light(fd, &fput_needed);
 	if (file) {
 		loff_t pos = file_pos_read(file);
+ 	        ltt_ev_file_system(LTT_EV_FILE_SYSTEM_WRITE,
+ 				  fd, 
+ 				  count,
+ 				  NULL);
 		ret = vfs_write(file, buf, count, &pos);
 		file_pos_write(file, pos);
 		fput_light(file, fput_needed);
@@ -328,8 +414,14 @@ asmlinkage ssize_t sys_pread64(unsigned int fd, char __user *buf,
 	file = fget_light(fd, &fput_needed);
 	if (file) {
 		ret = -ESPIPE;
-		if (file->f_mode & FMODE_PREAD)
+		if (file->f_mode & FMODE_PREAD) {
+ 	 		ltt_ev_file_system(LTT_EV_FILE_SYSTEM_READ,
+ 					  fd,
+ 					  count,
+ 					  NULL);
 			ret = vfs_read(file, buf, count, &pos);
+		}
+
 		fput_light(file, fput_needed);
 	}
 
@@ -349,8 +441,13 @@ asmlinkage ssize_t sys_pwrite64(unsigned int fd, const char __user *buf,
 	file = fget_light(fd, &fput_needed);
 	if (file) {
 		ret = -ESPIPE;
-		if (file->f_mode & FMODE_PWRITE)  
+		if (file->f_mode & FMODE_PWRITE) {
+ 			ltt_ev_file_system(LTT_EV_FILE_SYSTEM_WRITE,
+ 					  fd,
+ 					  count,
+ 					  NULL);
 			ret = vfs_write(file, buf, count, &pos);
+		}
 		fput_light(file, fput_needed);
 	}
 
@@ -379,6 +476,9 @@ unsigned long iov_shorten(struct iovec *iov, unsigned long nr_segs, size_t to)
 
 EXPORT_SYMBOL(iov_shorten);
 
+/* A write operation does a read from user space and vice versa */
+#define vrfy_dir(type) ((type) == READ ? VERIFY_WRITE : VERIFY_READ)
+
 static ssize_t do_readv_writev(int type, struct file *file,
 			       const struct iovec __user * uvector,
 			       unsigned long nr_segs, loff_t *pos)
@@ -393,7 +493,6 @@ static ssize_t do_readv_writev(int type, struct file *file,
 	int seg;
 	io_fn_t fn;
 	iov_fn_t fnv;
-	struct inode *inode;
 
 	/*
 	 * SuS says "The readv() function *may* fail if the iovcnt argument
@@ -433,8 +532,11 @@ static ssize_t do_readv_writev(int type, struct file *file,
 	tot_len = 0;
 	ret = -EINVAL;
 	for (seg = 0; seg < nr_segs; seg++) {
+		void __user *buf = iov[seg].iov_base;
 		ssize_t len = (ssize_t)iov[seg].iov_len;
 
+		if (unlikely(!access_ok(vrfy_dir(type), buf, len)))
+			goto Efault;
 		if (len < 0)	/* size_t not fitting an ssize_t .. */
 			goto out;
 		tot_len += len;
@@ -446,12 +548,8 @@ static ssize_t do_readv_writev(int type, struct file *file,
 		goto out;
 	}
 
-	inode = file->f_dentry->d_inode;
-	/* VERIFY_WRITE actually means a read, as we write to user space */
-	ret = locks_verify_area((type == READ 
-				 ? FLOCK_VERIFY_READ : FLOCK_VERIFY_WRITE),
-				inode, file, *pos, tot_len);
-	if (ret)
+	ret = rw_verify_area(type, file, pos, tot_len);
+	if (ret < 0)
 		goto out;
 
 	fnv = NULL;
@@ -494,9 +592,24 @@ out:
 	if (iov != iovstack)
 		kfree(iov);
 	if ((ret + (type == READ)) > 0)
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+	{
+		struct dentry *dentry = file->f_dentry;
+		struct inode *inode = dentry->d_inode;
+
+		if (type == READ)
+			fsnotify_access(dentry, inode, dentry->d_name.name);
+		else
+			fsnotify_modify(dentry, inode, dentry->d_name.name);
+}
+#else
 		dnotify_parent(file->f_dentry,
 				(type == READ) ? DN_ACCESS : DN_MODIFY);
+#endif
 	return ret;
+Efault:
+	ret = -EFAULT;
+	goto out;
 }
 
 ssize_t vfs_readv(struct file *file, const struct iovec __user *vec,
@@ -535,6 +648,10 @@ sys_readv(unsigned long fd, const struct iovec __user *vec, unsigned long vlen)
 	file = fget_light(fd, &fput_needed);
 	if (file) {
 		loff_t pos = file_pos_read(file);
+ 		ltt_ev_file_system(LTT_EV_FILE_SYSTEM_READ,
+ 				  fd,
+ 				  vlen,
+ 				  NULL);
 		ret = vfs_readv(file, vec, vlen, &pos);
 		file_pos_write(file, pos);
 		fput_light(file, fput_needed);
@@ -553,6 +670,10 @@ sys_writev(unsigned long fd, const struct iovec __user *vec, unsigned long vlen)
 	file = fget_light(fd, &fput_needed);
 	if (file) {
 		loff_t pos = file_pos_read(file);
+	 	ltt_ev_file_system(LTT_EV_FILE_SYSTEM_WRITE,
+ 				  fd,
+ 				  vlen,
+ 				  NULL);
 		ret = vfs_writev(file, vec, vlen, &pos);
 		file_pos_write(file, pos);
 		fput_light(file, fput_needed);
@@ -591,9 +712,10 @@ static ssize_t do_sendfile(int out_fd, int in_fd, loff_t *ppos,
 	else
 		if (!(in_file->f_mode & FMODE_PREAD))
 			goto fput_in;
-	retval = locks_verify_area(FLOCK_VERIFY_READ, in_inode, in_file, *ppos, count);
-	if (retval)
+	retval = rw_verify_area(READ, in_file, ppos, count);
+	if (retval < 0)
 		goto fput_in;
+	count = retval;
 
 	retval = security_file_permission (in_file, MAY_READ);
 	if (retval)
@@ -612,9 +734,10 @@ static ssize_t do_sendfile(int out_fd, int in_fd, loff_t *ppos,
 	if (!out_file->f_op || !out_file->f_op->sendpage)
 		goto fput_out;
 	out_inode = out_file->f_dentry->d_inode;
-	retval = locks_verify_area(FLOCK_VERIFY_WRITE, out_inode, out_file, out_file->f_pos, count);
-	if (retval)
+	retval = rw_verify_area(WRITE, out_file, &out_file->f_pos, count);
+	if (retval < 0)
 		goto fput_out;
+	count = retval;
 
 	retval = security_file_permission (out_file, MAY_WRITE);
 	if (retval)

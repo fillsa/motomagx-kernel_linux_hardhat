@@ -41,7 +41,7 @@ struct irqaction {
 	void *dev_id;
 	struct irqaction *next;
 	int irq;
-	struct proc_dir_entry *dir;
+	struct proc_dir_entry *dir, *threaded;
 };
 
 extern irqreturn_t no_action(int cpl, void *dev_id, struct pt_regs *regs);
@@ -68,13 +68,19 @@ extern void enable_irq(unsigned int irq);
 # define save_and_cli(x)	local_irq_save(x)
 #endif
 
+#ifdef CONFIG_PREEMPT_RT
+# define local_bh_disable() do { } while (0)
+# define local_bh_enable() do { } while (0)
+# define __local_bh_enable() do { } while (0)
+#else
 /* SoftIRQ primitives.  */
-#define local_bh_disable() \
-		do { preempt_count() += SOFTIRQ_OFFSET; barrier(); } while (0)
-#define __local_bh_enable() \
-		do { barrier(); preempt_count() -= SOFTIRQ_OFFSET; } while (0)
+#  define local_bh_disable() \
+		do { add_preempt_count(SOFTIRQ_OFFSET); barrier(); } while (0)
+#  define __local_bh_enable() \
+		do { barrier(); sub_preempt_count(SOFTIRQ_OFFSET); } while (0)
 
-extern void local_bh_enable(void);
+  extern void local_bh_enable(void);
+#endif
 
 /* PLEASE, avoid to allocate new softirqs, if you need not _really_ high
    frequency threaded job scheduling. For almost all the purposes
@@ -89,7 +95,8 @@ enum
 	NET_TX_SOFTIRQ,
 	NET_RX_SOFTIRQ,
 	SCSI_SOFTIRQ,
-	TASKLET_SOFTIRQ
+	TASKLET_SOFTIRQ,
+	HRTIMER_SOFTIRQ,
 };
 
 /* softirq mask and active fields moved to irq_cpustat_t in
@@ -108,6 +115,7 @@ extern void softirq_init(void);
 #define __raise_softirq_irqoff(nr) do { local_softirq_pending() |= 1UL << (nr); } while (0)
 extern void FASTCALL(raise_softirq_irqoff(unsigned int nr));
 extern void FASTCALL(raise_softirq(unsigned int nr));
+extern void wakeup_irqd(void);
 
 
 /* Tasklets --- multithreaded analogue of BHs.
@@ -266,6 +274,35 @@ static inline unsigned int probe_irq_mask(unsigned long val)
 extern unsigned long probe_irq_on(void);	/* returns 0 on failure */
 extern int probe_irq_off(unsigned long);	/* returns 0 or negative on failure */
 extern unsigned int probe_irq_mask(unsigned long);	/* returns mask of ISA interrupts */
+#endif
+
+#ifdef CONFIG_PREEMPT_RT
+# define local_irq_disable_nort()	do { BUG_ON(in_interrupt()); } while (0)
+# define local_irq_enable_nort()	do { BUG_ON(in_interrupt()); } while (0)
+# define local_irq_save_nort(flags)	do { local_save_flags(flags); WARN_ON(in_interrupt()); } while (0)
+# define local_irq_restore_nort(flags)	do { (void)(flags); WARN_ON(in_interrupt()); } while (0)
+# define spin_lock_nort(lock)		do { } while (0)
+# define spin_unlock_nort(lock)		do { } while (0)
+# define spin_lock_bh_nort(lock)	do { } while (0)
+# define spin_unlock_bh_nort(lock)	do { } while (0)
+# define spin_lock_rt(lock)		spin_lock(lock)
+# define spin_unlock_rt(lock)		spin_unlock(lock)
+# define smp_processor_id_rt(cpu)	(cpu)
+# define in_atomic_rt()			(!oops_in_progress && \
+					  (in_atomic() || irqs_disabled()))
+#else
+# define local_irq_disable_nort()	local_irq_disable()
+# define local_irq_enable_nort()	local_irq_enable()
+# define local_irq_save_nort(flags)	local_irq_save(flags)
+# define local_irq_restore_nort(flags)	local_irq_restore(flags)
+# define spin_lock_rt(lock)		do { } while (0)
+# define spin_unlock_rt(lock)		do { } while (0)
+# define spin_lock_nort(lock)		spin_lock(lock)
+# define spin_unlock_nort(lock)		spin_unlock(lock)
+# define spin_lock_bh_nort(lock)	spin_lock_bh(lock)
+# define spin_unlock_bh_nort(lock)	spin_unlock_bh(lock)
+# define smp_processor_id_rt(cpu)	smp_processor_id()
+# define in_atomic_rt()			0
 #endif
 
 #endif

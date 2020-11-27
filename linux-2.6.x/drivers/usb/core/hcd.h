@@ -63,7 +63,6 @@ struct usb_hcd {	/* usb_bus.hcpriv points to this */
 	struct usb_bus		self;		/* hcd is-a bus */
 
 	const char		*product_desc;	/* product/vendor string */
-	const char		*description;	/* "ehci-hcd" etc */
 
 	struct timer_list	rh_timer;	/* drives root hub */
 	struct list_head	dev_list;	/* devices on this bus */
@@ -71,7 +70,7 @@ struct usb_hcd {	/* usb_bus.hcpriv points to this */
 	/*
 	 * hardware info/state
 	 */
-	struct hc_driver	*driver;	/* hw-specific hooks */
+	const struct hc_driver	*driver;	/* hw-specific hooks */
 	unsigned		saw_irq : 1;
 	unsigned		can_wakeup:1;	/* hw supports wakeup? */
 	unsigned		remote_wakeup:1;/* sw should use wakeup? */
@@ -104,6 +103,12 @@ struct usb_hcd {	/* usb_bus.hcpriv points to this */
 	 * input size of periodic table to an interrupt scheduler. 
 	 * (ohci 32, uhci 1024, ehci 256/512/1024).
 	 */
+
+	/* The HC driver's private data is stored at the end of
+	 * this structure.
+	 */
+	unsigned long hcd_priv[0]
+			__attribute__ ((aligned (sizeof(unsigned long))));
 };
 
 /* 2.4 does this a bit differently ... */
@@ -162,6 +167,8 @@ struct pt_regs;
 
 struct hc_driver {
 	const char	*description;	/* "ehci-hcd" etc */
+	const char	*product_desc;	/* product/vendor string */
+	size_t		hcd_priv_size;	/* size of private data */
 
 	/* irq handler */
 	irqreturn_t	(*irq) (struct usb_hcd *hcd, struct pt_regs *regs);
@@ -220,6 +227,10 @@ struct hc_driver {
 
 extern void usb_hcd_giveback_urb (struct usb_hcd *hcd, struct urb *urb, struct pt_regs *regs);
 extern void usb_bus_init (struct usb_bus *bus);
+
+extern struct usb_hcd *usb_create_hcd (const struct hc_driver *driver);
+extern void usb_put_hcd (struct usb_hcd *hcd);
+
 
 #ifdef CONFIG_PCI
 struct pci_dev;
@@ -364,8 +375,6 @@ static inline int hcd_register_root (struct usb_device *usb_dev,
 
 	return usb_register_root_hub (usb_dev, hcd->self.controller);
 }
-
-extern void usb_hcd_release (struct usb_bus *);
 
 extern void usb_set_device_state(struct usb_device *udev,
 		enum usb_device_state new_state);

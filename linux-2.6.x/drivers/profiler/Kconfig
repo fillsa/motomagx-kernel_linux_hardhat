@@ -1,0 +1,10 @@
+#
+# Profiler configuration
+#
+
+menu "profiler support"
+
+config PROFILER
+	bool
+
+endmenu

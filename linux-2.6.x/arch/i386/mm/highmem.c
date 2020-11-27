@@ -17,6 +17,27 @@ void kunmap(struct page *page)
 	kunmap_high(page);
 }
 
+void kunmap_virt(void *ptr)
+{
+	struct page *page;
+
+	if ((unsigned long)ptr < PKMAP_ADDR(0))
+		return;
+	page = pte_page(pkmap_page_table[PKMAP_NR((unsigned long)ptr)]);
+	kunmap(page);
+}
+
+struct page *kmap_to_page(void *ptr)
+{
+	struct page *page;
+
+	if ((unsigned long)ptr < PKMAP_ADDR(0))
+		return virt_to_page(ptr);
+	page = pte_page(pkmap_page_table[PKMAP_NR((unsigned long)ptr)]);
+	return page;
+}
+
+
 /*
  * kmap_atomic/kunmap_atomic is significantly faster than kmap/kunmap because
  * no global lock is needed and because the kmap code must perform a global TLB
@@ -25,7 +46,7 @@ void kunmap(struct page *page)
  * However when holding an atomic kmap is is not legal to sleep, so atomic
  * kmaps are appropriate for short, tight code paths only.
  */
-void *kmap_atomic(struct page *page, enum km_type type)
+void *__kmap_atomic(struct page *page, enum km_type type)
 {
 	enum fixed_addresses idx;
 	unsigned long vaddr;
@@ -47,7 +68,7 @@ void *kmap_atomic(struct page *page, enum km_type type)
 	return (void*) vaddr;
 }
 
-void kunmap_atomic(void *kvaddr, enum km_type type)
+void __kunmap_atomic(void *kvaddr, enum km_type type)
 {
 #ifdef CONFIG_DEBUG_HIGHMEM
 	unsigned long vaddr = (unsigned long) kvaddr & PAGE_MASK;
@@ -74,7 +95,7 @@ void kunmap_atomic(void *kvaddr, enum km_type type)
 	preempt_check_resched();
 }
 
-struct page *kmap_atomic_to_page(void *ptr)
+struct page *__kmap_atomic_to_page(void *ptr)
 {
 	unsigned long idx, vaddr = (unsigned long)ptr;
 	pte_t *pte;

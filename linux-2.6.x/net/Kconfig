@@ -81,6 +81,30 @@ config NET_KEY
 
 	  Say Y unless you know what you are doing.
 
+config NET_KEY_MIGRATE
+	bool "PF_KEY migration interface"
+	depends on NET_KEY
+	select XFRM_USER
+	select XFRM_ENHANCEMENT
+	---help---
+	  Add PF_KEY MIGRATE message to PF_KEYv2 socket family.
+	  PF_KEY MIGRATE message updates endpoint address of IPsec tunnel
+	  in security policy and security association. This is required
+	  for Mobile IPv6 environment where the node keeps changing its
+	  attachment point to the Internet while facilitating IPsec tunnel.
+
+config USE_POLICY_FWD
+	bool "Use xfrm policy fwd"
+	default y
+	---help---
+	  Using XFRM_POLICY_FWD which corespond to fwd in setkey
+	  when specifing inbound forwarding policy.
+	  This is USAGI original changes. If you want the original
+	  kernel behavior of IPsec, say Y. If you want behavior
+	  which is similar to KAME IPsec stack, say N.
+
+	  Unsure, Say Y.
+
 config INET
 	bool "TCP/IP networking"
 	---help---
@@ -107,12 +131,12 @@ source "net/ipv4/Kconfig"
 
 #   IPv6 as module will cause a CRASH if you try to unload it
 config IPV6
-	tristate "The IPv6 protocol (EXPERIMENTAL)"
-	depends on INET && EXPERIMENTAL
+	tristate "The IPv6 protocol"
+	depends on INET
 	select CRYPTO if IPV6_PRIVACY
 	select CRYPTO_MD5 if IPV6_PRIVACY
 	---help---
-	  This is experimental support for the IP version 6 (formerly called
+	  This is additional support for the IP version 6 (formerly called
 	  IPng "IP next generation").  You will still be able to do
 	  regular IPv4 networking as well.
 
@@ -126,8 +150,6 @@ config IPV6
 
 	  To compile this protocol support as a module, choose M here: the 
 	  module will be called ipv6.
-
-	  It is safe to say N here for now.
 
 source "net/ipv6/Kconfig"
 
@@ -652,6 +674,7 @@ source "net/ax25/Kconfig"
 source "net/irda/Kconfig"
 
 source "net/bluetooth/Kconfig"
+source "net/ieee80211/Kconfig"
 
 source "drivers/net/Kconfig"
 

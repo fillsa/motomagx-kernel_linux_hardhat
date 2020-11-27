@@ -3,6 +3,12 @@
 
 /*
  * 'kernel.h' contains some often-used function prototypes etc
+ *
+ * Copyright 2006 Motorola, Inc. All rights reserved.
+ *
+ * Date         Author         Comment
+ * ==========   ===========    ===================================
+ * 09/14/2006   Motorola       Add prototype for set_fb_panic_text
  */
 
 #ifdef __KERNEL__
@@ -46,14 +52,22 @@ extern int console_printk[];
 
 struct completion;
 
-#ifdef CONFIG_DEBUG_SPINLOCK_SLEEP
-void __might_sleep(char *file, int line);
-#define might_sleep() __might_sleep(__FILE__, __LINE__)
-#define might_sleep_if(cond) do { if (unlikely(cond)) might_sleep(); } while (0)
+#ifdef CONFIG_PREEMPT_VOLUNTARY
+extern int cond_resched(void);
+# define might_resched() cond_resched()
 #else
-#define might_sleep() do {} while(0)
-#define might_sleep_if(cond) do {} while (0)
+# define might_resched() do { } while (0)
 #endif
+
+#if defined(CONFIG_DEBUG_SPINLOCK_SLEEP) || defined(CONFIG_DEBUG_PREEMPT)
+   void __might_sleep(char *file, int line);
+# define might_sleep() \
+	do { __might_sleep(__FILE__, __LINE__); might_resched(); } while (0)
+#else
+# define might_sleep() do { might_resched(); } while (0)
+#endif
+
+#define might_sleep_if(cond) do { if (unlikely(cond)) might_sleep(); } while (0)
 
 #define abs(x) ({				\
 		int __x = (x);			\
@@ -67,6 +81,9 @@ void __might_sleep(char *file, int line);
 
 extern struct notifier_block *panic_notifier_list;
 extern long (*panic_blink)(long time);
+#ifdef CONFIG_MOT_FEAT_FB_PANIC_TEXT
+extern void set_fb_panic_text(const char * msg);
+#endif
 NORET_TYPE void panic(const char * fmt, ...)
 	__attribute__ ((NORET_AND format (printf, 1, 2)));
 fastcall NORET_TYPE void do_exit(long error_code)
@@ -102,6 +119,12 @@ extern int session_of_pgrp(int pgrp);
 asmlinkage int vprintk(const char *fmt, va_list args);
 asmlinkage int printk(const char * fmt, ...)
 	__attribute__ ((format (printf, 1, 2)));
+
+#ifdef CONFIG_PREEMPT_RT
+extern void zap_rt_locks(void);
+#else
+# define zap_rt_locks() do { } while (0)
+#endif
 
 unsigned long int_sqrt(unsigned long);
 
@@ -142,6 +165,7 @@ extern void add_taint(unsigned);
 /* Values used for system_state */
 extern enum system_states {
 	SYSTEM_BOOTING,
+	SYSTEM_BOOTING_SCHEDULER_OK,
 	SYSTEM_RUNNING,
 	SYSTEM_HALT,
 	SYSTEM_POWER_OFF,

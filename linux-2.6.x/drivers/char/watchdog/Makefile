@@ -39,3 +39,6 @@ obj-$(CONFIG_USBPCWATCHDOG) += pcwd_usb.o
 obj-$(CONFIG_IXP4XX_WATCHDOG) += ixp4xx_wdt.o
 obj-$(CONFIG_IXP2000_WATCHDOG) += ixp2000_wdt.o
 obj-$(CONFIG_8xx_WDT) += mpc8xx_wdt.o
+obj-$(CONFIG_OMAP16XX_WATCHDOG) += omap1610_wdt.o
+obj-$(CONFIG_MXC_WATCHDOG) += mxc_wdt.o
+obj-$(CONFIG_PNX4008_WATCHDOG) += pnx4008_wdt.o

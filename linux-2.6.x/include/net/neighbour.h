@@ -54,6 +54,8 @@
 #include <linux/rcupdate.h>
 #include <linux/seq_file.h>
 
+#include <linux/config.h>
+
 #include <linux/err.h>
 #include <linux/sysctl.h>
 
@@ -158,7 +160,9 @@ struct neigh_ops
 struct pneigh_entry
 {
 	struct pneigh_entry	*next;
-	struct net_device		*dev;
+	struct net_device      	*dev;
+	struct neigh_table	*tbl;
+	__u8			flags;
 	u8			key[0];
 };
 
@@ -204,6 +208,22 @@ struct neigh_table
 	struct proc_dir_entry	*pde;
 #endif
 };
+
+static __inline__ char * neigh_state(int state)
+{
+	switch (state) {
+	case NUD_NONE:		return "NONE";
+	case NUD_INCOMPLETE:	return "INCOMPLETE";
+	case NUD_REACHABLE:	return "REACHABLE";
+	case NUD_STALE:		return "STALE";
+	case NUD_DELAY:		return "DELAY";
+	case NUD_PROBE:		return "PROBE";
+	case NUD_FAILED:	return "FAILED";
+	case NUD_NOARP:		return "NOARP";
+	case NUD_PERMANENT:	return "PERMANENT";
+	default:		return "???";
+	}
+}
 
 /* flags for neigh_update() */
 #define NEIGH_UPDATE_F_OVERRIDE			0x00000001
@@ -300,18 +320,35 @@ static inline struct neigh_parms *neigh_parms_clone(struct neigh_parms *parms)
 
 static inline void neigh_release(struct neighbour *neigh)
 {
+#ifdef CONFIG_IPV6_NDISC_DEBUG
+	printk(KERN_DEBUG "%s(neigh=%p): refcnt=%d\n",
+		__FUNCTION__, neigh, atomic_read(&neigh->refcnt)-1);
+#endif
 	if (atomic_dec_and_test(&neigh->refcnt))
 		neigh_destroy(neigh);
 }
 
 static inline struct neighbour * neigh_clone(struct neighbour *neigh)
 {
+#ifdef CONFIG_IPV6_NDISC_DEBUG
+	printk(KERN_DEBUG "%s(neigh=%p): refcnt=%d\n",
+		__FUNCTION__, neigh, neigh ? atomic_read(&neigh->refcnt)+1 : 0);
+#endif
 	if (neigh)
 		atomic_inc(&neigh->refcnt);
 	return neigh;
 }
 
+#ifdef CONFIG_IPV6_NDISC_DEBUG
+#define neigh_hold(n)	({	\
+	struct neighbour *_n = (n);		\
+	printk(KERN_DEBUG "%s(neigh=%p): refcnt=%d\n", \
+		__FUNCTION__, _n, atomic_read(&_n->refcnt)+1);	\
+	atomic_inc(&_n->refcnt);	\
+})
+#else
 #define neigh_hold(n)	atomic_inc(&(n)->refcnt)
+#endif
 
 static inline void neigh_confirm(struct neighbour *neigh)
 {
@@ -331,6 +368,11 @@ static inline int neigh_is_valid(struct neighbour *neigh)
 
 static inline int neigh_event_send(struct neighbour *neigh, struct sk_buff *skb)
 {
+#ifdef CONFIG_IPV6_NDISC_DEBUG
+	printk(KERN_DEBUG
+	       "%s(neigh=%p, skb=%p): %s, refcnt=%d\n",
+	       __FUNCTION__, neigh, skb, neigh_state(neigh->nud_state), atomic_read(&neigh->refcnt));
+#endif
 	neigh->used = jiffies;
 	if (!(neigh->nud_state&(NUD_CONNECTED|NUD_DELAY|NUD_PROBE)))
 		return __neigh_event_send(neigh, skb);

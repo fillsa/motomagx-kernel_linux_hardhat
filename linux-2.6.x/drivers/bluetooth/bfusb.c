@@ -19,9 +19,20 @@
  *  along with this program; if not, write to the Free Software
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
+ *
+ *
+ *     Copyright (C) 2007 - Motorola
+ *
+ *     Date         Author           Comment
+ *     -----------  --------------   --------------------------------
+ *     02-FEB-2007  Motorola         ModKconfig Build System Change
+ *
  */
 
 #include <linux/config.h>
+#ifdef MODKCONFIG
+#include "modkconfig/config.h"
+#endif
 #include <linux/module.h>
 
 #include <linux/kernel.h>

@@ -1,0 +1,242 @@
+#!/vobs/atso_tools/perl5/bin/perl_Linux_5.6.1 -w
+# (Not that bothered about which version of perl is used. )
+
+# This script does some preprocessing to add the latest Sierra label found in the view
+# to the bottom of each html page. It also allows the user to override Doxygen's 
+# output directory without having to mess around with checking out the config file. etc.
+
+use strict;
+
+# Just clean stuff up if a signal arrives.
+$SIG{'INT'} = 'clean_up';
+$SIG{'TERM'} = 'clean_up';
+$SIG{'QUIT'} = 'clean_up';
+
+####################################################################################################
+# Variables
+
+my $CLASSIFICATION = "MOTOROLA CONFIDENTIAL PROPRIETARY";
+my $COPYRIGHT = "&copy Copyright Motorola, Inc. 2005-2006";
+
+# Where is cleartool?
+my $CT = "/usr/atria/bin/cleartool";
+
+# Doxygen config file, and temp. copy.
+my $DOXYGEN = "/usr/bin/doxygen";
+my $DOXYGEN_CFG = "./doxygen.cfg";
+my $DOXYGEN_TEMP_CFG = "./doxygen_temp.cfg";
+
+# File to be used for label. Using our global header as it changes
+# quite often.
+my $FILE_FOR_VERSION = "../../include/linux/power_ic.h";
+
+# The footer for doxygen will be generated here. Must match the footer in doxygen.cfg.
+my $FOOTER_FILENAME = "./footer.html";
+
+# Fragment of Sierra label to look for.
+my $SIERRA_LABEL_FRAG = "SIERRA_AP";
+
+# This tidies stuff up on the screen. Make this "" if you really need to see
+# what's going on...
+my $REDIRECT = "2&> /dev/null";
+
+# Get the time that documentation was generated.
+my $build_time = localtime;
+
+# Doxygen config file to be used (overriden if sierra label found) and
+# html output dir (if specified on command line).
+my $doxygen_config_file = $DOXYGEN_CFG;
+my $doxygen_output_dir = "";
+
+# This will be the largest (i.e. newest) label found.
+my $sierra_label = "";
+
+# Used to look through all_labels, one at a time.
+my $label;
+
+####################################################################################################
+# Main program
+
+print("\n");
+
+check_command_line();
+find_sierra_label();
+clean_up();
+
+if((tweak_doxygen_config() eq 0) and (create_footer() eq 0))
+{
+    show_status();
+    
+    # Generate the Documentation.
+    if(system "$DOXYGEN $doxygen_config_file $REDIRECT")
+    {
+        print "error!\n\n";
+    }
+    else
+    {
+        print "done.\n\n";
+    }
+}
+else
+{
+    print "An error occurred. Exiting.\n";
+}
+
+clean_up();
+
+####################################################################################################
+# Functions
+
+# This checks the arguments on the command line for validity. If the user specifies
+# a different directory for the output, then $doxygen_output_dir will hold that 
+# directory.
+sub check_command_line
+{
+    # Do we need to provide info about how to use the tool?
+    if( (scalar(@ARGV) > 1) || ((scalar(@ARGV) == 1) && ($ARGV[0] eq "-h")) )
+    {
+        print "Incorrect number of options.\n";
+        usage();
+        exit;
+    }
+
+    #If the user wants to change the directory where the docs are output, then set this up.
+    if(scalar(@ARGV) == 1)
+    {
+        # Check that the directory exists.
+        if(! opendir(DIRHANDLE,$ARGV[0]))
+        {
+            print "The directory ",$ARGV[0]," specified does not exist.\n";
+            usage();
+            exit;
+        }
+        else
+        {
+            close(DIRHANDLE);
+            $doxygen_output_dir = $ARGV[0];
+        }
+    }
+}
+
+# This looks for Sierra labels on the file to be checked for a version.
+sub find_sierra_label
+{
+    # Get all labels on the file and shove 'em in an array.
+    my @all_labels = split(/\s+/, `$CT desc -fmt "%Nl" $FILE_FOR_VERSION`);
+
+    # Go looking for Sierra labels in all that mess.
+    foreach $label (@all_labels)
+    {
+        # Does this label have the Sierra label fragment in it?
+        if(index($label, $SIERRA_LABEL_FRAG) != -1)
+        {
+            # Is this a begger (i.e. newer) label than what we currently have?
+            if($label  gt $sierra_label)
+            {
+                $sierra_label = $label;
+            }
+        }
+    }
+}
+
+# If a Sierra label has been found, then tweak the doxygen config to add the HTML footer.
+# We do this instead of hardcoding the footer into the config file because a missing
+# footer will break the doxygen build for anyone that just wants to run doxygen directly with
+# the config file.
+sub tweak_doxygen_config
+{
+    # Copy the default doxygen config. This may be write-protected,
+    # so a chmod on the copy is a good thing here....
+    system "cp $DOXYGEN_CFG $DOXYGEN_TEMP_CFG";
+    system "chmod +w $DOXYGEN_TEMP_CFG";
+
+    open(CONFIG, ">>",$DOXYGEN_TEMP_CFG) or return 1;
+        
+    print CONFIG "HTML_FOOTER            = ",$FOOTER_FILENAME,"\n";
+
+    # Override default output directory if told to do so.
+    if($doxygen_output_dir ne "")
+    {
+        print CONFIG "OUTPUT_DIRECTORY       = ",$doxygen_output_dir,"\n";
+    }
+        
+    close CONFIG;
+        
+    $doxygen_config_file = $DOXYGEN_TEMP_CFG;
+
+    return 0;
+}
+
+# Generates the footer to be attached on the end of each doxygen HTML page.
+# At a minimum, doxygen wants a footer with the closing </BODY> and </HTML>
+# tags for the page. This function adds some additional information about 
+# the Sierra AP rekease and the time the documntation was built before
+# the end of the page.
+sub create_footer
+{
+    open(FOOTER, ">",$FOOTER_FILENAME) or return 1;
+
+    print FOOTER "<BR><BR><HR SIZE=1>\n";
+    print FOOTER "<TABLE WIDTH=100% BORDER=0 CELLPADDING=0 CELLSPACING=0>\n";       
+    print FOOTER "<TR>\n";
+    if($sierra_label ne "")
+    {            
+        print FOOTER "<TD ALIGN=LEFT WIDTH=50%><SMALL>Sierra Version: ",$sierra_label,"</SMALL</TD>\n";
+    }
+    else
+    {
+        print FOOTER "<TD ALIGN=LEFT WIDTH=50%><SMALL> </SMALL></TD>\n";
+    }
+    
+    print FOOTER "<TD ALIGN=RIGHT WIDTH=50%><SMALL>Documentation generated: ",$build_time,"</SMALL></TD>\n";
+    print FOOTER "</TR>\n";
+    print FOOTER "<TR>\n";
+    print FOOTER "<TD COLSPAN=2 ALIGN=CENTER><SMALL><B>",$CLASSIFICATION,"</B></SMALL</TD>\n";
+    print FOOTER "</TR>\n";
+    print FOOTER "<TR>\n";
+    print FOOTER "<TD COLSPAN=2 ALIGN=CENTER><SMALL>",$COPYRIGHT,"</SMALL</TD>\n";
+    print FOOTER "</TR>\n"; 
+    print FOOTER "</TABLE>\n";
+        
+    # DON'T CHANGE THIS! This must be the last thing in the footer.
+    print FOOTER "</BODY>\n</HTML>";
+
+    close FOOTER;
+
+    return 0;
+}
+
+# Remove temporary files...
+sub clean_up
+{
+    system "rm -f $DOXYGEN_TEMP_CFG $REDIRECT";
+    system "rm -f $FOOTER_FILENAME $REDIRECT";
+}
+
+
+# Info on command-line options, etc.
+sub usage
+{
+    print "\n";
+    print "     Usage: $0 [directory | -h]\n";
+    print "\n";
+    print "   Options:\n";
+    print "       directory: directory where the documentation should be stored\n";
+    print "              -h: prints this help message\n";
+    print "\n";
+}
+
+sub show_status
+{
+    #Show some info about what the script is doing...
+    print "Generating documentation";
+    if($sierra_label ne "")
+    {  
+        print " for ",$sierra_label;
+    }
+    if($doxygen_output_dir ne "")
+    {  
+        print " in ",$doxygen_output_dir;
+    }
+    print " ...";
+}

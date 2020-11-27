@@ -1,7 +1,10 @@
 %{
 /*
  * Copyright (C) 2002 Roman Zippel <zippel@linux-m68k.org>
+ * Copyright (C) 2006 Motorola
  * Released under the terms of the GNU GPL v2.0.
+ *
+ * Motorola  2006-Nov-16 - Add support for lock/endlock blocks.
  */
 
 #include <ctype.h>
@@ -26,10 +29,11 @@ static bool zconf_endtoken(int token, int starttoken, int endtoken);
 struct symbol *symbol_hash[257];
 
 static struct menu *current_menu, *current_entry;
+static int current_lock = 0;
 
 #define YYERROR_VERBOSE
 %}
-%expect 40
+%expect 43
 
 %union
 {
@@ -75,6 +79,8 @@ static struct menu *current_menu, *current_entry;
 %token T_ON
 %token T_SELECT
 %token T_RANGE
+%token T_LOCK
+%token T_ENDLOCK
 
 %left T_OR
 %left T_AND
@@ -109,6 +115,7 @@ block:	  common_block
 
 common_block:
 	  if_stmt
+ 	| lock_stmt
 	| comment_stmt
 	| config_stmt
 	| menuconfig_stmt
@@ -335,6 +342,28 @@ if_block:
 	| if_block common_block
 	| if_block menu_stmt
 	| if_block choice_stmt
+;
+
+/* lock entry */
+
+lock_entry: T_LOCK T_EOL
+{
+	current_lock++;
+};
+
+lock_end: T_ENDLOCK T_EOL
+{
+	current_lock--;
+};
+
+lock_stmt: lock_entry lock_block lock_end
+;
+
+lock_block:
+	  /* empty */
+	| lock_block common_block
+	| lock_block menu_stmt
+	| lock_block choice_stmt
 ;
 
 /* menu entry */

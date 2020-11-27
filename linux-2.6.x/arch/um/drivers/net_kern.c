@@ -30,7 +30,7 @@
 #include "irq_user.h"
 #include "irq_kern.h"
 
-static spinlock_t opened_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(opened_lock);
 LIST_HEAD(opened);
 
 static int uml_net_rx(struct net_device *dev)
@@ -286,7 +286,7 @@ void uml_net_user_timer_expire(unsigned long _conn)
 #endif
 }
 
-static spinlock_t devices_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(devices_lock);
 static struct list_head devices = LIST_HEAD_INIT(devices);
 
 static int eth_configure(int n, void *init, char *mac,

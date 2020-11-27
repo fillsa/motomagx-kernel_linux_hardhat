@@ -2,6 +2,7 @@
  *  linux/arch/arm/mm/flush.c
  *
  *  Copyright (C) 1995-2002 Russell King
+ *  Copyright 2006, Motorola
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -13,14 +14,171 @@
 
 #include <asm/cacheflush.h>
 #include <asm/system.h>
+#include <asm/tlbflush.h>
 
-static void __flush_dcache_page(struct address_space *mapping, struct page *page)
+#ifdef CONFIG_CPU_CACHE_VIPT
+
+#define ALIAS_FLUSH_START	0xffff4000
+
+#define TOP_PTE(x)	pte_offset_kernel(top_pmd, x)
+
+static void flush_pfn_alias(unsigned long pfn, unsigned long vaddr)
 {
-	struct mm_struct *mm = current->active_mm;
-	struct vm_area_struct *mpnt;
-	struct prio_tree_iter iter;
-	pgoff_t pgoff;
+	unsigned long to = ALIAS_FLUSH_START + (CACHE_COLOUR(vaddr) << PAGE_SHIFT);
+	const int zero = 0;
 
+	set_pte(TOP_PTE(to), pfn_pte(pfn, PAGE_KERNEL));
+	flush_tlb_kernel_page(to);
+
+/* Fix for ARM errata 411920 */
+#ifndef CONFIG_MOT_WFN477
+	asm(	"mcrr	p15, 0, %1, %0, c14\n"
+	"	mcr	p15, 0, %2, c7, c10, 4\n"
+	"	mcr	p15, 0, %2, c7, c5, 0\n"
+	    :
+	    : "r" (to), "r" (to + PAGE_SIZE - L1_CACHE_BYTES), "r" (zero)
+	    : "cc");
+#else
+	asm(	"mcrr	p15, 0, %1, %0, c14\n"
+		"	mcr	p15, 0, %2, c7, c10, 4\n"
+		"	mrs	r3, cpsr\n"
+		"	cpsid	ifa\n"
+		"	mcr	p15, 0, %2, c7, c12, 5\n"
+		"	mcr	p15, 0, %2, c7, c5, 0\n"
+		"	mcr	p15, 0, %2, c7, c5, 0\n"
+		"	mcr	p15, 0, %2, c7, c5, 0\n"
+		"	mcr	p15, 0, %2, c7, c5, 0\n"
+		"	msr	cpsr_c, r3\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+	    :
+	    : "r" (to), "r" (to + PAGE_SIZE - L1_CACHE_BYTES), "r" (zero)
+	    : "cc", "r3");
+#endif
+}
+
+void flush_cache_mm(struct mm_struct *mm)
+{
+	if (cache_is_vivt()) {
+		if (cpu_isset(smp_processor_id(), mm->cpu_vm_mask))
+			__cpuc_flush_user_all();
+		return;
+	}
+
+	if (cache_is_vipt_aliasing()) {
+/* Fix for ARM errata 411920 */
+#ifndef CONFIG_MOT_WFN477
+		asm(	"mcr	p15, 0, %0, c7, c14, 0\n"
+		"	mcr	p15, 0, %0, c7, c5, 0\n"
+		"	mcr	p15, 0, %0, c7, c10, 4"
+		    :
+		    : "r" (0)
+		    : "cc");
+#else
+		asm(	"mcr	p15, 0, %0, c7, c14, 0\n"
+		"	mrs	r3, cpsr\n"
+		"	cpsid	ifa\n"
+		"	mcr	p15, 0, %0, c7, c12, 5\n"
+		"	mcr	p15, 0, %0, c7, c5, 0\n"
+		"	mcr	p15, 0, %0, c7, c5, 0\n"
+		"	mcr	p15, 0, %0, c7, c5, 0\n"
+		"	mcr	p15, 0, %0, c7, c5, 0\n"
+		"	msr	cpsr_c, r3\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	mcr	p15, 0, %0, c7, c10, 4"
+		    :
+		    : "r" (0)
+		    : "cc", "r3");
+#endif
+	}
+}
+
+void flush_cache_range(struct vm_area_struct *vma, unsigned long start, unsigned long end)
+{
+	if (cache_is_vivt()) {
+		if (cpu_isset(smp_processor_id(), vma->vm_mm->cpu_vm_mask))
+			__cpuc_flush_user_range(start & PAGE_MASK, PAGE_ALIGN(end),
+						vma->vm_flags);
+		return;
+	}
+
+	if (cache_is_vipt_aliasing() ||
+	    cache_is_vipt_nonaliasing()) {
+/* Fix for ARM errata 411920 */
+#ifndef CONFIG_MOT_WFN477
+		asm(	"mcr	p15, 0, %0, c7, c14, 0\n"
+		"	mcr	p15, 0, %0, c7, c5, 0\n"
+		"	mcr	p15, 0, %0, c7, c10, 4"
+		    :
+		    : "r" (0)
+		    : "cc");
+#else
+		asm(	"mcr	p15, 0, %0, c7, c14, 0\n"
+		"	mrs	r3, cpsr\n"
+		"	cpsid	ifa\n"
+		"	mcr	p15, 0, %0, c7, c12, 5\n"
+		"	mcr	p15, 0, %0, c7, c5, 0\n"
+		"	mcr	p15, 0, %0, c7, c5, 0\n"
+		"	mcr	p15, 0, %0, c7, c5, 0\n"
+		"	mcr	p15, 0, %0, c7, c5, 0\n"
+		"	msr	cpsr_c, r3\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	nop\n"
+		"	mcr	p15, 0, %0, c7, c10, 4"
+		    :
+		    : "r" (0)
+		    : "cc", "r3");
+#endif
+	}
+}
+
+void flush_cache_page(struct vm_area_struct *vma, unsigned long user_addr, unsigned long pfn)
+{
+	if (cache_is_vivt()) {
+		if (cpu_isset(smp_processor_id(), vma->vm_mm->cpu_vm_mask)) {
+			unsigned long addr = user_addr & PAGE_MASK;
+			__cpuc_flush_user_range(addr, addr + PAGE_SIZE, vma->vm_flags);
+		}
+		return;
+	}
+
+	if (cache_is_vipt_aliasing())
+		flush_pfn_alias(pfn, user_addr);
+}
+#else
+#define flush_pfn_alias(pfn,vaddr)	do { } while (0)
+#endif
+
+void __flush_dcache_page(struct address_space *mapping, struct page *page)
+{
 	/*
 	 * Writeback any data associated with the kernel mapping of this
 	 * page.  This ensures that data in the physical page is mutually
@@ -29,12 +187,21 @@ static void __flush_dcache_page(struct address_space *mapping, struct page *page
 	__cpuc_flush_dcache_page(page_address(page));
 
 	/*
-	 * If there's no mapping pointer here, then this page isn't
-	 * visible to userspace yet, so there are no cache lines
-	 * associated with any other aliases.
+	 * If this is a page cache page, and we have an aliasing VIPT cache,
+	 * we only need to do one flush - which would be at the relevant
+	 * userspace colour, which is congruent with page->index.
 	 */
-	if (!mapping)
-		return;
+	if (mapping && cache_is_vipt_aliasing())
+		flush_pfn_alias(page_to_pfn(page),
+				page->index << PAGE_CACHE_SHIFT);
+}
+
+static void __flush_dcache_aliases(struct address_space *mapping, struct page *page)
+{
+	struct mm_struct *mm = current->active_mm;
+	struct vm_area_struct *mpnt;
+	struct prio_tree_iter iter;
+	pgoff_t pgoff;
 
 	/*
 	 * There are possible user space mappings of this page:
@@ -56,9 +223,7 @@ static void __flush_dcache_page(struct address_space *mapping, struct page *page
 		if (!(mpnt->vm_flags & VM_MAYSHARE))
 			continue;
 		offset = (pgoff - mpnt->vm_pgoff) << PAGE_SHIFT;
-		flush_cache_page(mpnt, mpnt->vm_start + offset);
-		if (cache_is_vipt())
-			break;
+		flush_cache_page(mpnt, mpnt->vm_start + offset, page_to_pfn(page));
 	}
 	flush_dcache_mmap_unlock(mapping);
 }
@@ -83,12 +248,12 @@ void flush_dcache_page(struct page *page)
 {
 	struct address_space *mapping = page_mapping(page);
 
-	if (cache_is_vipt_nonaliasing())
-		return;
-
 	if (mapping && !mapping_mapped(mapping))
 		set_bit(PG_dcache_dirty, &page->flags);
-	else
+	else {
 		__flush_dcache_page(mapping, page);
+		if (mapping && cache_is_vivt())
+			__flush_dcache_aliases(mapping, page);
+	}
 }
 EXPORT_SYMBOL(flush_dcache_page);

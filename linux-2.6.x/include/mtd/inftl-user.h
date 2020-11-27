@@ -1,5 +1,5 @@
 /*
- * $Id: inftl-user.h,v 1.1 2004/05/05 15:17:00 dwmw2 Exp $
+ * $Id: nftl-user.h,v 1.1 2004/05/05 14:44:57 dwmw2 Exp $
  *
  * Parts of INFTL headers shared with userspace 
  *

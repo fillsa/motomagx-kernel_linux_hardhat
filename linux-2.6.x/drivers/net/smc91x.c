@@ -310,14 +310,24 @@ static void smc_reset(struct net_device *dev)
 	unsigned long ioaddr = dev->base_addr;
 	struct smc_local *lp = netdev_priv(dev);
 	unsigned int ctl, cfg;
+	struct sk_buff *pending_skb;
 
 	DBG(2, "%s: %s\n", dev->name, __FUNCTION__);
 
-	/* Disable all interrupts */
+	/* Disable all interrupts, block TX tasklet */
 	spin_lock(&lp->lock);
 	SMC_SELECT_BANK(2);
 	SMC_SET_INT_MASK(0);
+	pending_skb = lp->pending_tx_skb;
+	lp->pending_tx_skb = NULL;
 	spin_unlock(&lp->lock);
+
+	/* free any pending tx skb */
+	if (pending_skb) {
+		dev_kfree_skb(pending_skb);
+		lp->stats.tx_errors++;
+		lp->stats.tx_aborted_errors++;
+	}
 
 	/*
 	 * This resets the registers mostly to defaults, but doesn't
@@ -384,14 +394,6 @@ static void smc_reset(struct net_device *dev)
 	SMC_SELECT_BANK(2);
 	SMC_SET_MMU_CMD(MC_RESET);
 	SMC_WAIT_MMU_BUSY();
-
-	/* clear anything saved */
-	if (lp->pending_tx_skb != NULL) {
-		dev_kfree_skb (lp->pending_tx_skb);
-		lp->pending_tx_skb = NULL;
-		lp->stats.tx_errors++;
-		lp->stats.tx_aborted_errors++;
-	}
 }
 
 /*
@@ -435,6 +437,7 @@ static void smc_shutdown(struct net_device *dev)
 {
 	unsigned long ioaddr = dev->base_addr;
 	struct smc_local *lp = netdev_priv(dev);
+	struct sk_buff *pending_skb;
 
 	DBG(2, "%s: %s\n", CARDNAME, __FUNCTION__);
 
@@ -442,7 +445,11 @@ static void smc_shutdown(struct net_device *dev)
 	spin_lock(&lp->lock);
 	SMC_SELECT_BANK(2);
 	SMC_SET_INT_MASK(0);
+	pending_skb = lp->pending_tx_skb;
+	lp->pending_tx_skb = NULL;
 	spin_unlock(&lp->lock);
+	if (pending_skb)
+		dev_kfree_skb(pending_skb);
 
 	/* and tell the card to stay away from that nasty outside world */
 	SMC_SELECT_BANK(0);
@@ -483,6 +490,13 @@ static inline void  smc_rcv(struct net_device *dev)
 		dev->name, packet_number, status,
 		packet_len, packet_len);
 
+	if (unlikely(packet_len == 0 && !(status & RS_ERRORS))) {
+		if (net_ratelimit()) {
+			printk(KERN_INFO "%s: rxlen %u status %x\n",
+				dev->name, packet_len, status);	
+		}
+		status |= RS_TOOSHORT;
+	}
 	if (unlikely(status & RS_ERRORS)) {
 		SMC_WAIT_MMU_BUSY();
 		SMC_SET_MMU_CMD(MC_RELEASE);
@@ -610,7 +624,12 @@ static void smc_hardware_send_pkt(unsigned long data)
 	}
 
 	skb = lp->pending_tx_skb;
+	if (unlikely(!skb)) {
+		smc_special_unlock(&lp->lock);
+		return;
+	}
 	lp->pending_tx_skb = NULL;
+
 	packet_no = SMC_GET_AR();
 	if (unlikely(packet_no & AR_FAILED)) {
 		printk("%s: Memory allocation failed.\n", dev->name);
@@ -686,7 +705,6 @@ static int smc_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	DBG(3, "%s: %s\n", dev->name, __FUNCTION__);
 
 	BUG_ON(lp->pending_tx_skb != NULL);
-	lp->pending_tx_skb = skb;
 
 	/*
 	 * The MMU wants the number of pages to be the number of 256 bytes
@@ -702,7 +720,6 @@ static int smc_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	numPages = ((skb->len & ~1) + (6 - 1)) >> 8;
 	if (unlikely(numPages > 7)) {
 		printk("%s: Far too big packet error.\n", dev->name);
-		lp->pending_tx_skb = NULL;
 		lp->stats.tx_errors++;
 		lp->stats.tx_dropped++;
 		dev_kfree_skb(skb);
@@ -729,6 +746,7 @@ static int smc_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	smc_special_unlock(&lp->lock);
 
+	lp->pending_tx_skb = skb;
    	if (!poll_count) {
 		/* oh well, wait until the chip finds memory later */
 		netif_stop_queue(dev);
@@ -1333,6 +1351,19 @@ static irqreturn_t smc_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 	return IRQ_HANDLED;
 }
 
+#ifdef CONFIG_NET_POLL_CONTROLLER
+/*
+ * Polling receive - used by netconsole and other diagnostic tools
+ * to allow network i/o with interrupts disabled.
+ */
+static void smc_poll_controller(struct net_device *dev)
+{
+	disable_irq(dev->irq);
+	smc_interrupt(dev->irq, dev, NULL);
+	enable_irq(dev->irq);
+}
+#endif
+
 /* Our watchdog timed out. Called by the networking layer */
 static void smc_timeout(struct net_device *dev)
 {
@@ -1547,6 +1578,7 @@ static int smc_close(struct net_device *dev)
 
 	/* clear everything */
 	smc_shutdown(dev);
+	tasklet_kill(&lp->tx_task);
 
 	if (lp->phy_type != 0) {
 		/* We need to ensure that no calls to
@@ -1560,13 +1592,8 @@ static int smc_close(struct net_device *dev)
 		   wants the netlink semaphore.
 		*/
 		while(lp->work_pending)
-			schedule();
+			yield();
 		smc_phy_powerdown(dev, lp->mii.phy_id);
-	}
-
-	if (lp->pending_tx_skb) {
-		dev_kfree_skb(lp->pending_tx_skb);
-		lp->pending_tx_skb = NULL;
 	}
 
 	return 0;
@@ -1912,6 +1939,9 @@ static int __init smc_probe(struct net_device *dev, unsigned long ioaddr)
 	dev->get_stats = smc_query_statistics;
 	dev->set_multicast_list = smc_set_multicast_list;
 	dev->ethtool_ops = &smc_ethtool_ops;
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	dev->poll_controller = smc_poll_controller;
+#endif
 
 	tasklet_init(&lp->tx_task, smc_hardware_send_pkt, (unsigned long)dev);
 	INIT_WORK(&lp->phy_configure, smc_phy_configure, dev);
@@ -2122,6 +2152,7 @@ static int smc_drv_probe(struct device *dev)
 
 	dev_set_drvdata(dev, ndev);
 	ret = smc_probe(ndev, (unsigned long)addr);
+
 	if (ret != 0) {
 		dev_set_drvdata(dev, NULL);
 		iounmap(addr);

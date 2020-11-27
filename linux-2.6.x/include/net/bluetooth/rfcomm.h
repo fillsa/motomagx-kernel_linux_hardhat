@@ -1,5 +1,15 @@
-/* 
-   RFCOMM implementation for Linux Bluetooth stack (BlueZ).
+/*
+   RFCOMM implementation for Linux Bluetooth(R) stack (BlueZ).
+
+   Portions of this file were based on linux-2.6.10/include/net/bluetooth/rfcomm.h
+   from kernel.org found in the release of linux-2.6.10 here www.kernel.org/pub/linux/kernel/v2.6/
+   Those portions had the following copyright:
+   Copyright (C) 2002 Maxim Krasnyansky <maxk@qualcomm.com>
+   Copyright (C) 2002 Marcel Holtmann <marcel@holtmann.org>
+
+   Portions of this file were based on linux-2.6.14/include/net/bluetooth/rfcomm.h
+   from kernel.org found in the release of linux-2.6.14 here www.kernel.org/pub/linux/kernel/v2.6/
+   Those portions had the following copyright:
    Copyright (C) 2002 Maxim Krasnyansky <maxk@qualcomm.com>
    Copyright (C) 2002 Marcel Holtmann <marcel@holtmann.org>
 
@@ -11,26 +21,48 @@
    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF THIRD PARTY RIGHTS.
    IN NO EVENT SHALL THE COPYRIGHT HOLDER(S) AND AUTHOR(S) BE LIABLE FOR ANY
-   CLAIM, OR ANY SPECIAL INDIRECT OR CONSEQUENTIAL DAMAGES, OR ANY DAMAGES 
-   WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN 
-   ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF 
+   CLAIM, OR ANY SPECIAL INDIRECT OR CONSEQUENTIAL DAMAGES, OR ANY DAMAGES
+   WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+   ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-   ALL LIABILITY, INCLUDING LIABILITY FOR INFRINGEMENT OF ANY PATENTS, 
-   COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS 
+   ALL LIABILITY, INCLUDING LIABILITY FOR INFRINGEMENT OF ANY PATENTS,
+   COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS
    SOFTWARE IS DISCLAIMED.
+
+   Copyright (C) 2005-2007 - Motorola
+
+   Date         Author           Comment
+   ==========   ===========  ==========================
+   2005-Oct-26	Motorola         changes structs to __attribute__((packed)) to work around ABI issues
+   2006-Mar-01  Motorola         Backport of 2.6.14 patch to 2.6.10 kernel.
+   2006-Apr-10  Motorola         Flow off remote host until TTY is opened
+   2006-May-08  Motorola         Change session close-down to follow Bluetooth spec
+   2006-Aug-16  Motorola         Changed RFCOMM_AUTHENTICATION_TIMEOUT to 60 seconds.
+   2006-Oct-23  Motorola         Changed RFCOMM_CONN_TIMEOUT to 60 seconds.
+   2006-Nov-02  Motorola         Changes to enhance RFCOMM channel establishment.
+   2006-Dec-19  Motorola         Using different timeout for new/used session.
+   2007-Feb-09  Motorola         Moved modem status from dev to dlc
+   2007-Aug-06  Motorola         Update copyright date.
+
 */
+
+
 
 #ifndef __RFCOMM_H
 #define __RFCOMM_H
 
 #define RFCOMM_PSM 3
 
-#define RFCOMM_CONN_TIMEOUT (HZ * 30)
+#define RFCOMM_CONN_TIMEOUT (HZ * 60)
 #define RFCOMM_DISC_TIMEOUT (HZ * 20)
+#define RFCOMM_AUTHENTICATION_TIMEOUT (HZ * 60)
+
+#define RFCOMM_SESSION_TIMEOUT_USED (HZ * 1)
+#define RFCOMM_SESSION_TIMEOUT_NEW  (HZ * 60)
 
 #define RFCOMM_DEFAULT_MTU	127
-#define RFCOMM_DEFAULT_CREDITS	7
+#define RFCOMM_DEFAULT_CREDITS	0
 
 #define RFCOMM_MAX_L2CAP_MTU	1024
 #define RFCOMM_MAX_CREDITS	40
@@ -79,9 +111,9 @@
 #define RFCOMM_RPN_STOP_15	1
 
 #define RFCOMM_RPN_PARITY_NONE	0x0
-#define RFCOMM_RPN_PARITY_ODD	0x4
-#define RFCOMM_RPN_PARITY_EVEN	0x5
-#define RFCOMM_RPN_PARITY_MARK	0x6
+#define RFCOMM_RPN_PARITY_ODD	0x1
+#define RFCOMM_RPN_PARITY_EVEN	0x3
+#define RFCOMM_RPN_PARITY_MARK	0x5
 #define RFCOMM_RPN_PARITY_SPACE	0x7
 
 #define RFCOMM_RPN_FLOW_NONE	0x00
@@ -157,6 +189,10 @@ struct rfcomm_session {
 	unsigned long    flags;
 	atomic_t         refcnt;
 	int              initiator;
+	int              outgoing_close;
+        unsigned long    timeout;
+
+	struct timer_list close_timer;
 
 	/* Default DLC parameters */
 	int    cfc;
@@ -178,8 +214,11 @@ struct rfcomm_dlc {
 	u8            dlci;
 	u8            addr;
 	u8            priority;
-	u8            v24_sig;
+	u8            v24_sig_in;
+	u8            v24_sig_out;
 	u8            mscex;
+
+	u32           link_mode;
 
 	uint          mtu;
 	uint          cfc;
@@ -190,20 +229,28 @@ struct rfcomm_dlc {
 
 	void (*data_ready)(struct rfcomm_dlc *d, struct sk_buff *skb);
 	void (*state_change)(struct rfcomm_dlc *d, int err);
-	void (*modem_status)(struct rfcomm_dlc *d, u8 v24_sig);
+	void (*modem_status)(struct rfcomm_dlc *d);
 };
 
 /* DLC and session flags */
 #define RFCOMM_RX_THROTTLED 0
 #define RFCOMM_TX_THROTTLED 1
-#define RFCOMM_MSC_PENDING  2
-#define RFCOMM_TIMED_OUT    3
+#define RFCOMM_TIMED_OUT    2
+#define RFCOMM_MSC_PENDING  3
+#define RFCOMM_AUTHENTICATION_PENDING 4
+#define RFCOMM_AUTHENTICATION_ACCEPT  5
+#define RFCOMM_AUTHENTICATION_REJECT  6
+#define RFCOMM_START_THROTTLED  7
+#define RFCOMM_AUTHORIZATION_PENDING 8
+#define RFCOMM_AUTHORIZATION_ACCEPT  9
+#define RFCOMM_AUTHORIZATION_REJECT  10
 
 /* Scheduling flags and events */
 #define RFCOMM_SCHED_STATE  0
 #define RFCOMM_SCHED_RX     1
 #define RFCOMM_SCHED_TX     2
 #define RFCOMM_SCHED_TIMEO  3
+#define RFCOMM_SCHED_AUTH   4
 #define RFCOMM_SCHED_WAKEUP 31
 
 /* MSC exchange flags */
@@ -216,21 +263,11 @@ struct rfcomm_dlc {
 #define RFCOMM_CFC_DISABLED 0
 #define RFCOMM_CFC_ENABLED  RFCOMM_MAX_CREDITS
 
-extern struct task_struct *rfcomm_thread;
-extern unsigned long rfcomm_event;
-
-static inline void rfcomm_schedule(uint event)
-{
-	if (!rfcomm_thread)
-		return;
-	//set_bit(event, &rfcomm_event);
-	set_bit(RFCOMM_SCHED_WAKEUP, &rfcomm_event);
-	wake_up_process(rfcomm_thread);
-}
-
-extern struct semaphore rfcomm_sem;
-#define rfcomm_lock()	down(&rfcomm_sem);
-#define rfcomm_unlock()	up(&rfcomm_sem);
+/* ---- RFCOMM SEND RPN ---- */
+int rfcomm_send_rpn(struct rfcomm_session *s, int cr, u8 dlci,
+			u8 bit_rate, u8 data_bits, u8 stop_bits,
+			u8 parity, u8 flow_ctrl_settings,
+			u8 xon_char, u8 xoff_char, u16 param_mask);
 
 /* ---- RFCOMM DLCs (channels) ---- */
 struct rfcomm_dlc *rfcomm_dlc_alloc(int prio);
@@ -271,22 +308,24 @@ static inline void rfcomm_dlc_unthrottle(struct rfcomm_dlc *d)
 }
 
 /* ---- RFCOMM sessions ---- */
-struct rfcomm_session *rfcomm_session_add(struct socket *sock, int state);
-struct rfcomm_session *rfcomm_session_get(bdaddr_t *src, bdaddr_t *dst);
-struct rfcomm_session *rfcomm_session_create(bdaddr_t *src, bdaddr_t *dst, int *err);
-void   rfcomm_session_del(struct rfcomm_session *s);
-void   rfcomm_session_close(struct rfcomm_session *s, int err);
 void   rfcomm_session_getaddr(struct rfcomm_session *s, bdaddr_t *src, bdaddr_t *dst);
+
+static inline void rfcomm_session_set_timer(struct rfcomm_session *s, unsigned long timeout)
+{
+	mod_timer(&s->close_timer, jiffies + timeout);
+}
+
+static inline void rfcomm_session_del_timer(struct rfcomm_session *s)
+{
+	del_timer(&s->close_timer);
+}
+
 
 static inline void rfcomm_session_hold(struct rfcomm_session *s)
 {
 	atomic_inc(&s->refcnt);
-}
 
-static inline void rfcomm_session_put(struct rfcomm_session *s)
-{
-	if (atomic_dec_and_test(&s->refcnt))
-		rfcomm_session_del(s);
+	rfcomm_session_del_timer(s);
 }
 
 /* ---- RFCOMM chechsum ---- */
@@ -294,16 +333,34 @@ extern u8 rfcomm_crc_table[];
 
 /* ---- RFCOMM sockets ---- */
 struct sockaddr_rc {
-	sa_family_t rc_family;
-	bdaddr_t    rc_bdaddr;
-	u8          rc_channel;
-};
+	sa_family_t	rc_family;
+	bdaddr_t	rc_bdaddr;
+	u8		rc_channel;
+} __attribute__ ((packed));
+
+#define RFCOMM_CONNINFO	0x02
+struct rfcomm_conninfo {
+	__u16 hci_handle;
+	__u8  dev_class[3];
+} __attribute__ ((packed));
+
+#define RFCOMM_LM	0x03
+#define RFCOMM_LM_MASTER        0x0001
+#define RFCOMM_LM_AUTHENTICATE  0x0002
+#define RFCOMM_LM_ENCRYPT       0x0004
+#define RFCOMM_LM_TRUSTED       0x0008
+#define RFCOMM_LM_RELIABLE      0x0010
+#define RFCOMM_LM_SECURE        0x0020
+#define RFCOMM_LM_AUTHORIZE     0x0040
+
+#define RFCOMM_FLOW_ON_TTY_OPEN 0x04
 
 #define rfcomm_pi(sk)   ((struct rfcomm_pinfo *)sk->sk_protinfo)
 
 struct rfcomm_pinfo {
 	struct rfcomm_dlc   *dlc;
 	u8     channel;
+	u32    link_mode;
 };
 
 int  rfcomm_init_sockets(void);
@@ -314,11 +371,12 @@ int  rfcomm_connect_ind(struct rfcomm_session *s, u8 channel, struct rfcomm_dlc 
 /* ---- RFCOMM TTY ---- */
 #define RFCOMM_MAX_DEV  256
 
-#define RFCOMMCREATEDEV		_IOW('R', 200, int)
-#define RFCOMMRELEASEDEV	_IOW('R', 201, int)
-#define RFCOMMGETDEVLIST	_IOR('R', 210, int)
-#define RFCOMMGETDEVINFO	_IOR('R', 211, int)
-#define RFCOMMSTEALDLC		_IOW('R', 220, int)
+#define RFCOMMCREATEDEV         _IOW('R', 200, int)
+#define RFCOMMRELEASEDEV        _IOW('R', 201, int)
+#define RFCOMMGETDEVLIST        _IOR('R', 210, int)
+#define RFCOMMGETDEVINFO        _IOR('R', 211, int)
+#define RFCOMMSTEALDLC          _IOW('R', 220, int)
+#define RFCOMMSETAUTHORIZATION  _IOW('R', 230, int)
 
 #define RFCOMM_REUSE_DLC      0
 #define RFCOMM_RELEASE_ONHUP  1
@@ -331,8 +389,8 @@ struct rfcomm_dev_req {
 	bdaddr_t src;
 	bdaddr_t dst;
 	u8       channel;
-	
-};
+
+} __attribute__ ((packed));
 
 struct rfcomm_dev_info {
 	s16      id;
@@ -341,12 +399,12 @@ struct rfcomm_dev_info {
 	bdaddr_t src;
 	bdaddr_t dst;
 	u8       channel;
-};
+} __attribute__ ((packed));
 
 struct rfcomm_dev_list_req {
 	u16      dev_num;
 	struct   rfcomm_dev_info dev_info[0];
-};
+} __attribute__ ((packed));
 
 int  rfcomm_dev_ioctl(struct sock *sk, unsigned int cmd, void __user *arg);
 int  rfcomm_init_ttys(void);

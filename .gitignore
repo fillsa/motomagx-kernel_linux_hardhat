@@ -1,0 +1,8 @@
+hardhat*/private_hdrs
+hardhat*/build
+hardhat*/properties
+build
+private_hdrs
+properties
+*.bak
+*~

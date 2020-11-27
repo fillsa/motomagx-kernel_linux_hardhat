@@ -1,6 +1,11 @@
 #
 # Makefile for the Linux nfs filesystem routines.
 #
+ifeq ($(CONFIG_ARM),y)
+ifeq ($(CONFIG_GCOV_ALL),y)
+CFLAGS := $(CFLAGS_NOGCOV)
+endif
+endif
 
 obj-$(CONFIG_NFS_FS) += nfs.o
 

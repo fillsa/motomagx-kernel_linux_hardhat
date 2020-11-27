@@ -63,7 +63,7 @@ static struct packet_type ipv6_packet_type = {
 };
 
 struct ip6_ra_chain *ip6_ra_chain;
-rwlock_t ip6_ra_lock = RW_LOCK_UNLOCKED;
+DEFINE_RWLOCK(ip6_ra_lock);
 
 int ip6_ra_control(struct sock *sk, int sel, void (*destructor)(struct sock *))
 {
@@ -503,6 +503,9 @@ done:
 		break;
 	case IPV6_IPSEC_POLICY:
 	case IPV6_XFRM_POLICY:
+		retv = -EPERM;
+		if (!capable(CAP_NET_ADMIN))
+			break;
 		retv = xfrm_user_policy(sk, optname, optval, optlen);
 		break;
 
@@ -698,7 +701,7 @@ void __init ipv6_packet_init(void)
 	dev_add_pack(&ipv6_packet_type);
 }
 
-void __exit ipv6_packet_cleanup(void)
+void ipv6_packet_cleanup(void)
 {
 	dev_remove_pack(&ipv6_packet_type);
 }

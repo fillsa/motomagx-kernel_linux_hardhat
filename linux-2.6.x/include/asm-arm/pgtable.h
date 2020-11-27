@@ -1,12 +1,28 @@
 /*
- *  linux/include/asm-arm/pgtable.h
+ * linux/include/asm-arm/pgtable.h
  *
- *  Copyright (C) 1995-2002 Russell King
+ * Copyright (C) 1995-2002 Russell King
+ * Copyright (C) 2007 Motorola, Inc. 
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+ * 02111-1307, USA
+ *
+ * Date         Author         Comment
+ * ==========   ===========    ===================================
+ * 06/01/2007   Motorola       Define CONFIG_MOT_FEAT_CHKSUM.
  */
+
 #ifndef _ASMARM_PGTABLE_H
 #define _ASMARM_PGTABLE_H
 
@@ -80,7 +96,7 @@
  * PMD_SHIFT determines the size of the area a second-level page table can map
  * PGDIR_SHIFT determines what a third-level page table entry can map
  */
-#define PMD_SHIFT		20
+#define PMD_SHIFT		21
 #define PGDIR_SHIFT		21
 
 #define LIBRARY_TEXT_START	0x0c000000
@@ -90,9 +106,15 @@ extern void __pte_error(const char *file, int line, unsigned long val);
 extern void __pmd_error(const char *file, int line, unsigned long val);
 extern void __pgd_error(const char *file, int line, unsigned long val);
 
+#ifdef CONFIG_MOT_FEAT_CHKSUM
+#define pte_ERROR(pte)		__pte_error("FILE", __LINE__, pte_val(pte))
+#define pmd_ERROR(pmd)		__pmd_error("FILE", __LINE__, pmd_val(pmd))
+#define pgd_ERROR(pgd)		__pgd_error("FILE", __LINE__, pgd_val(pgd))
+#else
 #define pte_ERROR(pte)		__pte_error(__FILE__, __LINE__, pte_val(pte))
 #define pmd_ERROR(pmd)		__pmd_error(__FILE__, __LINE__, pmd_val(pmd))
 #define pgd_ERROR(pgd)		__pgd_error(__FILE__, __LINE__, pgd_val(pgd))
+#endif
 #endif /* !__ASSEMBLY__ */
 
 #define PMD_SIZE		(1UL << PMD_SHIFT)
@@ -102,6 +124,13 @@ extern void __pgd_error(const char *file, int line, unsigned long val);
 
 #define FIRST_USER_PGD_NR	1
 #define USER_PTRS_PER_PGD	((TASK_SIZE/PGDIR_SIZE) - FIRST_USER_PGD_NR)
+
+/*
+ * ARMv6 supersection address mask and size definitions.
+ */
+#define SUPERSECTION_SHIFT	24
+#define SUPERSECTION_SIZE	(1UL << SUPERSECTION_SHIFT)
+#define SUPERSECTION_MASK	(~(SUPERSECTION_SIZE-1))
 
 /*
  * Hardware page table definitions.
@@ -127,6 +156,7 @@ extern void __pgd_error(const char *file, int line, unsigned long val);
 #define PMD_SECT_APX		(1 << 15)	/* v6 */
 #define PMD_SECT_S		(1 << 16)	/* v6 */
 #define PMD_SECT_nG		(1 << 17)	/* v6 */
+#define PMD_SECT_SUPER		(1 << 18)	/* v6 */
 
 #define PMD_SECT_UNCACHED	(0)
 #define PMD_SECT_BUFFERED	(PMD_SECT_BUFFERABLE)
@@ -134,6 +164,7 @@ extern void __pgd_error(const char *file, int line, unsigned long val);
 #define PMD_SECT_WB		(PMD_SECT_CACHEABLE | PMD_SECT_BUFFERABLE)
 #define PMD_SECT_MINICACHE	(PMD_SECT_TEX(1) | PMD_SECT_CACHEABLE)
 #define PMD_SECT_WBWA		(PMD_SECT_TEX(1) | PMD_SECT_CACHEABLE | PMD_SECT_BUFFERABLE)
+#define PMD_SECT_NONSHARED_DEV	(PMD_SECT_TEX(2))
 
 /*
  *   - coarse table (not used)
@@ -154,12 +185,18 @@ extern void __pgd_error(const char *file, int line, unsigned long val);
 /*
  *   - extended small page/tiny page
  */
+#define PTE_EXT_XN		(1 << 0)	/* v6 */
 #define PTE_EXT_AP_MASK		(3 << 4)
+#define PTE_EXT_AP0		(1 << 4)
+#define PTE_EXT_AP1		(2 << 4)
 #define PTE_EXT_AP_UNO_SRO	(0 << 4)
-#define PTE_EXT_AP_UNO_SRW	(1 << 4)
-#define PTE_EXT_AP_URO_SRW	(2 << 4)
-#define PTE_EXT_AP_URW_SRW	(3 << 4)
+#define PTE_EXT_AP_UNO_SRW	(PTE_EXT_AP0)
+#define PTE_EXT_AP_URO_SRW	(PTE_EXT_AP1)
+#define PTE_EXT_AP_URW_SRW	(PTE_EXT_AP1|PTE_EXT_AP0)
 #define PTE_EXT_TEX(x)		((x) << 6)	/* v5 */
+#define PTE_EXT_APX		(1 << 9)	/* v6 */
+#define PTE_EXT_SHARED		(1 << 10)	/* v6 */
+#define PTE_EXT_NG		(1 << 11)	/* v6 */
 
 /*
  *   - small page
@@ -190,6 +227,8 @@ extern void __pgd_error(const char *file, int line, unsigned long val);
 #define L_PTE_WRITE		(1 << 5)
 #define L_PTE_EXEC		(1 << 6)
 #define L_PTE_DIRTY		(1 << 7)
+#define L_PTE_SHARED		(1 << 10)	/* shared between CPUs (v6) */
+#define L_PTE_ASID		(1 << 11)	/* non-global (use ASID, v6) */
 
 #ifndef __ASSEMBLY__
 
@@ -305,12 +344,6 @@ PTE_BIT_FUNC(mkyoung,   |= L_PTE_YOUNG);
 #define pmd_none(pmd)		(!pmd_val(pmd))
 #define pmd_present(pmd)	(pmd_val(pmd))
 #define pmd_bad(pmd)		(pmd_val(pmd) & 2)
-
-#define set_pmd(pmdp,pmd)		\
-	do {				\
-		*pmdp = pmd;		\
-		flush_pmd_entry(pmdp);	\
-	} while (0)
 
 #define copy_pmd(pmdpd,pmdps)		\
 	do {				\

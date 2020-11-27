@@ -74,8 +74,7 @@ unsigned char fpga_read(int reg);
 #if defined (CONFIG_ARCH_OMAP16XX)
 
 /* At OMAP1610 Innovator the Ethernet is directly connected to CS1 */
-#define INNOVATOR1610_ETHR_START	0x04000000
-#define INNOVATOR1610_ETHR_SIZE		SZ_4K
+#define INNOVATOR1610_ETHR_START	0x04000300
 
 #endif /* CONFIG_ARCH_OMAP1610 */
 #endif /* __ASM_ARCH_OMAP_INNOVATOR_H */

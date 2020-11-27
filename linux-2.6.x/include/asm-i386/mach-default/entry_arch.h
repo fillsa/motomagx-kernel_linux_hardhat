@@ -13,6 +13,9 @@
 BUILD_INTERRUPT(reschedule_interrupt,RESCHEDULE_VECTOR)
 BUILD_INTERRUPT(invalidate_interrupt,INVALIDATE_TLB_VECTOR)
 BUILD_INTERRUPT(call_function_interrupt,CALL_FUNCTION_VECTOR)
+#ifdef CONFIG_HIGH_RES_TIMERS
+BUILD_INTERRUPT(apic_timer_ipi_interrupt,LOCAL_TIMER_IPI_VECTOR)
+#endif
 #endif
 
 /*

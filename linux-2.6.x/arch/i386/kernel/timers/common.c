@@ -22,7 +22,7 @@
  * device.
  */
 
-#define CALIBRATE_TIME	(5 * 1000020/HZ)
+__initdata unsigned long tsc_cycles_per_50_ms;
 
 unsigned long __init calibrate_tsc(void)
 {
@@ -57,6 +57,12 @@ unsigned long __init calibrate_tsc(void)
 		if (endlow <= CALIBRATE_TIME)
 			goto bad_ctc;
 
+		/*
+		 * endlow at this point is 50 ms of arch clocks
+		 * Set up the value for other who want high res.
+		 */
+		tsc_cycles_per_50_ms = endlow;
+
 		__asm__("divl %2"
 			:"=a" (endlow), "=d" (endhigh)
 			:"r" (endlow), "0" (0), "1" (CALIBRATE_TIME));
@@ -70,6 +76,7 @@ unsigned long __init calibrate_tsc(void)
 	 * 32 bits..
 	 */
 bad_ctc:
+	printk("******************** TSC calibrate failed!\n");
 	return 0;
 }
 

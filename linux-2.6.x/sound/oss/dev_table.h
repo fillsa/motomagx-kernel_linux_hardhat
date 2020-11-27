@@ -191,6 +191,10 @@ struct audio_driver
 	void (*postprocess_write)(int dev); 	/* Device spesific postprocessing for written data */
 	void (*preprocess_read)(int dev); 	/* Device spesific preprocessing for read data */
 	void (*mmap)(int dev);
+#ifdef CONFIG_SOUND_MXC_FIFO
+	int (*write_fifo) (int dev, const char *buf, int count);
+	int (*read_fifo) (int dev, char *buf, int count);
+#endif
 };
 
 struct audio_operations 

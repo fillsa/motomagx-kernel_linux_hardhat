@@ -1,5 +1,5 @@
 /*
- * $Id: ixp4xx.c,v 1.7 2004/11/04 13:24:15 gleixner Exp $
+ * $Id: ixp4xx.c,v 1.6 2004/09/17 00:25:06 gleixner Exp $
  *
  * drivers/mtd/maps/ixp4xx.c
  *

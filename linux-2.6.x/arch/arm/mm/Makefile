@@ -23,13 +23,14 @@ obj-$(CONFIG_CPU_CACHE_V4)	+= cache-v4.o
 obj-$(CONFIG_CPU_CACHE_V4WT)	+= cache-v4wt.o
 obj-$(CONFIG_CPU_CACHE_V4WB)	+= cache-v4wb.o
 obj-$(CONFIG_CPU_CACHE_V6)	+= cache-v6.o
+obj-$(CONFIG_CPU_CACHE_L210)	+= cache-l210.o
 
 obj-$(CONFIG_CPU_COPY_V3)	+= copypage-v3.o
 obj-$(CONFIG_CPU_COPY_V4WT)	+= copypage-v4wt.o
-obj-$(CONFIG_CPU_COPY_V4WB)	+= copypage-v4wb.o
+obj-$(CONFIG_CPU_COPY_V4WB)	+= copypage-v4wb.o copypage-v4wb-export.o
 obj-$(CONFIG_CPU_COPY_V6)	+= copypage-v6.o mmu.o
 obj-$(CONFIG_CPU_SA1100)	+= copypage-v4mc.o
-obj-$(CONFIG_CPU_XSCALE)	+= copypage-xscale.o
+obj-$(CONFIG_CPU_XSCALE)	+= copypage-xscale.o copypage-xscale-export.o
 
 obj-$(CONFIG_CPU_MINICACHE)	+= minicache.o
 
@@ -53,4 +54,4 @@ obj-$(CONFIG_CPU_ARM1026)	+= proc-arm1026.o
 obj-$(CONFIG_CPU_SA110)		+= proc-sa110.o
 obj-$(CONFIG_CPU_SA1100)	+= proc-sa1100.o
 obj-$(CONFIG_CPU_XSCALE)	+= proc-xscale.o
-obj-$(CONFIG_CPU_V6)		+= proc-v6.o blockops.o
+obj-$(CONFIG_CPU_V6)		+= proc-v6.o

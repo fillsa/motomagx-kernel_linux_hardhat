@@ -19,6 +19,7 @@
 #include <linux/smp_lock.h>
 #include <linux/vt_kern.h>		/* For unblank_screen() */
 #include <linux/module.h>
+#include <linux/ltt-events.h>
 
 #include <asm/branch.h>
 #include <asm/mmu_context.h>
@@ -59,6 +60,8 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long write,
 	 */
 	if (unlikely(address >= VMALLOC_START))
 		goto vmalloc_fault;
+
+	ltt_ev_trap_entry(CAUSE_EXCCODE(regs), CAUSE_EPC(regs));
 
 	/*
 	 * If we're in an interrupt or have no user
@@ -114,6 +117,7 @@ survive:
 	}
 
 	up_read(&mm->mmap_sem);
+	ltt_ev_trap_exit();
 	return;
 
 /*
@@ -142,6 +146,7 @@ bad_area_nosemaphore:
 		/* info.si_code has been set above */
 		info.si_addr = (void *) address;
 		force_sig_info(SIGSEGV, &info, tsk);
+		ltt_ev_trap_exit();
 		return;
 	}
 
@@ -199,6 +204,7 @@ do_sigbus:
 	info.si_addr = (void *) address;
 	force_sig_info(SIGBUS, &info, tsk);
 
+	ltt_ev_trap_exit();
 	return;
 
 vmalloc_fault:
@@ -233,4 +239,5 @@ vmalloc_fault:
 			goto no_context;
 		return;
 	}
+	ltt_ev_trap_exit();
 }

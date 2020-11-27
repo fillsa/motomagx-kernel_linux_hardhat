@@ -27,6 +27,8 @@
 #include <linux/spinlock.h>
 #include <linux/module.h>
 #include <linux/kallsyms.h>
+#include <linux/kgdb.h>
+#include <linux/ltt-events.h>
 
 #include <asm/system.h>
 #include <asm/uaccess.h>
@@ -35,17 +37,8 @@
 #include <asm/processor.h>
 #include <asm/sections.h>
 
-#ifdef CONFIG_SH_KGDB
-#include <asm/kgdb.h>
-#define CHK_REMOTE_DEBUG(regs)                                               \
-{                                                                            \
-  if ((kgdb_debug_hook != (kgdb_debug_hook_t *) NULL) && (!user_mode(regs))) \
-  {                                                                          \
-    (*kgdb_debug_hook)(regs);                                                \
-  }                                                                          \
-}
-#else
-#define CHK_REMOTE_DEBUG(regs)
+#ifndef CONFIG_KGDB
+#define kgdb_handle_exception(t, s, e, r)
 #endif
 
 #define DO_ERROR(trapnr, signr, str, name, tsk)				\
@@ -66,7 +59,7 @@ asmlinkage void do_##name(unsigned long r4, unsigned long r5,		\
 	local_irq_enable();						\
 	tsk->thread.error_code = error_code;				\
 	tsk->thread.trap_no = trapnr;					\
-        CHK_REMOTE_DEBUG(&regs);					\
+	kgdb_handle_exception(trapnr, signr, error_code, &regs);	\
 	force_sig(signr, tsk);						\
 	die_if_no_fixup(str,&regs,error_code);				\
 }
@@ -93,10 +86,12 @@ void die(const char * str, struct pt_regs * regs, long err)
 {
 	static int die_counter;
 
+#ifdef CONFIG_KGDB
+	kgdb_handle_exception(1, SIGTRAP, err, regs);
+#endif
 	console_verbose();
 	spin_lock_irq(&die_lock);
 	printk("%s: %04lx [#%d]\n", str, err & 0xffff, ++die_counter);
-	CHK_REMOTE_DEBUG(regs);
 	show_regs(regs);
 	spin_unlock_irq(&die_lock);
 	do_exit(SIGSEGV);
@@ -500,6 +495,8 @@ asmlinkage void do_address_error(struct pt_regs *regs,
 
 	asm volatile("stc       r2_bank,%0": "=r" (error_code));
 
+	ltt_ev_trap_entry(error_code >> 5, regs->pc);
+
 	oldfs = get_fs();
 
 	if (user_mode(regs)) {
@@ -523,8 +520,10 @@ asmlinkage void do_address_error(struct pt_regs *regs,
 		tmp = handle_unaligned_access(instruction, regs);
 		set_fs(oldfs);
 
-		if (tmp==0)
+		if (tmp==0) {
+			ltt_ev_trap_exit();
 			return; /* sorted */
+		}
 
 	uspace_segv:
 		printk(KERN_NOTICE "Killing process \"%s\" due to unaligned access\n", current->comm);
@@ -545,6 +544,7 @@ asmlinkage void do_address_error(struct pt_regs *regs,
 		handle_unaligned_access(instruction, regs);
 		set_fs(oldfs);
 	}
+	ltt_ev_trap_exit();
 }
 
 #ifdef CONFIG_SH_DSP
@@ -704,6 +704,78 @@ void show_task(unsigned long *sp)
 {
 	show_stack(NULL, sp);
 }
+
+/* Trace related code */
+#if (CONFIG_LTT)
+asmlinkage void trace_real_syscall_entry(struct pt_regs *regs)
+{
+	int use_depth;
+	int use_bounds;
+	int depth = 0;
+	int seek_depth;
+	unsigned long lower_bound;
+	unsigned long upper_bound;
+	unsigned long addr;
+	unsigned long *stack;
+	ltt_syscall_entry trace_syscall_event;
+
+	/* Set the syscall ID */
+	trace_syscall_event.syscall_id = regs->regs[REG_REG0 + 3];
+
+	/* Set the address in any case */
+	trace_syscall_event.address = regs->pc;
+
+	/* Are we in the kernel (This is a kernel thread)? */
+	if (!user_mode(regs))
+		/* Don't go digining anywhere */
+		goto trace_syscall_end;
+
+	/* Get the trace configuration */
+	if (ltt_get_trace_config(&use_depth,
+				 &use_bounds,
+				 &seek_depth,
+				 (void *) &lower_bound,
+				 (void *) &upper_bound) < 0)
+		goto trace_syscall_end;
+
+	/* Do we have to search for an eip address range */
+	if ((use_depth == 1) || (use_bounds == 1)) {
+		/* Start at the top of the stack (bottom address since stacks grow downward) */
+		stack = (unsigned long *) regs->regs[REG_REG15];
+
+		/* Keep on going until we reach the end of the process' stack limit (wherever it may be) */
+		while (!get_user(addr, stack)) {
+			/* Does this LOOK LIKE an address in the program */
+			/* TODO: does this work with shared libraries?? - Greg Banks */
+			if ((addr > current->mm->start_code) && (addr < current->mm->end_code)) {
+				/* Does this address fit the description */
+				if (((use_depth == 1) && (depth == seek_depth))
+				    || ((use_bounds == 1) && (addr > lower_bound)
+					&& (addr < upper_bound))) {
+					/* Set the address */
+					trace_syscall_event.address = addr;
+
+					/* We're done */
+					goto trace_syscall_end;
+				} else
+					/* We're one depth more */
+					depth++;
+			}
+			/* Go on to the next address */
+			stack++;
+		}
+	}
+trace_syscall_end:
+	/* Trace the event */
+	ltt_log_event(LTT_EV_SYSCALL_ENTRY, &trace_syscall_event);
+}
+
+asmlinkage void trace_real_syscall_exit(void)
+{
+	ltt_log_event(LTT_EV_SYSCALL_EXIT, NULL);
+}
+
+#endif /* (CONFIG_LTT) */
 
 void dump_stack(void)
 {

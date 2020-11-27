@@ -5,6 +5,13 @@
  * Written by Philip Blundell <philb@gnu.org>, 1998
  * Re-written by Russell King
  */
+/*
+ * Copyright (C) 2007 Motorola, Inc.
+ *
+ * Date           Author            Comment
+ * ===========  ==========  ====================================
+ * 10/15/2007   Motorola    FIQ related modified.
+ */
 
 #ifndef __ASM_FIQ_H
 #define __ASM_FIQ_H
@@ -33,5 +40,10 @@ extern void set_fiq_regs(struct pt_regs *regs);
 extern void get_fiq_regs(struct pt_regs *regs);
 extern void enable_fiq(int fiq);
 extern void disable_fiq(int fiq);
+
+#ifdef CONFIG_MOT_FEAT_FIQ_IN_C
+int mxc_fiq_irq_switch(int vector, int irq2fiq);
+
+#endif //CONFIG_MOT_FEAT_FIQ_IN_C
 
 #endif

@@ -22,6 +22,8 @@
 #include <linux/security.h>
 #include <linux/syscalls.h>
 #include <linux/ptrace.h>
+#include <linux/hardirq.h>
+#include <linux/ltt-events.h>
 #include <asm/param.h>
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
@@ -554,7 +556,15 @@ int dequeue_signal(struct task_struct *tsk, sigset_t *mask, siginfo_t *info)
 	if ( signr &&
 	     ((info->si_code & __SI_MASK) == __SI_TIMER) &&
 	     info->si_sys_private){
+		/*
+		 * Release the siglock to ensure proper locking order
+		 * of timer locks outside of siglocks.  Note, we leave
+		 * irqs disabled here, since the posix-timers code is
+		 * about to disable them again anyway.
+		 */
+		spin_unlock(&tsk->sighand->siglock);
 		do_schedule_next_timer(info);
+		spin_lock(&tsk->sighand->siglock);
 	}
 	return signr;
 }
@@ -816,11 +826,11 @@ specific_send_sig_info(int sig, struct siginfo *info, struct task_struct *t)
 {
 	int ret = 0;
 
-	if (!irqs_disabled())
-		BUG();
+#ifndef CONFIG_PREEMPT_RT
+	BUG_ON(!irqs_disabled());
+#endif
 #ifdef CONFIG_SMP
-	if (!spin_is_locked(&t->sighand->siglock))
-		BUG();
+	BUG_ON(!spin_is_locked(&t->sighand->siglock));
 #endif
 
 	if (((unsigned long)info > 2) && (info->si_code == SI_TIMER))
@@ -832,6 +842,8 @@ specific_send_sig_info(int sig, struct siginfo *info, struct task_struct *t)
 	/* Short-circuit ignored signals.  */
 	if (sig_ignored(t, sig))
 		goto out;
+
+	ltt_ev_process(LTT_EV_PROCESS_SIGNAL, sig, t->pid);
 
 	/* Support queueing exactly one non-rt signal, so that we
 	   can get more detailed information about the cause of
@@ -1197,8 +1209,8 @@ static int kill_something_info(int sig, struct siginfo *info, int pid)
 int
 send_sig_info(int sig, struct siginfo *info, struct task_struct *p)
 {
-	int ret;
-	unsigned long flags;
+	int ret = 0;
+	unsigned long flags = 0;
 
 	/*
 	 * Make sure legacy kernel users don't send in bad values
@@ -1213,11 +1225,22 @@ send_sig_info(int sig, struct siginfo *info, struct task_struct *p)
 	 * lists) in order to avoid races with "p->sighand"
 	 * going away or changing from under us.
 	 */
-	read_lock(&tasklist_lock);  
-	spin_lock_irqsave(&p->sighand->siglock, flags);
-	ret = specific_send_sig_info(sig, info, p);
-	spin_unlock_irqrestore(&p->sighand->siglock, flags);
-	read_unlock(&tasklist_lock);
+#ifdef CONFIG_PREEMPT_RT
+	/* 
+	 * the timer will sometimes send signals, but this isn't
+	 * really allowed in PREEMPT_RT .
+	 */
+	if (!in_interrupt()) 
+#endif
+	{
+		read_lock(&tasklist_lock);
+		spin_lock_irqsave(&p->sighand->siglock, flags);
+
+		ret = specific_send_sig_info(sig, info, p);
+
+		spin_unlock_irqrestore(&p->sighand->siglock, flags);
+		read_unlock(&tasklist_lock);
+	}
 	return ret;
 }
 
@@ -1551,11 +1574,12 @@ do_notify_parent_cldstop(struct task_struct *tsk, struct task_struct *parent,
  * We always set current->last_siginfo while stopped here.
  * That makes it a way to test a stopped process for
  * being ptrace-stopped vs being job-control-stopped.
+ *
+ * If we actually decide not to stop at all because the tracer is gone,
+ * we leave nostop_code in current->exit_code.
  */
-static void ptrace_stop(int exit_code, siginfo_t *info)
+static void ptrace_stop(int exit_code, int nostop_code, siginfo_t *info)
 {
-	BUG_ON(!(current->ptrace & PT_PTRACED));
-
 	/*
 	 * If there is a group stop in progress,
 	 * we must participate in the bookkeeping.
@@ -1570,9 +1594,25 @@ static void ptrace_stop(int exit_code, siginfo_t *info)
 	set_current_state(TASK_TRACED);
 	spin_unlock_irq(&current->sighand->siglock);
 	read_lock(&tasklist_lock);
-	do_notify_parent_cldstop(current, current->parent, CLD_TRAPPED);
-	read_unlock(&tasklist_lock);
-	schedule();
+	if (likely(current->ptrace & PT_PTRACED) &&
+	    likely(current->parent != current->real_parent ||
+		   !(current->ptrace & PT_ATTACHED)) &&
+	    (likely(current->parent->signal != current->signal) ||
+	     !unlikely(current->signal->group_exit))) {
+		do_notify_parent_cldstop(current, current->parent,
+					 CLD_TRAPPED);
+		read_unlock(&tasklist_lock);
+		current->flags &= ~PF_NOSCHED;
+		schedule();
+	} else {
+		/*
+		 * By the time we got the lock, our tracer went away.
+		 * Don't stop here.
+		 */
+		read_unlock(&tasklist_lock);
+		set_current_state(TASK_RUNNING);
+		current->exit_code = nostop_code;
+	}
 
 	/*
 	 * We are back.  Now reacquire the siglock before touching
@@ -1603,7 +1643,7 @@ void ptrace_notify(int exit_code)
 
 	/* Let the debugger run.  */
 	spin_lock_irq(&current->sighand->siglock);
-	ptrace_stop(exit_code, &info);
+	ptrace_stop(exit_code, 0, &info);
 	spin_unlock_irq(&current->sighand->siglock);
 }
 
@@ -1631,6 +1671,7 @@ finish_stop(int stop_count)
 		read_unlock(&tasklist_lock);
 	}
 
+	current->flags &= ~PF_NOSCHED;
 	schedule();
 	/*
 	 * Now we don't run again until continued.
@@ -1793,6 +1834,9 @@ int get_signal_to_deliver(siginfo_t *info, struct k_sigaction *return_ka,
 	sigset_t *mask = &current->blocked;
 	int signr = 0;
 
+#ifdef CONFIG_PREEMPT_RT
+	might_sleep();
+#endif
 relock:
 	spin_lock_irq(&current->sighand->siglock);
 	for (;;) {
@@ -1811,7 +1855,7 @@ relock:
 			ptrace_signal_deliver(regs, cookie);
 
 			/* Let the debugger run.  */
-			ptrace_stop(signr, info);
+			ptrace_stop(signr, signr, info);
 
 			/* We're back.  Did the debugger cancel the sig?  */
 			signr = current->exit_code;

@@ -767,13 +767,11 @@ int ide_driveid_update (ide_drive_t *drive)
 		printk("%s: CHECK for good STATUS\n", drive->name);
 		return 0;
 	}
+	id = kmalloc(SECTOR_WORDS*4, GFP_ATOMIC);
+	if (!id)
+		return 0;
 	local_irq_save(flags);
 	SELECT_MASK(drive, 0);
-	id = kmalloc(SECTOR_WORDS*4, GFP_ATOMIC);
-	if (!id) {
-		local_irq_restore(flags);
-		return 0;
-	}
 	ata_input_data(drive, id, SECTOR_WORDS);
 	(void) hwif->INB(IDE_STATUS_REG);	/* clear drive IRQ */
 	local_irq_enable();

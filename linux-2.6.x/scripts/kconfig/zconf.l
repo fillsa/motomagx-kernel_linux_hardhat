@@ -4,7 +4,10 @@
 %{
 /*
  * Copyright (C) 2002 Roman Zippel <zippel@linux-m68k.org>
+ * Copyright (C) 2006 Motorola
  * Released under the terms of the GNU GPL v2.0.
+ *
+ * Motorola  2006-Nov-16 - Add support for lock/endlock blocks.
  */
 
 #include <limits.h>
@@ -117,6 +120,8 @@ n	[A-Za-z0-9_]
 	"select"		BEGIN(PARAM); return T_SELECT;
 	"enable"		BEGIN(PARAM); return T_SELECT;
 	"range"			BEGIN(PARAM); return T_RANGE;
+	"lock"			BEGIN(PARAM); return T_LOCK;
+	"endlock"		BEGIN(PARAM); return T_ENDLOCK;
 	{n}+	{
 		alloc_string(yytext, yyleng);
 		zconflval.string = text;

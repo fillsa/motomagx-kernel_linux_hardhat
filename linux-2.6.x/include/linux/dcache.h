@@ -20,6 +20,12 @@ struct vfsmount;
  *
  * (C) Copyright 1997 Thomas Schoebel-Theuer,
  * with heavy changes by Linus Torvalds
+ *
+ * Copyright 2006 Motorola, Inc.
+ *
+ * Date         Author          Comment
+ * 10/2006      Motorola        Added absolute path finding function that
+ *              		ignores the root set by chroot() 
  */
 
 #define IS_ROOT(x) ((x) == (x)->d_parent)
@@ -253,6 +259,7 @@ extern struct dentry * __d_lookup(struct dentry *, struct qstr *);
 extern int d_validate(struct dentry *, struct dentry *);
 
 extern char * d_path(struct dentry *, struct vfsmount *, char *, int);
+extern char * abs_d_path(struct dentry *, struct vfsmount *, char *, int);
   
 /* Allocation counts.. */
 

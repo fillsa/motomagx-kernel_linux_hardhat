@@ -3,14 +3,26 @@
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
  *  changes by Thomas Schoebel-Theuer
+ *
+ *  Copyright 2006 Motorola, Inc.
+ *
  */
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 31-Oct-2006  Motorola        Added inotify
+ */
+
 
 #include <linux/module.h>
 #include <linux/time.h>
 #include <linux/mm.h>
 #include <linux/string.h>
 #include <linux/smp_lock.h>
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+#include <linux/fsnotify.h>
+#else
 #include <linux/dnotify.h>
+#endif
 #include <linux/fcntl.h>
 #include <linux/quotaops.h>
 #include <linux/security.h>
@@ -106,6 +118,7 @@ out:
 
 EXPORT_SYMBOL(inode_setattr);
 
+#ifndef CONFIG_MOT_FEAT_INOTIFY
 int setattr_mask(unsigned int ia_valid)
 {
 	unsigned long dn_mask = 0;
@@ -127,6 +140,7 @@ int setattr_mask(unsigned int ia_valid)
 		dn_mask |= DN_ATTRIB;
 	return dn_mask;
 }
+#endif
 
 int notify_change(struct dentry * dentry, struct iattr * attr)
 {
@@ -184,9 +198,13 @@ int notify_change(struct dentry * dentry, struct iattr * attr)
 		}
 	}
 	if (!error) {
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+		fsnotify_change(dentry, ia_valid);
+#else
 		unsigned long dn_mask = setattr_mask(ia_valid);
 		if (dn_mask)
 			dnotify_parent(dentry, dn_mask);
+#endif
 	}
 	return error;
 }

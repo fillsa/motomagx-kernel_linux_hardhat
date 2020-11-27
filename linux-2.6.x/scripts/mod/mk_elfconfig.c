@@ -1,7 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __CYGWIN__
+#include <libelf.h>
+#else
 #include <elf.h>
+#endif
 
 int
 main(int argc, char **argv)

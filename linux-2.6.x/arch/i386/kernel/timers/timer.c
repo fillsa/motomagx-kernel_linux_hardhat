@@ -1,10 +1,12 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
+#include <linux/hrtime.h>
 #include <asm/timer.h>
 
 #ifdef CONFIG_HPET_TIMER
 /*
+ * If high res, we put that first...
  * HPET memory read is slower than tsc reads, but is more dependable as it
  * always runs at constant frequency and reduces complexity due to
  * cpufreq. So, we prefer HPET timer to tsc based one. Also, we cannot use
@@ -13,7 +15,17 @@
 #endif
 /* list of timers, ordered by preference, NULL terminated */
 static struct init_timer_opts* __initdata timers[] = {
+#ifdef CONFIG_HIGH_RES_TIMERS
+#ifdef CONFIG_HIGH_RES_TIMER_ACPI_PM
+	&hrtimer_pm_init,
+#elif  CONFIG_HIGH_RES_TIMER_TSC
+	&hrtimer_tsc_init,
+#endif  /* CONFIG_HIGH_RES_TIMER_ACPI_PM */
+#endif
 #ifdef CONFIG_X86_CYCLONE_TIMER
+#ifdef CONFIG_HIGH_RES_TIMERS
+#error "The High Res Timers option is incompatable with the Cyclone timer"
+#endif
 	&timer_cyclone_init,
 #endif
 #ifdef CONFIG_HPET_TIMER
@@ -28,6 +40,7 @@ static struct init_timer_opts* __initdata timers[] = {
 };
 
 static char clock_override[10] __initdata;
+#ifndef CONFIG_HIGH_RES_TIMERS_try
 
 static int __init clock_setup(char* str)
 {
@@ -45,7 +58,7 @@ void clock_fallback(void)
 {
 	cur_timer = &timer_pit;
 }
-
+#endif
 /* iterates through the list of timers, returning the first 
  * one that initializes successfully.
  */

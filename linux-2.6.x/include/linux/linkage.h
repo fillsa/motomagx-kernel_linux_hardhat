@@ -4,6 +4,8 @@
 #include <linux/config.h>
 #include <asm/linkage.h>
 
+#define notrace __attribute ((no_instrument_function))
+
 #ifdef __cplusplus
 #define CPP_ASMLINKAGE extern "C"
 #else
@@ -35,7 +37,7 @@
 
 #endif
 
-#define NORET_TYPE    /**/
+#define NORET_TYPE    /* */
 #define ATTRIB_NORET  __attribute__((noreturn))
 #define NORET_AND     noreturn,
 

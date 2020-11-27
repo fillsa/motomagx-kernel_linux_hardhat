@@ -19,6 +19,7 @@ struct timer_list {
 	unsigned long data;
 
 	struct tvec_t_base_s *base;
+	long arch_cycle_expires;
 };
 
 #define TIMER_MAGIC	0x4b87ad6e
@@ -30,6 +31,7 @@ struct timer_list {
 		.base = NULL,					\
 		.magic = TIMER_MAGIC,				\
 		.lock = SPIN_LOCK_UNLOCKED,			\
+		.arch_cycle_expires = 0,			        \
 	}
 
 /***
@@ -42,6 +44,7 @@ struct timer_list {
 static inline void init_timer(struct timer_list * timer)
 {
 	timer->base = NULL;
+	timer->arch_cycle_expires = 0;
 	timer->magic = TIMER_MAGIC;
 	spin_lock_init(&timer->lock);
 }

@@ -7,6 +7,7 @@
  */
 
 #include <linux/irq.h>
+#include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>
 
@@ -26,7 +27,7 @@ static DECLARE_MUTEX(probe_sem);
  */
 unsigned long probe_irq_on(void)
 {
-	unsigned long val, delay;
+	unsigned long val;
 	irq_desc_t *desc;
 	unsigned int i;
 
@@ -44,9 +45,10 @@ unsigned long probe_irq_on(void)
 		spin_unlock_irq(&desc->lock);
 	}
 
-	/* Wait for longstanding interrupts to trigger. */
-	for (delay = jiffies + HZ/50; time_after(delay, jiffies); )
-		/* about 20ms delay */ barrier();
+	/*
+	 * Wait for longstanding interrupts to trigger, 20 msec delay:
+	 */
+	msleep(HZ/50);
 
 	/*
 	 * enable any unassigned irqs
@@ -66,10 +68,9 @@ unsigned long probe_irq_on(void)
 	}
 
 	/*
-	 * Wait for spurious interrupts to trigger
+	 * Wait for spurious interrupts to trigger, 100 msec delay:
 	 */
-	for (delay = jiffies + HZ/10; time_after(delay, jiffies); )
-		/* about 100ms delay */ barrier();
+	msleep(HZ/10);
 
 	/*
 	 * Now filter out any obviously spurious interrupts
@@ -137,6 +138,7 @@ unsigned int probe_irq_mask(unsigned long val)
 
 	return mask & val;
 }
+EXPORT_SYMBOL(probe_irq_mask);
 
 /**
  *	probe_irq_off	- end an interrupt autodetect

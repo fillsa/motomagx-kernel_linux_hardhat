@@ -1,7 +1,26 @@
 /*
  *  linux/fs/exec.c
  *
+ *  Copyright (C) 2006-2008 Motorola Inc.
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *
+ */
+
+/* ChangeLog:
+ * (mm-dd-yyyy) Author    Comment
+ * 06-27-2006   Motorola  Add execve hooks for antivirus protection
+ *                        Add execve hooks for aplogger
+ *                        Add hooks to perform mot specific coredump
+ *                        If execve fails, remove secure_clock capability
+ *                          and set current process' security back to 0
+ * 04-26-2007   Motorola  Enable full coredump for non-security related application.
+ * 02-27-2008   Motorola  Fix full coredump pattern issue
+ * 04-15-2008   Motorola  Enable full coredump for applications which will set[u/g]id
+ * 05-09-2008   Motorola  Enable aplog backup during full core dump
+ * 06-24-2008   Motorola  Make aplog do coredump to MMC/SD card if it is available
+ * 07-10-2008   Motorola  Add build label info in full coredump name.
+ * 07-15-2008   Motorola  Prompt when coredump generated.
+ *
  */
 
 /*
@@ -48,6 +67,12 @@
 #include <linux/syscalls.h>
 #include <linux/rmap.h>
 
+#ifdef CONFIG_MOT_FEAT_ANTIVIRUS_HOOKS
+#include <linux/fshook.h>
+#endif
+
+#include <linux/ltt-events.h>
+
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
 
@@ -55,12 +80,42 @@
 #include <linux/kmod.h>
 #endif
 
+#ifdef CONFIG_APLOGGER
+#include <linux/aplogger_hook.h>
+#endif
+
+#ifdef CONFIG_MOT_FEAT_APP_DUMP
+#include <linux/ks_otp_api.h>
+#ifdef CONFIG_MOT_FEAT_APP_COREDUMP_DISPLAY
+#include <linux/motfb.h>
+#endif /* CNFIG_MOT_FEAT_APP_COREDUMP_DISPLAY */
+#endif /* CONFIG_MOT_FEAT_APP_DUMP */
+
+#ifdef CONFIG_MOT_FEAT_BOOTINFO
+#include <asm/bootinfo.h>
+#endif /* CONFIG_MOT_FEAT_BOOTINFO */
+
+#ifdef CONFIG_MOT_FEAT_DRM_COREDUMP
+extern int mot_security_coredump(void);
+#endif /* CONFIG_MOT_FEAT_DRM_COREDUMP */
+
 int core_uses_pid;
 char core_pattern[65] = "core";
 /* The maximal length of core_pattern is also specified in sysctl.c */
 
 static struct linux_binfmt *formats;
-static rwlock_t binfmt_lock = RW_LOCK_UNLOCKED;
+static DEFINE_RWLOCK(binfmt_lock);
+
+#ifdef CONFIG_MOT_FEAT_APP_DUMP
+volatile int (*aplog_do_coredump)(long, struct pt_regs *, int, int) = NULL;
+DECLARE_RWSEM(aplog_do_coredump_lock);
+EXPORT_SYMBOL(aplog_do_coredump);
+EXPORT_SYMBOL(aplog_do_coredump_lock);
+#ifdef CONFIG_MOT_FEAT_APP_COREDUMP_DISPLAY 
+extern int fb_panic_text(struct fb_info * fbi, const char * panic_text,
+                         long panic_len, int do_timer);
+#endif /* CONFIG_MOT_FEAT_APP_COREDUMP_DISPLAY */
+#endif /* CONFIG_MOT_FEAT_APP_DUMP */
 
 int register_binfmt(struct linux_binfmt * fmt)
 {
@@ -185,6 +240,7 @@ static int count(char __user * __user * argv, int max)
 			argv++;
 			if(++i > max)
 				return -E2BIG;
+			cond_resched();
 		}
 	}
 	return i;
@@ -337,6 +393,8 @@ out_sig:
 	force_sig(SIGKILL, current);
 }
 
+#define EXTRA_STACK_VM_PAGES	20	/* random */
+
 int setup_arg_pages(struct linux_binprm *bprm, int executable_stack)
 {
 	unsigned long stack_base;
@@ -374,14 +432,14 @@ int setup_arg_pages(struct linux_binprm *bprm, int executable_stack)
 	memmove(to, to + offset, PAGE_SIZE - offset);
 	kunmap(bprm->page[j - 1]);
 
-	/* Adjust bprm->p to point to the end of the strings. */
-	bprm->p = PAGE_SIZE * i - offset;
-
 	/* Limit stack size to 1GB */
 	stack_base = current->signal->rlim[RLIMIT_STACK].rlim_max;
 	if (stack_base > (1 << 30))
 		stack_base = 1 << 30;
 	stack_base = PAGE_ALIGN(STACK_TOP - stack_base);
+
+	/* Adjust bprm->p to point to the end of the strings. */
+	bprm->p = stack_base + PAGE_SIZE * i - offset;
 
 	mm->arg_start = stack_base;
 	arg_size = i << PAGE_SHIFT;
@@ -391,11 +449,13 @@ int setup_arg_pages(struct linux_binprm *bprm, int executable_stack)
 		bprm->page[i++] = NULL;
 #else
 	stack_base = STACK_TOP - MAX_ARG_PAGES * PAGE_SIZE;
-	mm->arg_start = bprm->p + stack_base;
+	bprm->p += stack_base;
+	mm->arg_start = bprm->p;
 	arg_size = STACK_TOP - (PAGE_MASK & (unsigned long) mm->arg_start);
 #endif
 
-	bprm->p += stack_base;
+	arg_size += EXTRA_STACK_VM_PAGES * PAGE_SIZE;
+
 	if (bprm->loader)
 		bprm->loader += stack_base;
 	bprm->exec += stack_base;
@@ -416,11 +476,10 @@ int setup_arg_pages(struct linux_binprm *bprm, int executable_stack)
 		mpnt->vm_mm = mm;
 #ifdef CONFIG_STACK_GROWSUP
 		mpnt->vm_start = stack_base;
-		mpnt->vm_end = PAGE_MASK &
-			(PAGE_SIZE - 1 + (unsigned long) bprm->p);
+		mpnt->vm_end = stack_base + arg_size;
 #else
-		mpnt->vm_start = PAGE_MASK & (unsigned long) bprm->p;
 		mpnt->vm_end = STACK_TOP;
+		mpnt->vm_start = mpnt->vm_end - arg_size;
 #endif
 		/* Adjust stack execute permissions; explicitly enable
 		 * for EXSTACK_ENABLE_X, disable for EXSTACK_DISABLE_X
@@ -539,14 +598,35 @@ static int exec_mmap(struct mm_struct *mm)
 	old_mm = current->mm;
 	mm_release(tsk, old_mm);
 
+	if (old_mm) {
+		/*
+		 * Make sure that if there is a core dump in progress
+		 * for the old mm, we get out and die instead of going
+		 * through with the exec.  We must hold mmap_sem around
+		 * checking core_waiters and changing tsk->mm.  The
+		 * core-inducing thread will increment core_waiters for
+		 * each thread whose ->mm == old_mm.
+		 */
+		down_read(&old_mm->mmap_sem);
+		if (unlikely(old_mm->core_waiters)) {
+			up_read(&old_mm->mmap_sem);
+			return -EINTR;
+		}
+	}
 	task_lock(tsk);
+
+	local_irq_disable(); // FIXME
 	active_mm = tsk->active_mm;
+	activate_mm(active_mm, mm);
 	tsk->mm = mm;
 	tsk->active_mm = mm;
-	activate_mm(active_mm, mm);
+	local_irq_enable();
+
 	task_unlock(tsk);
+
 	arch_pick_mmap_layout(mm);
 	if (old_mm) {
+		up_read(&old_mm->mmap_sem);
 		if (active_mm != old_mm) BUG();
 		mmput(old_mm);
 		return 0;
@@ -609,7 +689,7 @@ static inline int de_thread(struct task_struct *tsk)
 	 * Account for the thread group leader hanging around:
 	 */
 	count = 2;
-	if (current->pid == current->tgid)
+	if (thread_group_leader(current))
 		count = 1;
 	while (atomic_read(&sig->count) > count) {
 		sig->group_exit_task = current;
@@ -628,7 +708,7 @@ static inline int de_thread(struct task_struct *tsk)
 	 * do is to wait for the thread group leader to become inactive,
 	 * and to assume its PID:
 	 */
-	if (current->pid != current->tgid) {
+	if (!thread_group_leader(current)) {
 		struct task_struct *leader = current->group_leader, *parent;
 		struct dentry *proc_dentry1, *proc_dentry2;
 		unsigned long exit_state, ptrace;
@@ -639,7 +719,7 @@ static inline int de_thread(struct task_struct *tsk)
 		 * of the time.
 		 */
 		while (leader->exit_state != EXIT_ZOMBIE)
-			yield();
+			msleep(1);
 
 		spin_lock(&leader->proc_lock);
 		spin_lock(&current->proc_lock);
@@ -659,6 +739,14 @@ static inline int de_thread(struct task_struct *tsk)
 		 */
 		ptrace = leader->ptrace;
 		parent = leader->parent;
+		if (unlikely(ptrace) && unlikely(parent == current)) {
+			/*
+			 * Joker was ptracing his own group leader,
+			 * and now he wants to be his own parent!
+			 * We can't have that.
+			 */
+			ptrace = 0;
+		}
 
 		ptrace_unlink(current);
 		ptrace_unlink(leader);
@@ -738,7 +826,7 @@ no_thread_group:
 
 	if (!thread_group_empty(current))
 		BUG();
-	if (current->tgid != current->pid)
+	if (!thread_group_leader(current))
 		BUG();
 	return 0;
 }
@@ -1100,10 +1188,30 @@ int do_execve(char * filename,
 		goto out_ret;
 	memset(bprm, 0, sizeof(*bprm));
 
+#ifdef CONFIG_MOT_FEAT_ANTIVIRUS_HOOKS
+	if ((retval = fsh_check_file(filename, 1, O_RDONLY)) < 0)
+	        goto out_kfree;	
+#endif
+
 	file = open_exec(filename);
 	retval = PTR_ERR(file);
 	if (IS_ERR(file))
 		goto out_kfree;
+	
+#ifdef CONFIG_APLOGGER
+    if (logger_exec_log_ptr != NULL)
+    {
+        down_read(&logger_exec_ptr_lock);
+        if (logger_exec_log_ptr != NULL)
+            logger_exec_log_ptr(filename, argv, envp);
+        up_read(&logger_exec_ptr_lock);
+    }
+#endif
+
+	ltt_ev_file_system(LTT_EV_FILE_SYSTEM_EXEC,
+			   0,
+			   file->f_dentry->d_name.len,
+			   file->f_dentry->d_name.name);
 
 	sched_exec();
 
@@ -1171,6 +1279,27 @@ out:
 	if (bprm->security)
 		security_bprm_free(bprm);
 
+#ifdef CONFIG_MOT_FEAT_SECURE_CLOCK
+	/* If the execve() failed, make sure to lower CAP_SECURE_CLOCK 
+	   from current's cap_permitted & cap_inheritable! */
+
+	if (cap_raised(current->cap_permitted, CAP_SECURE_CLOCK)) 
+	{
+		cap_lower(current->cap_permitted, CAP_SECURE_CLOCK);
+	}
+
+	if (cap_raised(current->cap_inheritable, CAP_SECURE_CLOCK))
+	{
+		cap_lower(current->cap_inheritable, CAP_SECURE_CLOCK);
+	}
+#endif /* CONFIG_MOT_FEAT_SECURE_CLOCK */
+#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+	if (unlikely(current->security != 0))
+	{
+		current->security = 0;
+	}
+#endif /* CONFIG_MOT_FEAT_SECURE_DRM */
+
 out_mm:
 	if (bprm->mm)
 		mmdrop(bprm->mm);
@@ -1204,8 +1333,11 @@ int set_binfmt(struct linux_binfmt *new)
 
 EXPORT_SYMBOL(set_binfmt);
 
+#ifdef CONFIG_MOT_FEAT_BOOTINFO
+#define CORENAME_MAX_SIZE 128
+#else
 #define CORENAME_MAX_SIZE 64
-
+#endif
 /* format_corename will inspect the pattern parameter, and output a
  * name into corename, which must have space for at least
  * CORENAME_MAX_SIZE bytes plus one byte for the zero terminator.
@@ -1217,6 +1349,9 @@ static void format_corename(char *corename, const char *pattern, long signr)
 	char *const out_end = corename + CORENAME_MAX_SIZE;
 	int rc;
 	int pid_in_pattern = 0;
+#ifdef CONFIG_MOT_FEAT_BOOTINFO
+	char *moto_bldlabel = NULL;
+#endif
 
 	/* Repeat as long as we have more pattern to process and more output
 	   space */
@@ -1297,6 +1432,23 @@ static void format_corename(char *corename, const char *pattern, long signr)
 					goto out;
 				out_ptr += rc;
 				break;
+#ifdef CONFIG_MOT_FEAT_BOOTINFO
+			/* build label */
+			case 'b':
+				moto_bldlabel = (char *)mot_build_label();
+				/* if build label is too long, use the tailed string */
+				rc = strlen(moto_bldlabel) - (out_end - out_ptr);
+				if(rc > 0)
+				{
+					rc = snprintf(out_ptr, out_end - out_ptr,
+						      "%s", moto_bldlabel + rc + 1);
+				}else{
+					rc = snprintf(out_ptr, out_end - out_ptr,
+						      "%s", moto_bldlabel);
+				}
+				out_ptr += rc;
+				break;
+#endif
 			default:
 				break;
 			}
@@ -1325,6 +1477,7 @@ static void zap_threads (struct mm_struct *mm)
 	struct task_struct *g, *p;
 	struct task_struct *tsk = current;
 	struct completion *vfork_done = tsk->vfork_done;
+	int traced = 0;
 
 	/*
 	 * Make sure nobody is waiting for us to release the VM,
@@ -1340,10 +1493,30 @@ static void zap_threads (struct mm_struct *mm)
 		if (mm == p->mm && p != tsk) {
 			force_sig_specific(SIGKILL, p);
 			mm->core_waiters++;
+			if (unlikely(p->ptrace) &&
+			    unlikely(p->parent->mm == mm))
+				traced = 1;
 		}
 	while_each_thread(g,p);
 
 	read_unlock(&tasklist_lock);
+
+	if (unlikely(traced)) {
+		/*
+		 * We are zapping a thread and the thread it ptraces.
+		 * If the tracee went into a ptrace stop for exit tracing,
+		 * we could deadlock since the tracer is waiting for this
+		 * coredump to finish.  Detach them so they can both die.
+		 */
+		write_lock_irq(&tasklist_lock);
+		do_each_thread(g,p) {
+			if (mm == p->mm && p != tsk &&
+			    p->ptrace && p->parent->mm == mm) {
+				__ptrace_unlink(p);
+			}
+		} while_each_thread(g,p);
+		write_unlock_irq(&tasklist_lock);
+	}
 }
 
 static void coredump_wait(struct mm_struct *mm)
@@ -1352,9 +1525,6 @@ static void coredump_wait(struct mm_struct *mm)
 
 	mm->core_waiters++; /* let other threads block */
 	mm->core_startup_done = &startup_done;
-
-	/* give other threads a chance to run: */
-	yield();
 
 	zap_threads(mm);
 	if (--mm->core_waiters) {
@@ -1365,6 +1535,171 @@ static void coredump_wait(struct mm_struct *mm)
 	BUG_ON(mm->core_waiters);
 }
 
+#ifdef CONFIG_MOT_FEAT_APP_DUMP
+/*
+ * Determines the current mode of the phone and returns
+ * the level of coredump to be generated.
+ *
+ * Return Values:
+ * 	0 == No Linux Coredump && No EZX Coredump
+ * 	1 == No Linux Coredump && Limited EZX Coredump
+ * 	2 == No Linux Coredump && Full EZX Coredump
+ * 	3 == Full Linux Coredump && Full EZX Coredump
+ */
+static int get_core_dump_level()
+{
+	/* setting the default values to be most restrictive */
+	unsigned char security_mode = MOT_SECURITY_MODE_PRODUCTION;
+	unsigned char production_state = LAUNCH_SHIP;
+	unsigned char bound_signature_state = BS_DIS_DISABLED;
+	int core_dump_level = 0;
+
+#ifdef CONFIG_MOT_FEAT_DRM_COREDUMP
+	/* dump full core if not a DRM_READ privileged application */
+	if(mot_security_coredump() == 0) {
+		return 3;
+	}
+#endif /* CONFIG_MOT_FEAT_DRM_COREDUMP */
+
+	/* dump the most restrictive version(s) of the core if reading any of the efuses returned an error */
+	if ((mot_otp_get_mode(&security_mode, NULL) == -1) ||
+	    (mot_otp_get_productstate(&production_state, NULL) == -1) ||
+	    (mot_otp_get_boundsignaturestate(&bound_signature_state, NULL) == -1)) {
+		printk(KERN_EMERG "Error: Could not read the OTP efuse bits. Production-Launched mode of the phone will be assumed.\n");
+		return core_dump_level;
+	}
+	if ((security_mode == MOT_SECURITY_MODE_ENGINEERING) ||
+	    (security_mode == MOT_SECURITY_MODE_NO_SECURITY)) {
+		core_dump_level = 3;
+	}
+	else {
+		if (production_state == PRE_ACCEPTANCE_ACCEPTANCE) {
+			/* production DRM key is present */
+			if (bound_signature_state == BS_DIS_DISABLED) {
+				core_dump_level = 1;
+			}
+			/* no production DRM key is present */
+			else {
+				core_dump_level = 2;
+			}
+		}
+	}
+	return core_dump_level;
+
+}
+
+#define SD_MOUNT_PT     "/mmc/mmca1"
+#define SD_DUMP_DIR     "/mmc/mmca1/app_dump"
+#ifdef CONFIG_MOT_FEAT_BOOTINFO
+#define SD_FULL_DUMP_PATTERN "/core.%e.%p.%t.%b"
+#else
+#define SD_FULL_DUMP_PATTERN "/core.%e.%p.%t"
+#endif
+#define SD_DEV_MAJOR    243
+int sd_exist = 0;
+
+/*
+ * check_sd_card() - Check whether SD card is inserted, and mkdir "app_dump"
+ * in SD card to save full coredump file.
+ */
+static int check_sd_card(void)
+{
+        struct nameidata nd;
+        struct dentry *dentry;
+        struct kstat dir_stat;
+        mm_segment_t old_fs = get_fs();
+        int ret = 0;
+
+        /* test if SD card is properly mounted and ready to     be used*/
+        if ((path_lookup(SD_MOUNT_PT, LOOKUP_FOLLOW, &nd) < 0) ||
+                                (MAJOR(nd.mnt->mnt_sb->s_dev) != SD_DEV_MAJOR))         {
+                    printk(KERN_WARNING"SD card not found, no full coredump.\n");
+                    return -1;
+        }
+        path_release(&nd);
+
+        set_fs(get_ds());
+
+       /* creat the directories */
+        /* check if the directory already exist */
+        ret = vfs_stat(SD_DUMP_DIR, &dir_stat);
+        if (ret != 0) {
+                    printk("vfs_stat gives ret %i, -2 we create, -5 io error\n", ret);
+                ret = path_lookup(SD_DUMP_DIR, LOOKUP_PARENT, &nd);
+                if (ret)
+                {
+                        set_fs(old_fs);
+                        return ret;
+                }
+                dentry = lookup_create(&nd, 1);
+
+                if (!IS_POSIXACL(nd.dentry->d_inode))
+                        ret = vfs_mkdir(nd.dentry->d_inode, dentry, 0777);
+
+                dput(dentry);
+                up(&nd.dentry->d_inode->i_sem);
+                path_release(&nd);
+
+                /* ret equal to -EEXIST when the directory already exist */
+                if (ret != 0 && ret != -EEXIST) {
+                        printk("sys_mkdir returns %i \n", ret);
+                        set_fs(old_fs);
+                        return ret;
+                }
+        }
+        set_fs(old_fs);
+
+        return 0;
+}
+
+
+struct aplog_coredump_cfg{
+    unsigned int maxcorefilesize;
+    unsigned int maxcorefilesperapp;
+};
+static struct aplog_coredump_cfg apcore = {10240, 4};
+
+void (*get_aplog_coredump_cfg)(struct aplog_coredump_cfg * apcore) = NULL;
+EXPORT_SYMBOL(get_aplog_coredump_cfg);
+DECLARE_RWSEM(get_aplog_coredump_cfg_lock);
+EXPORT_SYMBOL(get_aplog_coredump_cfg_lock);
+
+
+/*
+ * A function to call a user space script to do the synchronizing work between
+ * MMC card and /ezxlocal for aplog core dump, and back up aplog and system info
+ * for linux full core dump.
+ * Will be called during do_coredump.
+ * 
+ */
+static int call_post_dump_script(int dump_level, char * dump_name)
+{
+        static char * envp[] = {"HOME=/", "PATH=/usr/bin:/bin", NULL};        
+        char * argv[] = {"/etc/log_coredump.sh", NULL, NULL, NULL, NULL, NULL};
+        char level_str[2];
+        char size_str[10];
+        char file_str[4];
+
+        snprintf(level_str, 2, "%d", dump_level);
+        
+        if (get_aplog_coredump_cfg != NULL) {
+                down_read(&get_aplog_coredump_cfg_lock);
+                (*get_aplog_coredump_cfg)(&apcore);
+                up_read(&get_aplog_coredump_cfg_lock);
+        }
+        snprintf(size_str, 10, "%d", apcore.maxcorefilesize);
+        snprintf(file_str, 4, "%d", apcore.maxcorefilesperapp);
+
+        argv[1] = level_str;
+        argv[2] = size_str;
+        argv[3] = file_str;
+        argv[4] = dump_name;
+        
+        return call_usermodehelper(argv[0], argv, envp, 0);
+}
+
+#endif /* CONFIG_MOT_FEAT_APP_DUMP */
+
 int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 {
 	char corename[CORENAME_MAX_SIZE + 1];
@@ -1373,11 +1708,66 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 	struct inode * inode;
 	struct file * file;
 	int retval = 0;
+#ifdef CONFIG_MOT_FEAT_APP_DUMP
+	int dump_level;
+#ifdef CONFIG_MOT_FEAT_APP_COREDUMP_DISPLAY
+	char fb_coredump_text_buf[PANIC_MAX_STR_LEN];
+	const char core_text[] = " coredump";
+#endif /* CONFIG_MOT_FEAT_APP_COREDUMP_DISPLAY */
+#endif /* CONFIG_MOT_FEAT_APP_DUMP */
+
+#ifdef CONFIG_MOT_FEAT_APP_DUMP
+	printk(
+		   KERN_WARNING "Process '%s' (pid: %d) was terminated with signal: %d.\n",
+		   current->comm,
+		   current->pid,
+		   signr
+		  );
+
+	dump_level = get_core_dump_level();
+
+        if( dump_level == 3 && check_sd_card() == 0){
+                sd_exist = 1;
+        }
+    
+	/* continue system coredump after aplog_do_coredump, if necessary */
+	if (aplog_do_coredump != NULL) {
+		down_read(&aplog_do_coredump_lock);
+		if (aplog_do_coredump != NULL) {
+			/*
+			 * The reason why dump_level is decremented to 2 if it is equal to 3 is b/c for
+			 * aplog_do_coredump() function, dump_level of 2 and 3 mean exactly the same
+			 * thing. The return value is also purposely being ignored.
+			 */
+			aplog_do_coredump(signr, regs, (dump_level == 3 ? dump_level-1 : dump_level), sd_exist);
+		}
+		up_read(&aplog_do_coredump_lock);
+	}
+	/* skip the process of dumping the standard Linux coredump */
+	if (dump_level < 3) {
+		goto fail;
+	}
+                                                                                
+#ifdef CONFIG_MOT_FEAT_APP_COREDUMP_DISPLAY
+	strncpy(fb_coredump_text_buf, current->comm, sizeof(current->comm));
+	strncat(fb_coredump_text_buf, core_text, 10);
+        /* display coredump text to the screen */
+        fb_panic_text(NULL, fb_coredump_text_buf,
+                       strnlen(fb_coredump_text_buf, PANIC_MAX_STR_LEN), true);
+#endif /* CONFIG_MOT_FEAT_APP_COREDUMP_DISPLAY */
+
+       elf_clear_last_dump_status();
+
+
+
+#endif /* CONFIG_MOT_FEAT_APP_DUMP */
 
 	binfmt = current->binfmt;
 	if (!binfmt || !binfmt->core_dump)
 		goto fail;
+
 	down_write(&mm->mmap_sem);
+        mm->dumpable = 1;
 	if (!mm->dumpable) {
 		up_write(&mm->mmap_sem);
 		goto fail;
@@ -1396,6 +1786,16 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 	 * uses lock_kernel()
 	 */
  	lock_kernel();
+
+#ifdef CONFIG_MOT_FEAT_APP_DUMP
+       if(sd_exist == 1)
+        {
+            strcpy(core_pattern, SD_DUMP_DIR);
+            strcat(core_pattern, SD_FULL_DUMP_PATTERN);
+        }
+#endif /* CONFIG_MOT_FEAT_APP_DUMP */
+
+
 	format_corename(corename, core_pattern, signr);
 	unlock_kernel();
 	file = filp_open(corename, O_CREAT | 2 | O_NOFOLLOW | O_LARGEFILE, 0600);
@@ -1417,6 +1817,29 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 		goto close_fail;
 
 	retval = binfmt->core_dump(signr, regs, file);
+
+#ifdef CONFIG_MOT_FEAT_APP_DUMP
+        if(elf_get_last_dump_status())
+        {
+                printk("There is not enough space in SD for full dump.\n");
+
+                /* Make coredump file size to zero. */
+                do_truncate(file->f_dentry, 0);
+        }
+        else {
+                printk("Full coredump: %s.\n", corename);
+        }
+        
+        /* When we come here, dump level is already 3 */
+        if (sd_exist == 1) { 
+                printk("Call user space script for backing up...return (%d)\n",
+                   call_post_dump_script(dump_level, corename));
+        }
+        
+        
+#endif /* CONFIG_MOT_FEAT_APP_DUMP */
+
+
 
 	if (retval)
 		current->signal->group_exit_code |= 0x80;

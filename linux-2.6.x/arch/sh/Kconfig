@@ -782,6 +782,8 @@ source "fs/Kconfig"
 
 source "arch/sh/oprofile/Kconfig"
 
+source "ktools/Kconfig"
+
 source "arch/sh/Kconfig.debug"
 
 source "security/Kconfig"

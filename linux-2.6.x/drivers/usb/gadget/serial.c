@@ -2,6 +2,7 @@
  * g_serial.c -- USB gadget serial driver
  *
  * Copyright 2003 (C) Al Borchers (alborchers@steinerpoint.com)
+ * Copyright 2005 (C) MontaVista Software, Inc. (source@mvista.com)
  *
  * This code is based in part on the Gadget Zero driver, which
  * is Copyright (C) 2003 by David Brownell, all rights reserved.
@@ -30,8 +31,7 @@
 #include <linux/timer.h>
 #include <linux/list.h>
 #include <linux/interrupt.h>
-#include <linux/uts.h>
-#include <linux/version.h>
+#include <linux/utsname.h>
 #include <linux/wait.h>
 #include <linux/proc_fs.h>
 #include <linux/device.h>
@@ -1260,12 +1260,15 @@ static int gs_send(struct gs_dev *dev)
 gs_debug_level(3, "gs_send: len=%d, 0x%2.2x 0x%2.2x 0x%2.2x ...\n", len, *((unsigned char *)req->buf), *((unsigned char *)req->buf+1), *((unsigned char *)req->buf+2));
 			list_del(&req_entry->re_entry);
 			req->length = len;
+			spin_unlock_irqrestore(&dev->dev_lock, flags);
 			if ((ret=usb_ep_queue(ep, req, GFP_ATOMIC))) {
 				printk(KERN_ERR
 				"gs_send: cannot queue read request, ret=%d\n",
 					ret);
+				spin_lock_irqsave(&dev->dev_lock, flags);
 				break;
 			}
+			spin_lock_irqsave(&dev->dev_lock, flags);
 		} else {
 			break;
 		}
@@ -1496,43 +1499,20 @@ static int gs_bind(struct usb_gadget *gadget)
 	int ret;
 	struct usb_ep *ep;
 	struct gs_dev *dev;
+	int gcnum;
 
-	/* device specific */
-	if (gadget_is_net2280(gadget)) {
-		gs_device_desc.bcdDevice =
-			__constant_cpu_to_le16(GS_VERSION_NUM|0x0001);
-	} else if (gadget_is_pxa(gadget)) {
-		gs_device_desc.bcdDevice =
-			__constant_cpu_to_le16(GS_VERSION_NUM|0x0002);
-	} else if (gadget_is_sh(gadget)) {
-		gs_device_desc.bcdDevice =
-			__constant_cpu_to_le16(GS_VERSION_NUM|0x0003);
-		/* sh doesn't support multiple interfaces or configs */
+	/* Some controllers can't support CDC ACM:
+	 * - sh doesn't support multiple interfaces or configs;
+	 * - sa1100 doesn't have a third interrupt endpoint
+	 */
+	if (gadget_is_sh(gadget) || gadget_is_sa1100(gadget))
 		use_acm = 0;
-	} else if (gadget_is_sa1100(gadget)) {
+
+	gcnum = usb_gadget_controller_number(gadget);
+	if (gcnum >= 0)
 		gs_device_desc.bcdDevice =
-			__constant_cpu_to_le16(GS_VERSION_NUM|0x0004);
-		/* sa1100 doesn't support necessary endpoints */
-		use_acm = 0;
-	} else if (gadget_is_goku(gadget)) {
-		gs_device_desc.bcdDevice =
-			__constant_cpu_to_le16(GS_VERSION_NUM|0x0005);
-	} else if (gadget_is_mq11xx(gadget)) {
-		gs_device_desc.bcdDevice =
-			__constant_cpu_to_le16(GS_VERSION_NUM|0x0006);
-	} else if (gadget_is_omap(gadget)) {
-		gs_device_desc.bcdDevice =
-			__constant_cpu_to_le16(GS_VERSION_NUM|0x0007);
-	} else if (gadget_is_lh7a40x(gadget)) {
-		gs_device_desc.bcdDevice =
-			__constant_cpu_to_le16(GS_VERSION_NUM|0x0008);
-	} else if (gadget_is_n9604(gadget)) {
-		gs_device_desc.bcdDevice =
-			__constant_cpu_to_le16(GS_VERSION_NUM|0x0009);
-	} else if (gadget_is_pxa27x(gadget)) {
-		gs_device_desc.bcdDevice =
-			__constant_cpu_to_le16(GS_VERSION_NUM|0x0011);
-	} else {
+			cpu_to_le16(GS_VERSION_NUM | gcnum);
+	else {
 		printk(KERN_WARNING "gs_bind: controller '%s' not recognized\n",
 			gadget->name);
 		/* unrecognized, but safe unless bulk is REALLY quirky */
@@ -1596,8 +1576,9 @@ static int gs_bind(struct usb_gadget *gadget)
 	if (dev == NULL)
 		return -ENOMEM;
 
-	snprintf(manufacturer, sizeof(manufacturer),
-		UTS_SYSNAME " " UTS_RELEASE " with %s", gadget->name);
+	snprintf(manufacturer, sizeof(manufacturer), "%s %s with %s",
+		system_utsname.sysname, system_utsname.release,
+		gadget->name);
 
 	memset(dev, 0, sizeof(struct gs_dev));
 	dev->dev_gadget = gadget;
@@ -1693,8 +1674,10 @@ static int gs_setup(struct usb_gadget *gadget,
 
 	/* respond with data transfer before status phase? */
 	if (ret >= 0) {
+		ushort wLength = le16_to_cpu(ctrl->wLength);
+
 		req->length = ret;
-		req->zero = ret < ctrl->wLength
+		req->zero = ret < wLength
 				&& (ret % gadget->ep0->maxpacket) == 0;
 		ret = usb_ep_queue(gadget->ep0, req, GFP_ATOMIC);
 		if (ret < 0) {
@@ -1715,15 +1698,19 @@ static int gs_setup_standard(struct usb_gadget *gadget,
 	int ret = -EOPNOTSUPP;
 	struct gs_dev *dev = get_gadget_data(gadget);
 	struct usb_request *req = dev->dev_ctrl_req;
+	ushort wValue, wIndex, wLength;
 
+	wValue = le16_to_cpu(ctrl->wValue);
+	wIndex = le16_to_cpu(ctrl->wIndex);
+	wLength = le16_to_cpu(ctrl->wLength);
 	switch (ctrl->bRequest) {
 	case USB_REQ_GET_DESCRIPTOR:
 		if (ctrl->bRequestType != USB_DIR_IN)
 			break;
 
-		switch (ctrl->wValue >> 8) {
+		switch (wValue >> 8) {
 		case USB_DT_DEVICE:
-			ret = min(ctrl->wLength,
+			ret = min(wLength,
 				(u16)sizeof(struct usb_device_descriptor));
 			memcpy(req->buf, &gs_device_desc, ret);
 			break;
@@ -1732,7 +1719,7 @@ static int gs_setup_standard(struct usb_gadget *gadget,
 		case USB_DT_DEVICE_QUALIFIER:
 			if (!gadget->is_dualspeed)
 				break;
-			ret = min(ctrl->wLength,
+			ret = min(wLength,
 				(u16)sizeof(struct usb_qualifier_descriptor));
 			memcpy(req->buf, &gs_qualifier_desc, ret);
 			break;
@@ -1744,18 +1731,18 @@ static int gs_setup_standard(struct usb_gadget *gadget,
 #endif /* CONFIG_USB_GADGET_DUALSPEED */
 		case USB_DT_CONFIG:
 			ret = gs_build_config_buf(req->buf, gadget->speed,
-				ctrl->wValue >> 8, ctrl->wValue & 0xff,
+				wValue >> 8, wValue & 0xff,
 				gadget->is_otg);
 			if (ret >= 0)
-				ret = min(ctrl->wLength, (u16)ret);
+				ret = min(wLength, (u16)ret);
 			break;
 
 		case USB_DT_STRING:
 			/* wIndex == language code. */
 			ret = usb_gadget_get_string(&gs_string_table,
-				ctrl->wValue & 0xff, req->buf);
+				wValue & 0xff, req->buf);
 			if (ret >= 0)
-				ret = min(ctrl->wLength, (u16)ret);
+				ret = min(wLength, (u16)ret);
 			break;
 		}
 		break;
@@ -1764,7 +1751,7 @@ static int gs_setup_standard(struct usb_gadget *gadget,
 		if (ctrl->bRequestType != 0)
 			break;
 		spin_lock(&dev->dev_lock);
-		ret = gs_set_config(dev, ctrl->wValue);
+		ret = gs_set_config(dev, wValue);
 		spin_unlock(&dev->dev_lock);
 		break;
 
@@ -1772,18 +1759,18 @@ static int gs_setup_standard(struct usb_gadget *gadget,
 		if (ctrl->bRequestType != USB_DIR_IN)
 			break;
 		*(u8 *)req->buf = dev->dev_config;
-		ret = min(ctrl->wLength, (u16)1);
+		ret = min(wLength, (u16)1);
 		break;
 
 	case USB_REQ_SET_INTERFACE:
 		if (ctrl->bRequestType != USB_RECIP_INTERFACE
-		|| !dev->dev_config || ctrl->wIndex >= GS_MAX_NUM_INTERFACES)
+		|| !dev->dev_config || wIndex >= GS_MAX_NUM_INTERFACES)
 			break;
 		if (dev->dev_config == GS_BULK_CONFIG_ID
-		&& ctrl->wIndex != GS_BULK_INTERFACE_ID)
+		&& wIndex != GS_BULK_INTERFACE_ID)
 			break;
 		/* no alternate interface settings */
-		if (ctrl->wValue != 0)
+		if (wValue != 0)
 			break;
 		spin_lock(&dev->dev_lock);
 		/* PXA hardware partially handles SET_INTERFACE;
@@ -1794,7 +1781,7 @@ static int gs_setup_standard(struct usb_gadget *gadget,
 			goto set_interface_done;
 		}
 		if (dev->dev_config != GS_BULK_CONFIG_ID
-		&& ctrl->wIndex == GS_CONTROL_INTERFACE_ID) {
+		&& wIndex == GS_CONTROL_INTERFACE_ID) {
 			if (dev->dev_notify_ep) {
 				usb_ep_disable(dev->dev_notify_ep);
 				usb_ep_enable(dev->dev_notify_ep, dev->dev_notify_ep_desc);
@@ -1814,20 +1801,20 @@ set_interface_done:
 		if (ctrl->bRequestType != (USB_DIR_IN|USB_RECIP_INTERFACE)
 		|| dev->dev_config == GS_NO_CONFIG_ID)
 			break;
-		if (ctrl->wIndex >= GS_MAX_NUM_INTERFACES
+		if (wIndex >= GS_MAX_NUM_INTERFACES
 		|| (dev->dev_config == GS_BULK_CONFIG_ID
-		&& ctrl->wIndex != GS_BULK_INTERFACE_ID)) {
+		&& wIndex != GS_BULK_INTERFACE_ID)) {
 			ret = -EDOM;
 			break;
 		}
 		/* no alternate interface settings */
 		*(u8 *)req->buf = 0;
-		ret = min(ctrl->wLength, (u16)1);
+		ret = min(wLength, (u16)1);
 		break;
 
 	default:
 		printk(KERN_ERR "gs_setup: unknown standard request, type=%02x, request=%02x, value=%04x, index=%04x, length=%d\n",
-			ctrl->bRequestType, ctrl->bRequest, ctrl->wValue,
+			ctrl->bRequestType, ctrl->bRequest, wValue,
 			ctrl->wIndex, ctrl->wLength);
 		break;
 	}
@@ -1842,10 +1829,11 @@ static int gs_setup_class(struct usb_gadget *gadget,
 	struct gs_dev *dev = get_gadget_data(gadget);
 	struct gs_port *port = dev->dev_port[0];	/* ACM only has one port */
 	struct usb_request *req = dev->dev_ctrl_req;
+	ushort wLength = le16_to_cpu(ctrl->wLength);
 
 	switch (ctrl->bRequest) {
 	case USB_CDC_REQ_SET_LINE_CODING:
-		ret = min(ctrl->wLength,
+		ret = min(wLength,
 			(u16)sizeof(struct usb_cdc_line_coding));
 		if (port) {
 			spin_lock(&port->port_lock);
@@ -1856,7 +1844,7 @@ static int gs_setup_class(struct usb_gadget *gadget,
 
 	case USB_CDC_REQ_GET_LINE_CODING:
 		port = dev->dev_port[0];	/* ACM only has one port */
-		ret = min(ctrl->wLength,
+		ret = min(wLength,
 			(u16)sizeof(struct usb_cdc_line_coding));
 		if (port) {
 			spin_lock(&port->port_lock);

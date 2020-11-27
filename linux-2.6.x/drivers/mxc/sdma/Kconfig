@@ -1,0 +1,15 @@
+#
+# SDMA modules
+#
+
+menu "SDMA"
+
+config MXC_SDMA_API
+	bool "Use SDMA API"
+	depends on ARCH_MXC
+	default y
+	help
+	  This selects the Freescale MXC SDMA API.
+	  If unsure, say N.
+
+endmenu

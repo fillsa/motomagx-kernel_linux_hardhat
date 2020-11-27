@@ -1,0 +1,36 @@
+USAGE NOTES FOR CKBUILD
+-----------------------
+
+A full description of CKbuild and usage notes are available here:
+
+  http://sourceforge.mot.com/twiki/bin/view/Brava/CKbuildHowto
+
+
+MAINTAINER NOTES FOR CKBUILD
+----------------------------
+
+These files were edited by hand, but the diffs are not that big:
+
+scripts/Makefile.build
+scripts/Makefile.lib
+scripts/Makefile.modpost
+scripts/Makefile.modinst
+
+This file was written by copying bits over from Kbuild:
+
+Makefile
+
+This file was automatically generated from the Kbuild one using
+scripts/mk2cmk.pl:
+
+arch/arm/Makefile
+
+These files have no equivalent in Kbuild:
+
+ckbuild.mk : makefile fragment included by modules using ckbuild
+ckbuildvars.mk : definition of variables used by ckbuild.mk 
+scripts/if.sh : used to replace Kbuild's $(if ...
+scripts/cc-option.sh : used to replace Kbuild's $(call cc-option...
+scripts/cc-option-yn.sh : used to replace Kbuild's $(call cc-option-yn..
+
+

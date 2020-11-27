@@ -57,11 +57,11 @@ void h2p2_dbg_leds_event(led_event_t evt)
 
 #ifdef CONFIG_LEDS_CPU
 	case led_idle_start:
-		hw_led_state |= H2P2_DBG_FPGA_LED_IDLE;
+		hw_led_state &= ~H2P2_DBG_FPGA_LED_IDLE;
 		break;
 
 	case led_idle_end:
-		hw_led_state &= ~H2P2_DBG_FPGA_LED_IDLE;
+		hw_led_state |= H2P2_DBG_FPGA_LED_IDLE;
 		break;
 #endif
 

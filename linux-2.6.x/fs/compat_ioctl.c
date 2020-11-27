@@ -70,6 +70,7 @@
 #include <linux/i2c-dev.h>
 #include <linux/wireless.h>
 #include <linux/atalk.h>
+#include <linux/ltt-events.h>
 
 #include <net/sock.h>          /* siocdevprivate_ioctl */
 #include <net/bluetooth/bluetooth.h>
@@ -3161,6 +3162,97 @@ static int do_ncp_setprivatedata(unsigned int fd, unsigned int cmd, unsigned lon
 }
 #endif
 
+#ifdef CONFIG_LTT
+
+struct ltt_custom_cmd_32 {
+	u32     id;
+	u32     data_size;
+	u32     data_ptr;
+};
+
+struct ltt_cmd_frame {
+	struct ltt_control_data data;
+	struct ltt_custom_cmd   cmd;
+};
+
+static int do_ltt_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg)
+{
+	u32 tracer_handle, id, data_size, data_ptr_32, command_arg_32;
+	u64 command_arg;
+	void *arg_ptr, *data_ptr;
+	struct ltt_control_data  *compat_args;
+	struct ltt_custom_cmd_32 *compat_custom_cmd_user;
+	struct ltt_cmd_frame     *compat_frame;
+
+	arg_ptr = compat_ptr(arg);
+
+	compat_args = compat_alloc_user_space(sizeof(*compat_args));
+	if (compat_args == NULL)
+		return -ENOMEM;
+
+	if (get_user(tracer_handle, (u32 *)arg_ptr) || 
+	    get_user(command_arg_32, (u32 *)(arg_ptr + sizeof(u32))))
+		return -EFAULT;
+
+	command_arg = command_arg_32;
+
+	switch(cmd) {
+	case LTT_TRACER_CONFIG_EVENTS:
+	case LTT_TRACER_CONFIG_DETAILS:
+	case LTT_TRACER_DATA_COMITTED:
+	case LTT_TRACER_SET_EVENT_MASK:
+	case LTT_TRACER_GET_EVENT_MASK:
+	case LTT_TRACER_GET_ARCH_INFO:
+	case LTT_TRACER_GET_START_INFO:
+	case LTT_TRACER_GET_STATUS:
+	case LTT_TRACER_GET_BUFFER_CONTROL:
+	case LTT_TRACER_CREATE_USER_EVENT:
+		/* arg is a pointer to fixed-size data */
+		command_arg = (u64)compat_ptr((ulong)command_arg_32);
+		break;
+
+	case LTT_TRACER_TRACE_USER_EVENT:
+		compat_frame = compat_alloc_user_space(sizeof(*compat_frame));
+		if (compat_frame == NULL)
+			return -ENOMEM;
+
+		/* arg is a pointer to a variable-sized struct */
+		compat_custom_cmd_user = compat_ptr((ulong)command_arg_32);
+
+		if (get_user(id, &compat_custom_cmd_user->id) ||
+		    get_user(data_size, &compat_custom_cmd_user->data_size) ||
+		    get_user(data_ptr_32, &compat_custom_cmd_user->data_ptr))
+			return -EFAULT;
+
+		data_ptr = compat_ptr(data_ptr_32);
+
+		if (__put_user(id, &compat_frame->cmd.id) ||
+		    __put_user(data_size,&compat_frame->cmd.data_size) ||
+		    __put_user(data_ptr, &compat_frame->cmd.data))
+			return -EFAULT;
+
+		command_arg = (ulong)(&compat_frame->cmd);
+
+		if (__put_user(tracer_handle,&compat_frame->data.tracer_handle))
+			return -EFAULT;
+		if (__put_user(command_arg, &compat_frame->data.command_arg))
+			return -EFAULT;
+
+		return sys_ioctl(fd, cmd, (ulong)(&compat_frame->data));
+
+	default:
+		break;
+	}
+
+	if (__put_user(tracer_handle, &compat_args->tracer_handle) ||
+	    __put_user(command_arg, &compat_args->command_arg))
+		return -EFAULT;
+
+	return sys_ioctl(fd, cmd, (ulong)compat_args);
+}
+
+#endif /* CONFIG_LTT */
+
 #undef CODE
 #endif
 
@@ -3359,6 +3451,44 @@ HANDLE_IOCTL(NCP_IOC_SETOBJECTNAME_32, do_ncp_setobjectname)
 HANDLE_IOCTL(NCP_IOC_GETPRIVATEDATA_32, do_ncp_getprivatedata)
 HANDLE_IOCTL(NCP_IOC_SETPRIVATEDATA_32, do_ncp_setprivatedata)
 #endif
+
+#ifdef CONFIG_LTT
+HANDLE_IOCTL(LTT_TRACER_START, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_STOP, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_CONFIG_DEFAULT, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_CONFIG_MEMORY_BUFFERS, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_CONFIG_EVENTS, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_CONFIG_DETAILS, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_CONFIG_CPUID, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_CONFIG_PID, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_CONFIG_PGRP, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_CONFIG_GID, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_CONFIG_UID, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_CONFIG_SYSCALL_EIP_DEPTH, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_CONFIG_SYSCALL_EIP_LOWER, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_CONFIG_SYSCALL_EIP_UPPER, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_DATA_COMITTED, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_GET_EVENTS_LOST, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_CREATE_USER_EVENT, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_DESTROY_USER_EVENT, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_TRACE_USER_EVENT, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_SET_EVENT_MASK, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_GET_EVENT_MASK, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_GET_BUFFER_CONTROL, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_CONFIG_N_MEMORY_BUFFERS, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_CONFIG_USE_LOCKING, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_CONFIG_TIMESTAMP, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_GET_ARCH_INFO, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_ALLOC_HANDLE, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_FREE_HANDLE, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_FREE_DAEMON_HANDLE, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_FREE_ALL_HANDLES, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_MAP_BUFFER, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_PAUSE, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_UNPAUSE, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_GET_START_INFO, do_ltt_ioctl)
+HANDLE_IOCTL(LTT_TRACER_GET_STATUS, do_ltt_ioctl)
+#endif /* CONFIG_LTT */
 
 #undef DECLARES
 #endif

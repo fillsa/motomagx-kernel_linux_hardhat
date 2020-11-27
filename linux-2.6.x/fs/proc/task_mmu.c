@@ -1,8 +1,37 @@
+/*
+ * fs/proc/task_mmu.c
+ *
+ * Copyright 2007 Motorola, Inc
+ * 
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ *
+ * Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 05-23-2007   Motorola   	Fix the deadlock issue when process access 
+ *                              /proc/[pid]/memmap.
+ */
+
 #include <linux/mm.h>
 #include <linux/hugetlb.h>
 #include <linux/seq_file.h>
 #include <asm/elf.h>
 #include <asm/uaccess.h>
+
+extern void count_physical_pages(struct mm_struct *, struct vm_area_struct *,
+				 signed char *, int);
+
 
 char *task_mem(struct mm_struct *mm, char *buffer)
 {
@@ -81,6 +110,77 @@ static int show_map(struct seq_file *m, void *v)
 	return 0;
 }
 
+static int show_mem_node_map(struct seq_file *m,
+			     struct vm_area_struct * map,
+			     int node_map)
+{
+	struct task_struct *task = m->private;
+	struct mm_struct *mm;
+	char * memmapbuf;
+	signed char *data_buf;
+	long retval = 0;
+	int index, pages=0, len=0;
+	
+	pages = (map->vm_end - map->vm_start) / PAGE_SIZE;
+	
+	retval = -ENOMEM;
+	if ((data_buf = (signed char *)kmalloc(pages, GFP_KERNEL)) == NULL) {
+		return retval;
+	}
+	for (index = 0; index < pages; index++) {
+		data_buf[index] = -1;
+	}
+	if ((memmapbuf = (char *)kmalloc(2*pages+1, GFP_KERNEL)) == NULL)
+		goto out_free_databuf;
+	
+	task_lock(task);
+	mm = task->mm;
+	if (mm)
+		atomic_inc(&mm->mm_users);
+	task_unlock(task);
+	retval = 0;
+	if (!mm)
+		goto out_free_mmb;
+	
+#ifndef CONFIG_MOT_WFN493
+	down_read(&mm->mmap_sem);
+#endif
+	retval = 0;
+	
+	count_physical_pages(map->vm_mm, map, data_buf, node_map);
+	
+	for (index = 0; index < pages; index++) {
+		int val = data_buf[index];
+		if (val < 0)
+			len += sprintf(&memmapbuf[len],node_map ? " -" : " 0");
+		else
+			len += sprintf(&memmapbuf[len], "%2d", val);
+		if (index == pages-1)
+			len += sprintf(&memmapbuf[len], "\n");
+	}
+	
+	seq_printf(m, memmapbuf);
+#ifndef CONFIG_MOT_WFN493
+	up_read(&mm->mmap_sem);
+#endif
+ out_free_mmb:
+	mmput(mm);
+	kfree(memmapbuf);
+ out_free_databuf:
+	kfree(data_buf);
+	return retval;
+}
+
+static int show_memmap(struct seq_file *m, void *v)
+{
+	return show_mem_node_map(m, (struct vm_area_struct *)v, 0);
+}
+
+static int show_nodemap(struct seq_file *m, void *v)
+{
+	return show_mem_node_map(m, (struct vm_area_struct *)v, 1);
+}
+
 static void *m_start(struct seq_file *m, loff_t *pos)
 {
 	struct task_struct *task = m->private;
@@ -93,8 +193,10 @@ static void *m_start(struct seq_file *m, loff_t *pos)
 
 	down_read(&mm->mmap_sem);
 	map = mm->mmap;
-	while (l-- && map)
+	while (l-- && map) {
 		map = map->vm_next;
+		cond_resched();
+	}
 	if (!map) {
 		up_read(&mm->mmap_sem);
 		mmput(mm);
@@ -133,4 +235,18 @@ struct seq_operations proc_pid_maps_op = {
 	.next	= m_next,
 	.stop	= m_stop,
 	.show	= show_map
+};
+
+struct seq_operations proc_pid_memmap_op = {
+	.start  = m_start,
+	.next   = m_next,
+	.stop   = m_stop,
+	.show   = show_memmap
+};
+
+struct seq_operations proc_pid_nodemap_op = {
+	.start  = m_start,
+	.next   = m_next,
+	.stop   = m_stop,
+	.show   = show_nodemap
 };

@@ -39,10 +39,10 @@
 /* Protect struct usb_device->state and ->children members
  * Note: Both are also protected by ->serialize, except that ->state can
  * change to USB_STATE_NOTATTACHED even when the semaphore isn't held. */
-static spinlock_t device_state_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(device_state_lock);
 
 /* khubd's worklist and its lock */
-static spinlock_t hub_event_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(hub_event_lock);
 static LIST_HEAD(hub_event_list);	/* List of hubs needing servicing */
 
 /* Wakes up khubd */
@@ -1750,7 +1750,8 @@ hub_port_resume(struct usb_device *hdev, int port)
 		u16		portchange;
 
 		/* drive resume for at least 20 msec */
-		dev_dbg(&udev->dev, "RESUME\n");
+		if (udev)
+			dev_dbg(&udev->dev, "RESUME\n");
 		msleep(25);
 
 #define LIVE_FLAGS	( USB_PORT_STAT_POWER \
@@ -1774,7 +1775,8 @@ hub_port_resume(struct usb_device *hdev, int port)
 		} else {
 			/* TRSMRCY = 10 msec */
 			msleep(10);
-			status = finish_port_resume(udev);
+			if (udev)
+				status = finish_port_resume(udev);
 		}
 	}
 	if (status < 0)

@@ -7,9 +7,21 @@
  * 
  * Copyright (C) 1999 Hewlett-Packard Co.
  * Copyright (C) 1999 Stephane Eranian <eranian@hpl.hp.com>
+ *
+ * Copyright 2006 Motorola, Inc.
+ * 
+ * Date     Author    Comment
+ * 10/2006  Motorola  Added the user interface to the RTC Stopwatch driver
+ * 11/2006  Motorola  Added kernel interface to RTC Stopwatch driver
+ * 12/2006  Motorola  Fixed Power Management usage in RTC Stopwatch driver
+ *
  */
 #ifndef _LINUX_RTC_H_
 #define _LINUX_RTC_H_
+
+#ifdef __KERNEL__
+#include <linux/interrupt.h>
+#endif
 
 /*
  * The struct used to pass data via the following ioctl. Similar to the
@@ -28,6 +40,23 @@ struct rtc_time {
 	int tm_yday;
 	int tm_isdst;
 };
+
+/*
+ * The struct used to pass data via the RTC Stopwatch ioctl.
+ */
+struct rtc_sw_time {
+	unsigned int hours;
+	unsigned int minutes;
+	unsigned int seconds;
+	unsigned int hundredths;
+};
+
+enum {
+        PJ_NOT_RUNNING = 0,
+        PJ_RUNNING = 1,
+};
+
+int rtc_sw_periodic_jobs_running(void);
 
 /*
  * This data structure is inspired by the EFI (v0.92) wakeup
@@ -91,6 +120,25 @@ struct rtc_pll_info {
 #define RTC_PLL_GET	_IOR('p', 0x11, struct rtc_pll_info)  /* Get PLL correction */
 #define RTC_PLL_SET	_IOW('p', 0x12, struct rtc_pll_info)  /* Set PLL correction */
 
+/*
+ * ioctl calls that are permitted to the /dev/rtc_sw interface, if
+ * the high res timers are enabled.
+ */
+
+/* Set RTC Stopwatch strict request */
+#define RTC_SW_SETTIME		_IOW('q', 0x1, struct rtc_sw_time *)
+/* Set RTC Stopwatch fuzzy request */
+#define RTC_SW_SETTIME_FUZZ	_IOW('q', 0x2, struct rtc_sw_time *)
+/* Delete RTC Stopwatch request */
+#define RTC_SW_DELTIME		_IOW('q', 0x3, struct rtc_sw_time *)
+/* RTC Stopwatch, App job done */
+#define RTC_SW_JOB_DONE		_IO('q', 0x4)
+/* RTC Stopwatch, App exit */
+#define RTC_SW_APP_EXIT		_IO('q', 0x5)
+
+/* RTC Stopwatch, Get milliseconds from boot, takes a pointer to a unsigned long that will be populated with this value*/
+#define RTC_SW_MS_FROM_BOOT		_IOW('q', 0x6, unsigned long *)
+
 #ifdef __KERNEL__
 
 typedef struct rtc_task {
@@ -102,6 +150,119 @@ int rtc_register(rtc_task_t *task);
 int rtc_unregister(rtc_task_t *task);
 int rtc_control(rtc_task_t *t, unsigned int cmd, unsigned long arg);
 void rtc_get_rtc_time(struct rtc_time *rtc_tm);
+
+/*RTC Stop Watch Timer Functions*/
+
+/*!
+ * @return the number of milliseconds from boot.
+ */
+unsigned long rtc_sw_msfromboot(void);
+
+/*!
+ * This is used to get a value which represents a time used by the counter.
+ * This number does not mean anything until it is converted into milliseconds with
+ * rtc_sw_internal_to_ms.  The reason this lower level is exposed is for performance
+ * reasons.  Converting this to ms requires a divide which on some architectures is
+ * expensive, and some drivers may not want to do it in interrupt context.
+ */
+unsigned long rtc_sw_get_internal_ticks(void);
+
+/*!
+ * Convert the internal representation returned by  rtc_sw_get_internal_ticks to ms.
+ */
+unsigned long rtc_sw_internal_to_ms(unsigned long ticks);
+
+/*!
+ * This holds information about the callback function that is internal to
+ * the rtc_sw implimentation.  this struct should not be used directly.
+ */
+struct rtc_sw_callback_data {
+    struct tasklet_struct task;
+    void (*orig_func)(unsigned long data);
+    unsigned long orig_data;
+};
+
+/*!
+ * Holds the rtc_sw_timer request.
+ *
+ * @note this should be treated like a black box by those using the rtc_sw_task API.
+ */
+struct rtc_sw_request {
+    /* stored in ticks */
+    unsigned long interval;       /* normal alarm interval */
+    unsigned long remain;         /* remaining time in interval */    
+
+    int type;                     /* strict, fuzzy, or kernel API timer */
+    
+    atomic_t transaction;         /* The count of the number of transactions made*/
+    atomic_t cookie;              /* The value of transaction as of the last valid interrrupt*/
+    unsigned int running;         /* Number of outstanding interrupts against this timer*/
+    unsigned int pending;         /* Number of interrupts against this timer still needing to be finished*/
+    unsigned int next_to_run;     /* This indicates that this is the next timer to go off*/
+    
+    
+    /* Doubly Linked List of requests*/
+    struct rtc_sw_request *prev;  
+    struct rtc_sw_request *next;
+    
+    union
+    {
+        struct task_struct *process;  /* calling process */
+        struct rtc_sw_callback_data task_data;   /* tasklet related information to be scheduled when timer goes off */
+    } callback_data;
+};
+
+typedef struct rtc_sw_request rtc_sw_task_t;
+
+
+/*!
+ * Initialize the rtc_sw_task_t structure. This must be called before any other
+ * rtc_sw APIs are called for ptask.  It may only be called one per ptask structure
+ * unless rtc_sw_kill is called on that ptask first.
+ *
+ * @param ptask pointer to the uninitialised task structure.
+ * @param func the function to be called when the timer expires.
+ * @param data a user defined data value that will be passed to func when the timer expires.
+ */
+void rtc_sw_task_init(rtc_sw_task_t * ptask, void (*func)(unsigned long data), unsigned long data);
+
+/*!
+ * Stop a task that is running on any CPU.  The difference between this and rtc_sw_task_stop
+ * is that this will block until the task is no longer in use anywhere in the system.
+ * Because it blocks this may NOT be called from interrupt context.  Once task is
+ * killed no rtc_sw API may be called with it until rtc_sw_task_init has been called on it
+ * again.
+ */
+void rtc_sw_task_kill(rtc_sw_task_t * task);
+
+/*!
+ * Stop a running task. This may be called from interrupt context, but it is not
+ * guaranteed that the memory associated with task may be deallocated.
+ *
+ * @param task a pointer to the rtc_sw task that should be stopped
+ * @return the number of milliseconds left until this timer expires.  If it
+ * has already been run a value of 0 will be returned.
+ * 
+ * @note this may be called from interrupt context.
+ */
+unsigned long rtc_sw_task_stop(rtc_sw_task_t * task);
+
+/*!
+ * @return the number of milliseconds left until this timer expires.
+ *
+ * @note this may be called from interrupt context.
+ */
+unsigned long rtc_sw_task_time_left(rtc_sw_task_t * task);
+
+/*!
+ * Schedule a task to be run offset ms from now
+ *
+ * @param offset the number of ms from now to run task.
+ * @param task the task to be run.
+ * 
+ * @note this may be called from interrupt context.
+ */
+void rtc_sw_task_schedule(unsigned long offset, rtc_sw_task_t * task);
 
 #endif /* __KERNEL__ */
 

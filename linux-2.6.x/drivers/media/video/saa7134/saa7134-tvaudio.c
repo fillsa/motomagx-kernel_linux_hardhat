@@ -943,7 +943,6 @@ int saa7134_tvaudio_getstereo(struct saa7134_dev *dev)
 
 int saa7134_tvaudio_init2(struct saa7134_dev *dev)
 {
-	DECLARE_MUTEX_LOCKED(sem);
 	int (*my_thread)(void *data) = NULL;
 
 	/* enable I2S audio output */

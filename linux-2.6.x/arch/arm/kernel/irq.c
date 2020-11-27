@@ -17,6 +17,14 @@
  *  IRQ's are in fact implemented a bit like signal handlers for the kernel.
  *  Naturally it's not a 1:1 relation, but there are similarities.
  */
+/*
+ * Copyright (C) 2007 Motorola, Inc.
+ *
+ * Date           Author            Comment
+ * ===========  ==========  ====================================
+ * 10/15/2007   Motorola    FIQ related modified.
+ */
+
 #include <linux/config.h>
 #include <linux/kernel_stat.h>
 #include <linux/module.h>
@@ -32,6 +40,12 @@
 #include <linux/errno.h>
 #include <linux/list.h>
 #include <linux/kallsyms.h>
+#include <linux/proc_fs.h>
+#include <linux/kthread.h>
+#include <linux/spinlock.h>
+#include <linux/ilatency.h>
+#include <linux/ltt-events.h>
+#include <linux/vst.h>
 
 #include <asm/irq.h>
 #include <asm/system.h>
@@ -46,13 +60,28 @@
  */
 #define MAX_IRQ_CNT	100000
 
+static int
+__do_irq(unsigned int irq, struct irqaction *action, struct pt_regs *regs);
+
 static int noirqdebug;
 static volatile unsigned long irq_err_count;
-static spinlock_t irq_controller_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_RAW_SPINLOCK(irq_controller_lock);
 static LIST_HEAD(irq_pending);
 
 struct irqdesc irq_desc[NR_IRQS];
 void (*init_arch_irq)(void) __initdata = NULL;
+
+extern asmlinkage long sys_sched_setscheduler(pid_t pid, int policy,
+                                       struct sched_param __user *param);
+#ifdef CONFIG_PREEMPT_HARDIRQS
+int hardirq_preemption = 1;
+void direct_timer_interrupt(struct pt_regs *regs);
+#endif
+
+struct timer_update_handler timer_update = {
+	.function	= NULL,
+	.skip		= 0,
+};
 
 /*
  * Dummy mask/unmask handler
@@ -84,6 +113,23 @@ static struct irqdesc bad_irq_desc = {
 	.pend		= LIST_HEAD_INIT(bad_irq_desc.pend),
 	.disable_depth	= 1,
 };
+
+#ifdef CONFIG_SMP
+void synchronize_irq(unsigned int irq)
+{
+	struct irqdesc *desc = irq_desc + irq;
+
+	while (desc->running)
+		barrier();
+}
+EXPORT_SYMBOL(synchronize_irq);
+
+#define smp_set_running(desc)	do { desc->running = 1; } while (0)
+#define smp_clear_running(desc)	do { desc->running = 0; } while (0)
+#else
+#define smp_set_running(desc)	do { } while (0)
+#define smp_clear_running(desc)	do { } while (0)
+#endif
 
 /**
  *	disable_irq_nosync - disable an irq without waiting
@@ -232,10 +278,57 @@ unlock:
 #ifdef CONFIG_ARCH_ACORN
 		show_fiq_list(p, v);
 #endif
+#ifdef CONFIG_SMP
+		show_ipi_list(p);
+#endif
 		seq_printf(p, "Err: %10lu\n", irq_err_count);
 	}
 	return 0;
 }
+
+#ifdef CONFIG_LTT
+
+int ltt_snapshot_irqs(int rchan)
+{
+	int i, count, relay_error;
+	unsigned long flags;
+	char buf[256];
+	struct irqaction *action;
+
+	for (i = relay_error = 0; i < NR_IRQS; i++) {
+		spin_lock_irqsave(&irq_controller_lock, flags);
+		if ( (action = irq_desc[i].action) == NULL) {
+			spin_unlock_irqrestore(&irq_controller_lock, flags);
+			continue;
+		}
+		count = snprintf(buf, sizeof(buf),
+		                "IRQ: %d; NAME: %s\n", i, action->name);
+		if (relay_write(rchan, buf, count, -1, NULL) != count) {
+			relay_error = 1;
+			goto relay_write_err;
+		}
+		for (action = action->next; action; action = action->next) {
+			count = snprintf(buf, sizeof(buf),	
+				"IRQ: %d; NAME: %s\n", i, action->name);
+			if (relay_write(rchan, buf, count, -1, NULL) != count) {
+				relay_error = 1;
+				goto relay_write_err;
+			}
+		}
+		spin_unlock_irqrestore(&irq_controller_lock, flags);	
+	}
+
+relay_write_err :
+	if (relay_error) {
+		spin_unlock_irqrestore(&irq_controller_lock, flags);
+		printk(KERN_ALERT "Can't write into a relayfs channel\n");
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+
+#endif
 
 /*
  * IRQ lock detection.
@@ -293,6 +386,141 @@ report_bad_irq(unsigned int irq, struct pt_regs *regs, struct irqdesc *desc, int
 	printk("\n");
 }
 
+static void do_hardirq(struct irqdesc *desc)
+{
+	struct irqaction * action;
+	unsigned int irq = desc - irq_desc;
+                                                                                                                    
+	local_irq_disable();
+                                                                                                                    
+	if (desc->status & IRQ_INPROGRESS) {
+		action = desc->action;
+		spin_lock(&irq_controller_lock);
+		for (;;) {
+			irqreturn_t action_ret = 0;
+                                                                                                                    
+			if (action) {
+				action_ret = __do_irq(irq, action, NULL);
+				spin_unlock(&irq_controller_lock);
+				local_irq_enable();
+				cond_resched();
+				spin_lock_irq(&irq_controller_lock);
+			}
+
+			if (likely(!(desc->status & IRQ_PENDING)))
+				break;
+			desc->status &= ~IRQ_PENDING;
+		}
+		desc->status &= ~IRQ_INPROGRESS;
+		desc->running = 0;
+                /*
+                 * The ->end() handler has to deal with interrupts which got
+                 * disabled while the handler was running.
+                 */
+		desc->chip->unmask(irq);
+		spin_unlock(&irq_controller_lock);
+	}
+	local_irq_enable();
+}
+
+extern asmlinkage void __do_softirq(void );
+
+static int curr_irq_prio = 49;
+                                                                                                                    
+static int do_irqd(void * __desc)
+{
+	struct sched_param param = { 0, };
+	struct irqdesc *desc = __desc;
+#ifdef CONFIG_SMP
+	int irq = desc - irq_desc;
+	cpumask_t mask;
+                                                                                                                    
+	mask = cpumask_of_cpu(any_online_cpu(irq_affinity[irq]));
+	set_cpus_allowed(current, mask);
+#endif
+	current->flags |= PF_NOFREEZE | PF_HARDIRQ;
+                                                                                                                    
+        /*
+         * Scale irq thread priorities from prio 50 to prio 25
+         */
+	param.sched_priority = curr_irq_prio;
+	if (param.sched_priority > 25)
+		curr_irq_prio = param.sched_priority - 1;
+                                                                                                                    
+	sys_sched_setscheduler(current->pid, SCHED_FIFO, &param);
+                                                                                                                    
+	while (!kthread_should_stop()) {
+		set_current_state(TASK_INTERRUPTIBLE);
+		do_hardirq(desc);
+		cond_resched();
+		__do_softirq();
+#ifdef CONFIG_SMP
+                /*
+                 * Did IRQ affinities change?
+                 */
+		if (!cpu_isset(smp_processor_id(), irq_affinity[irq])) {
+			mask = cpumask_of_cpu(any_online_cpu(irq_affinity[irq]));
+			set_cpus_allowed(current, mask);
+		}
+#endif
+		schedule();
+	}
+	__set_current_state(TASK_RUNNING);
+	return 0;
+}
+
+void recalculate_desc_flags(struct irqdesc *desc)
+{
+	struct irqaction *action;
+
+	desc->status &= ~IRQ_NODELAY;
+	for (action = desc->action ; action; action = action->next)
+		if (action->flags & SA_NODELAY)
+			desc->status |= IRQ_NODELAY;
+}
+static int ok_to_create_irq_threads;
+
+static int start_irq_thread(int irq, struct irqdesc *desc)
+{
+	if (desc->thread || !ok_to_create_irq_threads)
+		return 0;
+                                                                                                                    
+	desc->thread = kthread_create(do_irqd, desc, "IRQ %d", irq);
+	if (!desc->thread) {
+		printk(KERN_ERR "irqd: could not create IRQ thread %d!\n", irq);
+		return -ENOMEM;
+	}
+                                                                                                                    
+        /*
+         * An interrupt may have come in before the thread pointer was
+         * stored in desc->thread; make sure the thread gets woken up in
+         * such a case:
+         */
+#ifdef CONFIG_SMP
+	smp_mb();
+#endif                 
+                                                                                                   
+	if (desc->status & IRQ_INPROGRESS)
+		wake_up_process(desc->thread);
+                                                                                                                    
+	return 0;
+}
+
+int redirect_hardirq(struct irqdesc *desc)
+{
+        /*
+         * Direct execution:
+         */
+	if ((desc->status & IRQ_NODELAY) || !desc->thread)
+		return 0;
+                                                                                                                    
+	if (desc->thread && desc->thread->state != TASK_RUNNING)
+		wake_up_process(desc->thread);
+	
+	return 1;
+}
+
+
 static int
 __do_irq(unsigned int irq, struct irqaction *action, struct pt_regs *regs)
 {
@@ -301,8 +529,9 @@ __do_irq(unsigned int irq, struct irqaction *action, struct pt_regs *regs)
 
 	spin_unlock(&irq_controller_lock);
 
-	if (!(action->flags & SA_INTERRUPT))
+	if (!hardirq_count() || !(action->flags & SA_INTERRUPT))
 		local_irq_enable();
+	interrupt_overhead_stop();
 
 	status = 0;
 	do {
@@ -315,6 +544,11 @@ __do_irq(unsigned int irq, struct irqaction *action, struct pt_regs *regs)
 
 	if (status & SA_SAMPLE_RANDOM)
 		add_interrupt_randomness(irq);
+
+#ifdef CONFIG_NO_IDLE_HZ
+	if (timer_update.function && irq != timer_update.skip)
+		timer_update.function(irq, 0, regs);
+#endif
 
 	spin_lock_irq(&irq_controller_lock);
 
@@ -329,11 +563,24 @@ void
 do_simple_IRQ(unsigned int irq, struct irqdesc *desc, struct pt_regs *regs)
 {
 	struct irqaction *action;
-	const int cpu = smp_processor_id();
+	const unsigned int cpu = smp_processor_id();
 
 	desc->triggered = 1;
 
+#ifdef CONFIG_PREEMPT_HARDIRQS
+	if (unlikely(irq == ARCH_TIMER_IRQ))
+		direct_timer_interrupt(regs);
+#endif
+
 	kstat_cpu(cpu).irqs[irq]++;
+
+	smp_set_running(desc);
+
+#ifdef CONFIG_PREEMPT_HARDIRQS
+	if (desc->action) desc->status |= IRQ_INPROGRESS;
+	if (redirect_hardirq(desc))
+		return;
+#endif
 
 	action = desc->action;
 	if (action) {
@@ -341,6 +588,8 @@ do_simple_IRQ(unsigned int irq, struct irqdesc *desc, struct pt_regs *regs)
 		if (ret != IRQ_HANDLED)
 			report_bad_irq(irq, regs, desc, ret);
 	}
+
+	smp_clear_running(desc);
 }
 
 /*
@@ -350,7 +599,7 @@ do_simple_IRQ(unsigned int irq, struct irqdesc *desc, struct pt_regs *regs)
 void
 do_edge_IRQ(unsigned int irq, struct irqdesc *desc, struct pt_regs *regs)
 {
-	const int cpu = smp_processor_id();
+	const unsigned int cpu = smp_processor_id();
 
 	desc->triggered = 1;
 
@@ -374,6 +623,12 @@ do_edge_IRQ(unsigned int irq, struct irqdesc *desc, struct pt_regs *regs)
 
 	kstat_cpu(cpu).irqs[irq]++;
 
+#ifdef CONFIG_PREEMPT_HARDIRQS
+	if (desc->action) desc->status |= IRQ_INPROGRESS;
+	if (redirect_hardirq(desc))
+		return;
+#endif
+
 	do {
 		struct irqaction *action;
 
@@ -389,6 +644,7 @@ do_edge_IRQ(unsigned int irq, struct irqdesc *desc, struct pt_regs *regs)
 		__do_irq(irq, action, regs);
 	} while (desc->pending && !desc->disable_depth);
 
+	desc->status &= ~IRQ_INPROGRESS;
 	desc->running = 0;
 
 	/*
@@ -403,6 +659,7 @@ do_edge_IRQ(unsigned int irq, struct irqdesc *desc, struct pt_regs *regs)
 	 * currently running.  Delay it.
 	 */
 	desc->pending = 1;
+	desc->status |= IRQ_PENDING;
 	desc->chip->mask(irq);
 	desc->chip->ack(irq);
 }
@@ -414,7 +671,7 @@ void
 do_level_IRQ(unsigned int irq, struct irqdesc *desc, struct pt_regs *regs)
 {
 	struct irqaction *action;
-	const int cpu = smp_processor_id();
+	const unsigned int cpu = smp_processor_id();
 
 	desc->triggered = 1;
 
@@ -423,15 +680,30 @@ do_level_IRQ(unsigned int irq, struct irqdesc *desc, struct pt_regs *regs)
 	 */
 	desc->chip->ack(irq);
 
+#ifdef CONFIG_PREEMPT_HARDIRQS
+	if (unlikely(irq == ARCH_TIMER_IRQ))
+		direct_timer_interrupt(regs);
+#endif
+
 	if (likely(!desc->disable_depth)) {
 		kstat_cpu(cpu).irqs[irq]++;
+
+		smp_set_running(desc);
 
 		/*
 		 * Return with this interrupt masked if no action
 		 */
 		action = desc->action;
 		if (action) {
-			int ret = __do_irq(irq, desc->action, regs);
+			int ret = 0;
+#ifdef CONFIG_PREEMPT_HARDIRQS
+			desc->status |= IRQ_INPROGRESS;
+			ret = IRQ_HANDLED;
+
+			if (redirect_hardirq(desc))
+				return;
+#endif
+			ret = __do_irq(irq, desc->action, regs);
 
 			if (ret != IRQ_HANDLED)
 				report_bad_irq(irq, regs, desc, ret);
@@ -440,6 +712,9 @@ do_level_IRQ(unsigned int irq, struct irqdesc *desc, struct pt_regs *regs)
 				   !check_irq_lock(desc, irq, regs)))
 				desc->chip->unmask(irq);
 		}
+		desc->status &= ~IRQ_INPROGRESS;
+
+		smp_clear_running(desc);
 	}
 }
 
@@ -482,9 +757,11 @@ static void do_pending_irqs(struct pt_regs *regs)
  * come via this function.  Instead, they should provide their
  * own 'handler'
  */
-asmlinkage void asm_do_IRQ(unsigned int irq, struct pt_regs *regs)
+asmlinkage notrace void asm_do_IRQ(unsigned int irq, struct pt_regs *regs)
 {
 	struct irqdesc *desc = irq_desc + irq;
+
+	ltt_ev_irq_entry(irq, !(user_mode(regs)));
 
 	/*
 	 * Some hardware gives randomly wrong interrupts.  Rather
@@ -493,7 +770,9 @@ asmlinkage void asm_do_IRQ(unsigned int irq, struct pt_regs *regs)
 	if (irq >= NR_IRQS)
 		desc = &bad_irq_desc;
 
+	interrupt_overhead_start();
 	irq_enter();
+	vst_wakeup(regs, 0);
 	spin_lock(&irq_controller_lock);
 	desc->handle(irq, desc, regs);
 
@@ -505,6 +784,9 @@ asmlinkage void asm_do_IRQ(unsigned int irq, struct pt_regs *regs)
 
 	spin_unlock(&irq_controller_lock);
 	irq_exit();
+	latency_check();
+
+	ltt_ev_irq_exit();
 }
 
 void __set_irq_handler(unsigned int irq, irq_handler_t handle, int is_chained)
@@ -628,8 +910,15 @@ int setup_irq(unsigned int irq, struct irqaction *new)
 	 * The following block of code has to be executed atomically
 	 */
 	desc = irq_desc + irq;
+#ifdef CONFIG_PREEMPT_HARDIRQS
+	if (!(new->flags & SA_NODELAY)) {
+		if (start_irq_thread(irq, desc))
+			return -ENOMEM;
+	}
+#endif
 	spin_lock_irqsave(&irq_controller_lock, flags);
 	p = &desc->action;
+
 	if ((old = *p) != NULL) {
 		/* Can't share interrupts unless both agree to */
 		if (!(old->flags & new->flags & SA_SHIRQ)) {
@@ -657,6 +946,11 @@ int setup_irq(unsigned int irq, struct irqaction *new)
 			desc->chip->unmask(irq);
 		}
 	}
+
+
+#ifdef CONFIG_PREEMPT_HARDIRQS
+	recalculate_desc_flags(desc);
+#endif
 
 	spin_unlock_irqrestore(&irq_controller_lock, flags);
 	return 0;
@@ -878,8 +1172,109 @@ out:
 
 EXPORT_SYMBOL(probe_irq_off);
 
+#ifdef CONFIG_SMP
+static void route_irq(struct irqdesc *desc, unsigned int irq, unsigned int cpu)
+{
+	pr_debug("IRQ%u: moving from cpu%u to cpu%u\n", irq, desc->cpu, cpu);
+
+	spin_lock_irq(&irq_controller_lock);
+	desc->cpu = cpu;
+	desc->chip->set_cpu(desc, irq, cpu);
+	spin_unlock_irq(&irq_controller_lock);
+}
+
+#ifdef CONFIG_PROC_FS
+static int
+irq_affinity_read_proc(char *page, char **start, off_t off, int count,
+		       int *eof, void *data)
+{
+	struct irqdesc *desc = irq_desc + ((int)data);
+	int len = cpumask_scnprintf(page, count, desc->affinity);
+
+	if (count - len < 2)
+		return -EINVAL;
+	page[len++] = '\n';
+	page[len] = '\0';
+
+	return len;
+}
+
+static int
+irq_affinity_write_proc(struct file *file, const char __user *buffer,
+			unsigned long count, void *data)
+{
+	unsigned int irq = (unsigned int)data;
+	struct irqdesc *desc = irq_desc + irq;
+	cpumask_t affinity, tmp;
+	int ret = -EIO;
+
+	if (!desc->chip->set_cpu)
+		goto out;
+
+	ret = cpumask_parse(buffer, count, affinity);
+	if (ret)
+		goto out;
+
+	cpus_and(tmp, affinity, cpu_online_map);
+	if (cpus_empty(tmp)) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	desc->affinity = affinity;
+	route_irq(desc, irq, first_cpu(tmp));
+	ret = count;
+
+ out:
+	return ret;
+}
+#endif
+#endif
+
 void __init init_irq_proc(void)
 {
+#if defined(CONFIG_SMP) && defined(CONFIG_PROC_FS)
+	struct proc_dir_entry *dir;
+	int irq;
+
+	dir = proc_mkdir("irq", 0);
+	if (!dir)
+		return;
+
+	for (irq = 0; irq < NR_IRQS; irq++) {
+		struct proc_dir_entry *entry;
+		struct irqdesc *desc;
+		char name[16];
+
+		desc = irq_desc + irq;
+		memset(name, 0, sizeof(name));
+		snprintf(name, sizeof(name) - 1, "%u", irq);
+
+		desc->procdir = proc_mkdir(name, dir);
+		if (!desc->procdir)
+			continue;
+
+		entry = create_proc_entry("smp_affinity", 0600, desc->procdir);
+		if (entry) {
+			entry->nlink = 1;
+			entry->data = (void *)irq;
+			entry->read_proc = irq_affinity_read_proc;
+			entry->write_proc = irq_affinity_write_proc;
+		}
+	}
+#endif
+}
+
+void __init init_hardirqs(void)
+{
+	int i;
+	ok_to_create_irq_threads = 1;                                                                                               
+	for (i = 0; i < NR_IRQS; i++) {
+		struct irqdesc *desc = irq_desc + i;
+		
+		if (desc->action && !(desc->status & IRQ_NODELAY))
+			start_irq_thread(i, desc);
+	}
 }
 
 void __init init_IRQ(void)
@@ -887,10 +1282,26 @@ void __init init_IRQ(void)
 	struct irqdesc *desc;
 	extern void init_dma(void);
 	int irq;
+#ifdef CONFIG_MOT_FEAT_FIQ_IN_C
+	extern void mxc_fiq_init(void);
+#endif
+
+#ifdef CONFIG_SMP
+	bad_irq_desc.affinity = CPU_MASK_ALL;
+	bad_irq_desc.cpu = smp_processor_id();
+#endif
+
+#ifdef CONFIG_MOT_FEAT_FIQ_IN_C
+	mxc_fiq_init();
+#endif
 
 	for (irq = 0, desc = irq_desc; irq < NR_IRQS; irq++, desc++) {
 		*desc = bad_irq_desc;
 		INIT_LIST_HEAD(&desc->pend);
+#ifdef CONFIG_PREEMPT_HARDIRQS
+		spin_lock_init(&desc->lock);
+		desc->thread = NULL;
+#endif
 	}
 
 	init_arch_irq();

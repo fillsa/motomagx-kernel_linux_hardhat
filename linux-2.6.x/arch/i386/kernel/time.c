@@ -29,7 +29,10 @@
  *	Fixed a xtime SMP race (we need the xtime_lock rw spinlock to
  *	serialize accesses to xtime/lost_ticks).
  */
-
+/* 2002-8-13 George Anzinger  Modified for High res timers: 
+ *                            Copyright (C) 2002 MontaVista Software
+*/
+#define _INCLUDED_FROM_TIME_C
 #include <linux/errno.h>
 #include <linux/sched.h>
 #include <linux/kernel.h>
@@ -64,10 +67,12 @@
 #include <asm/hpet.h>
 
 #include <asm/arch_hooks.h>
+#include <linux/hrtime.h>
 
 #include "io_ports.h"
 
-extern spinlock_t i8259A_lock;
+#include <asm/i8259.h>
+
 int pit_latch_buggy;              /* extern */
 
 #include "do_timer.h"
@@ -80,57 +85,72 @@ unsigned long cpu_khz;	/* Detected as we calibrate the TSC */
 
 extern unsigned long wall_jiffies;
 
-spinlock_t rtc_lock = SPIN_LOCK_UNLOCKED;
+DEFINE_RAW_SPINLOCK(rtc_lock);
 
-spinlock_t i8253_lock = SPIN_LOCK_UNLOCKED;
+#include <asm/i8253.h>
+
+DEFINE_RAW_SPINLOCK(i8253_lock);
 EXPORT_SYMBOL(i8253_lock);
 
 struct timer_opts *cur_timer = &timer_none;
-
 /*
  * This version of gettimeofday has microsecond resolution
  * and better than microsecond precision on fast x86 machines with TSC.
  */
+
+/*
+ * High res timers changes: First we want to use full nsec for all
+ * the math to avoid the double round off (on the offset and xtime).
+ * Second, we want to allow a boot with HRT turned off at boot time.
+ * This will cause hrtimer_use to be false, and we then fall back to 
+ * the old code.  We also shorten the xtime lock region and eliminate
+ * the lost tick code as this kernel will never have lost ticks under
+ * the lock (i.e. wall_jiffies will never differ from jiffies except
+ * when the write xtime lock is held).
+ */
 void do_gettimeofday(struct timeval *tv)
 {
 	unsigned long seq;
-	unsigned long usec, sec;
+	unsigned long sec, nsec, clk_nsec;
 	unsigned long max_ntp_tick;
 
 	do {
-		unsigned long lost;
-
 		seq = read_seqbegin(&xtime_lock);
-
-		usec = cur_timer->get_offset();
-		lost = jiffies - wall_jiffies;
-
-		/*
-		 * If time_adjust is negative then NTP is slowing the clock
-		 * so make sure not to go into next possible interval.
-		 * Better to lose some accuracy than have time go backwards..
-		 */
-		if (unlikely(time_adjust < 0)) {
-			max_ntp_tick = (USEC_PER_SEC / HZ) - tickadj;
-			usec = min(usec, max_ntp_tick);
-
-			if (lost)
-				usec += lost * max_ntp_tick;
-		}
-		else if (unlikely(lost))
-			usec += lost * (USEC_PER_SEC / HZ);
+#ifdef CONFIG_HIGH_RES_TIMERS
+		if (hrtimer_use) 
+			nsec = arch_cycle_to_nsec(get_arch_cycles(wall_jiffies));
+		else 
+#endif
+			nsec = cur_timer->get_offset() * NSEC_PER_USEC;
+		
 
 		sec = xtime.tv_sec;
-		usec += (xtime.tv_nsec / 1000);
+		clk_nsec = xtime.tv_nsec;
 	} while (read_seqretry(&xtime_lock, seq));
 
-	while (usec >= 1000000) {
-		usec -= 1000000;
+	/*
+	 * If time_adjust is negative then NTP is slowing the clock
+	 * so make sure not to go into next possible interval.
+	 * Better to lose some accuracy than have time go backwards..
+
+	 * Note, in this kernel wall_jiffies and jiffies will always
+	 * be the same, at least under the lock.
+	 */
+	if (unlikely(time_adjust < 0)) {
+		max_ntp_tick = tick_nsec - (tickadj * NSEC_PER_USEC);
+		if (max_ntp_tick > nsec)
+			nsec = max_ntp_tick - nsec;
+	}
+
+	nsec += clk_nsec;
+				
+	while (nsec >= NSEC_PER_SEC) {
+		nsec -=  NSEC_PER_SEC;
 		sec++;
 	}
 
 	tv->tv_sec = sec;
-	tv->tv_usec = usec;
+	tv->tv_usec = nsec / NSEC_PER_USEC;
 }
 
 EXPORT_SYMBOL(do_gettimeofday);
@@ -201,7 +221,7 @@ unsigned long long monotonic_clock(void)
 EXPORT_SYMBOL(monotonic_clock);
 
 #if defined(CONFIG_SMP) && defined(CONFIG_FRAME_POINTER)
-unsigned long profile_pc(struct pt_regs *regs)
+unsigned long notrace profile_pc(struct pt_regs *regs)
 {
 	unsigned long pc = instruction_pointer(regs);
 
@@ -217,25 +237,24 @@ EXPORT_SYMBOL(profile_pc);
  * timer_interrupt() needs to keep up the real-time clock,
  * as well as call the "do_timer()" routine every clocktick
  */
-static inline void do_timer_interrupt(int irq, void *dev_id,
-					struct pt_regs *regs)
+static inline void do_timer_interrupt(struct pt_regs *regs)
 {
 #ifdef CONFIG_X86_IO_APIC
 	if (timer_ack) {
+		unsigned long flags;
 		/*
 		 * Subtle, when I/O APICs are used we have to ack timer IRQ
 		 * manually to reset the IRR bit for do_slow_gettimeoffset().
 		 * This will also deassert NMI lines for the watchdog if run
 		 * on an 82489DX-based system.
 		 */
-		spin_lock(&i8259A_lock);
+		spin_lock_irqsave(&i8259A_lock, flags);
 		outb(0x0c, PIC_MASTER_OCW3);
 		/* Ack the IRQ; AEOI will end it automatically. */
 		inb(PIC_MASTER_POLL);
-		spin_unlock(&i8259A_lock);
+		spin_unlock_irqrestore(&i8259A_lock, flags);
 	}
 #endif
-
 	do_timer_interrupt_hook(regs);
 
 	/*
@@ -258,24 +277,10 @@ static inline void do_timer_interrupt(int irq, void *dev_id,
 		} else if (set_rtc_mmss(xtime.tv_sec) == 0)
 			last_rtc_update = xtime.tv_sec;
 		else
-			last_rtc_update = xtime.tv_sec - 600; /* do it again in 60 s */
+			/* do it again in 60 s */
+			last_rtc_update = xtime.tv_sec - 600; 
 	}
 
-#ifdef CONFIG_MCA
-	if( MCA_bus ) {
-		/* The PS/2 uses level-triggered interrupts.  You can't
-		turn them off, nor would you want to (any attempt to
-		enable edge-triggered interrupts usually gets intercepted by a
-		special hardware circuit).  Hence we have to acknowledge
-		the timer interrupt.  Through some incredibly stupid
-		design idea, the reset for IRQ 0 is done by setting the
-		high bit of the PPI port B (0x61).  Note that some PS/2s,
-		notably the 55SX, work fine if this is removed.  */
-
-		irq = inb_p( 0x61 );	/* read the current state */
-		outb_p( irq|0x80, 0x61 );	/* reset the IRQ */
-	}
-#endif
 }
 
 /*
@@ -292,17 +297,114 @@ irqreturn_t timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 	 * the irq version of write_lock because as just said we have irq
 	 * locally disabled. -arca
 	 */
-	write_seqlock(&xtime_lock);
-
-	cur_timer->mark_offset();
  
-	do_timer_interrupt(irq, NULL, regs);
+	do_timer_interrupt(regs);
+#ifdef CONFIG_MCA
+        /*
+         * This code moved here from do_timer_interrupt() as part of the
+         * high-res timers change because it should be done every interrupt
+         * but do_timer_interrupt() wants to return early if it is not a 
+         * "1/HZ" tick interrupt.  For non-high-res systems the code is in
+         * exactly the same location (i.e. it is moved from the tail of the
+         * above called function to the next thing after the function).
+         */
+	if( MCA_bus ) {
+		int irq;
+		/* The PS/2 uses level-triggered interrupts.  You can't
+		turn them off, nor would you want to (any attempt to
+		enable edge-triggered interrupts usually gets intercepted by a
+		special hardware circuit).  Hence we have to acknowledge
+		the timer interrupt.  Through some incredibly stupid
+		design idea, the reset for IRQ 0 is done by setting the
+		high bit of the PPI port B (0x61).  Note that some PS/2s,
+		notably the 55SX, work fine if this is removed.  */
 
-	write_sequnlock(&xtime_lock);
+		irq = inb_p( 0x61 );	/* read the current state */
+		outb_p( irq|0x80, 0x61 );	/* reset the IRQ */
+	}
+#endif
 	return IRQ_HANDLED;
 }
+#ifdef CONFIG_HIGH_RES_TIMERS
+/*
+ * We always continue to provide interrupts even if they are not
+ * serviced.  To do this, we leave the chip in periodic mode programmed
+ * to interrupt every jiffie.  This is done by, for short intervals,
+ * programming a short time, waiting till it is loaded and then
+ * programming the 1/HZ.  The chip will not load the 1/HZ count till the
+ * short count expires.  If the last interrupt was programmed to be
+ * short, we need to program another short to cover the remaining part
+ * of the jiffie and can then just leave the chip alone.  Note that it
+ * is also a low overhead way of doing things as we do not have to mess
+ * with the chip MOST of the time. 
+ */
+#ifdef USE_APIC_TIMERS
+int _schedule_jiffies_int(unsigned long jiffie_f)
+{
+	long past;
+	unsigned long seq;
+	if (unlikely(!hrtimer_use)) return 0;
+	do {
+		seq = read_seqbegin(&xtime_lock);
+		past = get_arch_cycles(jiffie_f);
+	} while (read_seqretry(&xtime_lock, seq));
+
+	return (past >= arch_cycles_per_jiffy); 
+}
+#else 
+int _schedule_jiffies_int(unsigned long jiffie_f)
+{
+	int rtn;
+	if (!hrtimer_use || __last_was_long) return 0;
+
+	rtn = _schedule_next_int(jiffie_f, arch_cycles_per_jiffy);
+	if (unlikely(!__last_was_long))
+		/*
+		 * We need to force a timer interrupt here.  Timer chip code
+		 * will boost the 1 to some min. value.
+		 */
+		reload_timer_chip(1);
+	return rtn;
+}
+#endif
+int _schedule_next_int(unsigned long jiffie_f,long arch_cycle_in)
+{
+	long arch_cycle_offset; 
+	unsigned long seq;
+	/* 
+	 * First figure where we are in time. 
+	 * A note on locking.  We are under the timerlist_lock here.  This
+	 * means that interrupts are off already, so don't use irq versions.
+	 */
+	if (unlikely(!hrtimer_use)){
+		return 0;
+	}
+	do {
+		seq = read_seqbegin(&xtime_lock);
+		arch_cycle_offset = arch_cycle_in - get_arch_cycles(jiffie_f);
+	} while (read_seqretry(&xtime_lock, seq));
+	/*
+	 * If time is already passed, just return saying so.
+	 */
+	if (arch_cycle_offset <= 0)
+		return 1;
+
+	__last_was_long = arch_cycles_per_jiffy == arch_cycle_in;
+	reload_timer_chip(arch_cycle_offset);
+	return 0;
+}
+
+#ifdef CONFIG_APM
+void restart_timer(void)
+{
+        start_PIT();
+}
+#endif /* CONFIG_APM */
+#endif /* CONFIG_HIGH_RES_TIMERS */
+
 
 /* not static: needed by APM */
+
 unsigned long get_cmos_time(void)
 {
 	unsigned long retval;

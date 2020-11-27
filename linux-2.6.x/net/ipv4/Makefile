@@ -1,6 +1,11 @@
 #
 # Makefile for the Linux TCP/IP (INET) layer.
 #
+ifeq ($(CONFIG_ARM),y)
+ifeq ($(CONFIG_GCOV_ALL),y)
+CFLAGS := $(CFLAGS_NOGCOV)
+endif
+endif
 
 obj-y     := utils.o route.o inetpeer.o protocol.o \
 	     ip_input.o ip_fragment.o ip_forward.o ip_options.o \

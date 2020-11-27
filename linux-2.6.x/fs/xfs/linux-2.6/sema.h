@@ -41,7 +41,7 @@
  * sema_t structure just maps to struct semaphore in Linux kernel.
  */
 
-typedef struct semaphore sema_t;
+typedef struct compat_semaphore sema_t;
 
 #define init_sema(sp, val, c, d)	sema_init(sp, val)
 #define initsema(sp, val)		sema_init(sp, val)

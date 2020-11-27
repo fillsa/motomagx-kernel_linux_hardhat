@@ -19,6 +19,7 @@
 #include <linux/config.h>
 #include <linux/module.h>
 #include <linux/string.h>
+#include <linux/fs.h>
 #include <linux/slab.h>
 #include <linux/init.h>
 #include <linux/blkdev.h>
@@ -27,6 +28,8 @@
 #include <linux/buffer_head.h>
 #include <linux/smp_lock.h>
 #include <linux/vfs.h>
+#include <linux/seq_file.h>
+#include <linux/mount.h>
 #include <asm/uaccess.h>
 #include "ext2.h"
 #include "xattr.h"
@@ -202,6 +205,25 @@ static void ext2_clear_inode(struct inode *inode)
 		ext2_discard_prealloc(inode);
 }
 
+static int ext2_show_options(struct seq_file *seq, struct vfsmount *vfs)
+{
+	struct ext2_sb_info *sbi = EXT2_SB(vfs->mnt_sb);
+
+	if (sbi->s_mount_opt & EXT2_MOUNT_GRPID)
+		seq_puts(seq, ",grpid");
+	else
+		seq_puts(seq, ",nogrpid");
+
+#if defined(CONFIG_QUOTA)
+	if (sbi->s_mount_opt & EXT2_MOUNT_USRQUOTA)
+		seq_puts(seq, ",usrquota");
+
+	if (sbi->s_mount_opt & EXT2_MOUNT_GRPQUOTA)
+		seq_puts(seq, ",grpquota");
+#endif
+
+	return 0;
+}
 
 static struct super_operations ext2_sops = {
 	.alloc_inode	= ext2_alloc_inode,
@@ -214,6 +236,7 @@ static struct super_operations ext2_sops = {
 	.statfs		= ext2_statfs,
 	.remount_fs	= ext2_remount,
 	.clear_inode	= ext2_clear_inode,
+	.show_options   = ext2_show_options
 };
 
 /* Yes, most of these are left as NULL!!
@@ -248,10 +271,11 @@ static unsigned long get_sb_block(void **data)
 
 enum {
 	Opt_bsd_df, Opt_minix_df, Opt_grpid, Opt_nogrpid,
-	Opt_resgid, Opt_resuid, Opt_sb, Opt_err_cont, Opt_err_panic, Opt_err_ro,
-	Opt_nouid32, Opt_check, Opt_nocheck, Opt_debug, Opt_oldalloc, Opt_orlov, Opt_nobh,
-	Opt_user_xattr, Opt_nouser_xattr, Opt_acl, Opt_noacl,
-	Opt_ignore, Opt_err,
+	Opt_resgid, Opt_resuid, Opt_sb, Opt_err_cont, Opt_err_panic,
+	Opt_err_ro, Opt_nouid32, Opt_check, Opt_nocheck, Opt_debug,
+	Opt_oldalloc, Opt_orlov, Opt_nobh, Opt_user_xattr, Opt_nouser_xattr,
+	Opt_acl, Opt_noacl, Opt_ignore, Opt_err, Opt_usrquota, Opt_grpquota,
+	Opt_quota
 };
 
 static match_table_t tokens = {
@@ -279,10 +303,10 @@ static match_table_t tokens = {
 	{Opt_nouser_xattr, "nouser_xattr"},
 	{Opt_acl, "acl"},
 	{Opt_noacl, "noacl"},
-	{Opt_ignore, "grpquota"},
+	{Opt_grpquota, "grpquota"},
 	{Opt_ignore, "noquota"},
-	{Opt_ignore, "quota"},
-	{Opt_ignore, "usrquota"},
+	{Opt_quota, "quota"},
+	{Opt_usrquota, "usrquota"},
 	{Opt_err, NULL}
 };
 
@@ -390,6 +414,27 @@ static int parse_options (char * options,
 			printk("EXT2 (no)acl options not supported\n");
 			break;
 #endif
+
+#if defined(CONFIG_QUOTA)
+		case Opt_quota:
+		case Opt_usrquota:
+			set_opt(sbi->s_mount_opt, USRQUOTA);
+			break;
+
+		case Opt_grpquota:
+			set_opt(sbi->s_mount_opt, GRPQUOTA);
+			break;
+			break;
+#else
+		case Opt_quota:
+		case Opt_usrquota:
+		case Opt_grpquota:
+			printk(KERN_ERR
+				"EXT2-fs: quota operations not supported.\n");
+
+			break;
+#endif
+
 		case Opt_ignore:
 			break;
 		default:

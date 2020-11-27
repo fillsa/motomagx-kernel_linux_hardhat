@@ -7,6 +7,7 @@
  *    Author(s): Martin Schwidefsky (schwidefsky@de.ibm.com),
  *               Hartmut Penner (hp@de.ibm.com),
  *               Denis Joseph Barrow (djbarrow@de.ibm.com,barrow_dj@yahoo.com),
+ *  Portions added by T. Halloran: (C) Copyright 2002 IBM Poughkeepsie, IBM Corporation
  */
 
 #include <linux/sys.h>
@@ -182,6 +183,13 @@ sysc_do_restart:
                                   # ATTENTION: check sys_execve_glue before
                                   # changing anything here !!
 
+#if (CONFIG_LTT) /* tjh - ltt port */
+        /* add call to trace_real_syscall_exit */ 
+        la      %r2,SP_PTREGS(%r15)   # load pt_regs as first parameter  
+        l       %r1,BASED(.Ltracesysext)                                 
+        basr    %r14,%r1                                                 
+        lm      %r0,%r6,SP_R0(%r15) /* restore call clobbered regs */
+#endif                                                                   
 sysc_return:
 	tm	SP_PSW+1(%r15),0x01	# returning to user ?
 	bno	BASED(sysc_leave)

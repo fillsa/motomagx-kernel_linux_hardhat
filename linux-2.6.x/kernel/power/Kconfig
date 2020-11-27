@@ -72,3 +72,12 @@ config PM_STD_PARTITION
 	  suspended image to. It will simply pick the first available swap 
 	  device.
 
+config SUSPEND_REMOUNTFS
+	bool "Remount filesystem read-only during suspend"
+	depends on PM
+	default n
+	help
+	  Remount all writeable filesystems read-only while the system is
+	  placed into a suspend state, flushing buffers and marking
+	  filesystems clean, in case power is cycled during the suspend
+	  interval.

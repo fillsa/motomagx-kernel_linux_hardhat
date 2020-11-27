@@ -1,7 +1,10 @@
+#if defined(__sun__)
 #include <netinet/in.h>
-#ifdef __sun__
 #include <inttypes.h>
+#elif defined(__CYGWIN__)
+#include <asm/byteorder.h>	/* For ntohl/htonl */
 #else
+#include <netinet/in.h>
 #include <stdint.h>
 #endif
 #include <ctype.h>
@@ -252,9 +255,9 @@ static int parse_comment(const char *file, unsigned long len)
 }
 
 /* FIXME: Handle .s files differently (eg. # starts comments) --RR */
-static int parse_file(const signed char *fname, struct md4_ctx *md)
+static int parse_file(const char *fname, struct md4_ctx *md)
 {
-	signed char *file;
+	char *file;
 	unsigned long i, len;
 
 	file = grab_file(fname, &len);
@@ -332,7 +335,7 @@ static int parse_source_files(const char *objfile, struct md4_ctx *md)
 	   Sum all files in the same dir or subdirs.
 	*/
 	while ((line = get_next_line(&pos, file, flen)) != NULL) {
-		signed char* p = line;
+		char* p = line;
 		if (strncmp(line, "deps_", sizeof("deps_")-1) == 0) {
 			check_files = 1;
 			continue;
@@ -456,7 +459,7 @@ out:
 	close(fd);
 }
 
-static int strip_rcs_crap(signed char *version)
+static int strip_rcs_crap(char *version)
 {
 	unsigned int len, full_len;
 

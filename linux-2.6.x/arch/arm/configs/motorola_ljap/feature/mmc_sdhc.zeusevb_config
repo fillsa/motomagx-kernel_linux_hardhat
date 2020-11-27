@@ -1,0 +1,17 @@
+#
+# arch/arm/configs/motorola_ljap/feature/mmc_sdhc.zeusevb_config
+#
+# Multi-media card support on the SDHC interface for Zeus EVB.
+#
+# Enabled by LJ Build Environment HW_MMC flag.
+#
+# Copyright 2006 Motorola, Inc.
+#
+
+CONFIG_USR_BLK_DEV=y
+
+# CONFIG_MMC is not set
+# CONFIG_MMC_BLOCK is not set
+# CONFIG_MMC_MXC is not set
+
+# CONFIG_MOT_FEAT_MMCSD_DEV_HOST_BIND is not set

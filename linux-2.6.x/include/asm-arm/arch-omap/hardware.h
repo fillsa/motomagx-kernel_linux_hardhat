@@ -94,6 +94,7 @@
 #define ULPD_STATUS_REQ		(ULPD_REG_BASE + 0x40)
 #define ULPD_APLL_CTRL		(ULPD_REG_BASE + 0x4c)
 #define ULPD_POWER_CTRL		(ULPD_REG_BASE + 0x50)
+#define ULPD_SOFT_DISABLE_REQ_REG       (ULPD_REG_BASE + 0x68)
 #define ULPD_CAM_CLK_CTRL	(ULPD_REG_BASE + 0x7c)
 
 /*
@@ -137,10 +138,13 @@
 /* CNTL_TIMER register bits */
 #define MPUTIM_FREE		(1<<6)
 #define MPUTIM_CLOCK_ENABLE	(1<<5)
-#define MPUTIM_PTV_MASK		(0x7<<PTV_BIT)
+#define MPUTIM_PTV_MASK		(0x7<<MPUTIM_PTV_BIT)
 #define MPUTIM_PTV_BIT		2
 #define MPUTIM_AR		(1<<1)
 #define MPUTIM_ST		(1<<0)
+
+/* REVISIT: Added for HRT support: */
+#define MPUTIM_PTV_VALUE	(0)
 
 /* Watchdog timer within the OMAP3.2 gigacell */
 #define OMAP_MPU_WATCHDOG_BASE	(0xfffec800)

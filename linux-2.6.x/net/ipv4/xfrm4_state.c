@@ -20,9 +20,9 @@ __xfrm4_init_tempsel(struct xfrm_state *x, struct flowi *fl,
 {
 	x->sel.daddr.a4 = fl->fl4_dst;
 	x->sel.saddr.a4 = fl->fl4_src;
-	x->sel.dport = fl->fl_ip_dport;
+	x->sel.dport = xfrm_flowi_dport(fl);
 	x->sel.dport_mask = ~0;
-	x->sel.sport = fl->fl_ip_sport;
+	x->sel.sport = xfrm_flowi_sport(fl);
 	x->sel.sport_mask = ~0;
 	x->sel.prefixlen_d = 32;
 	x->sel.prefixlen_s = 32;
@@ -56,6 +56,16 @@ __xfrm4_state_lookup(xfrm_address_t *daddr, u32 spi, u8 proto)
 	}
 	return NULL;
 }
+
+#ifdef CONFIG_XFRM_ENHANCEMENT
+/* placeholder until ipv4's code is written */
+static struct xfrm_state *
+__xfrm4_state_lookup_byaddr(xfrm_address_t *daddr, xfrm_address_t *saddr,
+			    u8 proto)
+{
+	return NULL;
+}
+#endif
 
 static struct xfrm_state *
 __xfrm4_find_acq(u8 mode, u32 reqid, u8 proto, 
@@ -111,6 +121,9 @@ static struct xfrm_state_afinfo xfrm4_state_afinfo = {
 	.lock			= RW_LOCK_UNLOCKED,
 	.init_tempsel		= __xfrm4_init_tempsel,
 	.state_lookup		= __xfrm4_state_lookup,
+#ifdef CONFIG_XFRM_ENHANCEMENT
+	.state_lookup_byaddr	= __xfrm4_state_lookup_byaddr,
+#endif
 	.find_acq		= __xfrm4_find_acq,
 };
 

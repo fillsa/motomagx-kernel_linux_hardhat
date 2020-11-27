@@ -1,0 +1,112 @@
+
+menu "MXC91331 Options"
+	depends on ARCH_MXC91331
+
+choice
+	prompt "Board type"
+	default MACH_I30030EVB
+
+config MACH_I30030EVB
+	bool "Support i.300-30 EVB platforms"
+	help
+	  Include support for i.300-30 EVB platform. This includes specific
+	  configurations for the board and its peripherals.
+
+config MACH_I30030ADS
+	bool "Support i.300-30 ADS platforms"
+	help
+	  Include support for i.300-30 ADS platform. This includes
+          specific configurations for the board and its peripherals.
+
+endchoice
+
+choice
+	prompt "i.300-30 ADS Options"
+	default MACH_I30030EVB_VER52A
+        depends on MACH_I30030ADS
+
+config MACH_I30030ADS_VER52
+        bool "Support for PCB version 52"
+        help
+          Turn on this option to support board version 52.
+
+config MACH_I30030ADS_VER52A
+        bool "Support for PCB version 52A"
+        help
+          Turn on this option to support board version 52A.
+
+endchoice
+endmenu
+
+menu "MXC91321 Options"
+	depends on ARCH_MXC91321
+
+choice
+	prompt "Board type"
+	default MACH_MXC30030EVB
+
+config MACH_MXC30030EVB
+	bool "Support MXC300-30 EVB platforms"
+	help
+	  Include support for MXC300-30 EVB platform. This includes specific
+	  configurations for the board and its peripherals.
+
+
+config MACH_MXC30030ADS
+	bool "Support MXC300-30 ADS platforms"
+	help
+	  Include support for MXC300-30 ADS platform. This includes specific
+	  configurations for the board and its peripherals.
+
+config MACH_ARGONLVPHONE
+        bool "Support Motorola ArgonLV-based Phones"
+        default n
+        help
+          Include support for Motorola products based on the ArgonLV SOC.
+
+endchoice
+
+menu "Motorola ArgonLV Products"
+        depends on MACH_ARGONLVPHONE
+
+config MACH_ARGONLVREF
+	bool "Support ArgonLV Reference platform"
+        default n
+	help
+          Include support for the ArgonLV-based LJ7.1 Reference Platform.
+
+config MACH_BUTEREF
+        bool "Support deprecated BUTE platform"
+        default n
+        depends on MACH_ARGONLVREF
+        help
+	  Include support for the Bute P3 brassboard, P4 wingboard,
+          P4 closed-phone, and P5 closed-phone.
+
+config MACH_KEYWEST
+        bool "Support Motorola product: Key West"
+        default n
+        help
+            Include support for the Key West product.
+
+config MACH_KASSOS
+        bool "Support Motorola product: Kassos"
+        default n
+        help
+            Include sypport for the Kassos product.
+
+config MACH_PAROS
+        bool "Support Motorola product: Paros"
+        default n
+        help
+            Include sypport for the Paros product.
+
+endmenu
+
+endmenu
+
+
+
+
+
+

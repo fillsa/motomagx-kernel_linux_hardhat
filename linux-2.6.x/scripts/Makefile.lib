@@ -1,3 +1,13 @@
+#
+# This file is derived from the Linux kernel's scripts/Makefile.lib file.
+#
+# Copyright 2006 Motorola
+# Copyright 2007 Motorola
+#
+# Motorola  2006-Nov-17 - Added CKBUILD_EXTRA_CFLAGS for compatibility with
+#                         the CKbuild system.
+# Motorola  2007-Apr-09 - Apply gcov 2.6.16 patch
+# 
 # ===========================================================================
 # kbuild: Generic definitions
 # ===========================================================================
@@ -98,31 +108,53 @@ depfile = $(subst $(comma),_,$(@D)/.$(@F).d)
 basename_flags = -DKBUILD_BASENAME=$(subst $(comma),_,$(subst -,_,$(*F)))
 modname_flags  = $(if $(filter 1,$(words $(modname))),-DKBUILD_MODNAME=$(subst $(comma),_,$(subst -,_,$(modname))))
 
-_c_flags       = $(CFLAGS) $(EXTRA_CFLAGS) $(CFLAGS_$(*F).o)
+_c_flags       = $(CFLAGS) $(EXTRA_CFLAGS) $(CKBUILD_EXTRA_CFLAGS) $(CFLAGS_$(*F).o)
 _a_flags       = $(AFLAGS) $(EXTRA_AFLAGS) $(AFLAGS_$(*F).o)
 _cpp_flags     = $(CPPFLAGS) $(EXTRA_CPPFLAGS) $(CPPFLAGS_$(@F))
 
 # If building the kernel in a separate objtree expand all occurrences
 # of -Idir to -I$(srctree)/dir except for absolute paths (starting with '/').
+ifdef CONFIG_GCOV_PROFILE
+	ifeq ($(KBUILD_SRC)$(CONFIG_GCOV_PROFILE),)
+	__c_flags       = $(_c_flags)
+	__a_flags       = $(_a_flags)
+	__cpp_flags     = $(_cpp_flags)
+	else
 
-ifeq ($(KBUILD_SRC),)
-__c_flags	= $(_c_flags)
-__a_flags	= $(_a_flags)
-__cpp_flags     = $(_cpp_flags)
+	# Prefix -I with $(srctree) if it is not an absolute path
+	addtree = $(if $(filter-out -I/%,$(1)),$(patsubst -I%,-I$(srctree)/%,$(1)),$(1))
+	addtree2 = $(if $(filter-out -I/%,$(1)),$(patsubst -I%,-I$(objtree)/%,$(1)),$(1))
+	# Find all -I options and call addtree
+	flags = $(foreach o,$($(1)),$(if $(filter -I%,$(o)),$(call addtree,$(o)),$(o)))
+
+	# -I$(obj) locates generated .h files
+	# $(call addtree,-I$(obj)) locates .h files in srctree, from generated .c files
+	#   and locates generated .h files
+	# FIXME: Replace both with specific CFLAGS* statements in the makefiles
+	__c_flags       = $(call addtree,-I$(obj)) $(call addtree2,-I$(obj)) $(call flags,_c_flags)
+	__a_flags       =                          $(call flags,_a_flags)
+	__cpp_flags     =                          $(call flags,_cpp_flags)
+	endif
+
 else
+	ifeq ($(KBUILD_SRC),)
+	__c_flags       = $(_c_flags)
+	__a_flags       = $(_a_flags)
+	__cpp_flags     = $(_cpp_flags)
+	else
+	# Prefix -I with $(srctree) if it is not an absolute path
+	addtree = $(if $(filter-out -I/%,$(1)),$(patsubst -I%,-I$(srctree)/%,$(1))) $(1)
+	# Find all -I options and call addtree
+	flags = $(foreach o,$($(1)),$(if $(filter -I%,$(o)),$(call addtree,$(o)),$(o)))
 
-# Prefix -I with $(srctree) if it is not an absolute path
-addtree = $(if $(filter-out -I/%,$(1)),$(patsubst -I%,-I$(srctree)/%,$(1))) $(1)
-# Find all -I options and call addtree
-flags = $(foreach o,$($(1)),$(if $(filter -I%,$(o)),$(call addtree,$(o)),$(o)))
-
-# -I$(obj) locates generated .h files
-# $(call addtree,-I$(obj)) locates .h files in srctree, from generated .c files
-#   and locates generated .h files
-# FIXME: Replace both with specific CFLAGS* statements in the makefiles
-__c_flags	= $(call addtree,-I$(obj)) $(call flags,_c_flags)
-__a_flags	=                          $(call flags,_a_flags)
-__cpp_flags     =                          $(call flags,_cpp_flags)
+	# -I$(obj) locates generated .h files
+	# $(call addtree,-I$(obj)) locates .h files in srctree, from generated .c files
+	#   and locates generated .h files
+	# FIXME: Replace both with specific CFLAGS* statements in the makefiles
+	__c_flags       = $(call addtree,-I$(obj)) $(call flags,_c_flags)
+	__a_flags       =                          $(call flags,_a_flags)
+	__cpp_flags     =                          $(call flags,_cpp_flags)
+	endif
 endif
 
 c_flags        = -Wp,-MD,$(depfile) $(NOSTDINC_FLAGS) $(CPPFLAGS) \
@@ -177,7 +209,7 @@ cmd_objcopy = $(OBJCOPY) $(OBJCOPYFLAGS) $(OBJCOPYFLAGS_$(@F)) $< $@
 # ---------------------------------------------------------------------------
 
 quiet_cmd_gzip = GZIP    $@
-cmd_gzip = gzip -f -9 < $< > $@
+cmd_gzip = gzip -n -f -9 < $< > $@
 
 # ===========================================================================
 # Generic stuff

@@ -14,6 +14,12 @@
  *		as published by the Free Software Foundation; either version
  *		2 of the License, or (at your option) any later version.
  */
+
+/*
+ * Copyright (c) 2006 Motorola, Inc. 
+ * 08/15/2006         Add use_recvtos in struct inet_opt to support IP_USE_RECVTOS 
+ */
+
 #ifndef _LINUX_IP_H
 #define _LINUX_IP_H
 #include <asm/byteorder.h>
@@ -125,7 +131,8 @@ struct inet_opt {
 	__u8			pmtudisc;
 	__u16			id;		/* ID counter for DF pkts */
 	unsigned		recverr : 1,
-				freebind : 1;
+				freebind : 1,
+            use_recvtos : 1; /* Motorola extension: use recv TOS for TCP socket */
 	int			mc_index;	/* Multicast device index */
 	__u32			mc_addr;
 	struct ip_mc_socklist	*mc_list;	/* Group array */

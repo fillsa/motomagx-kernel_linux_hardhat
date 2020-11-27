@@ -3,11 +3,11 @@
  *
  * Copyright (C) 2001-2003 Red Hat, Inc.
  *
- * Created by David Woodhouse <dwmw2@redhat.com>
+ * Created by David Woodhouse <dwmw2@infradead.org>
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: erase.c,v 1.61 2004/10/20 23:59:49 dwmw2 Exp $
+ * $Id: erase.c,v 1.75 2005/04/05 12:51:54 dedekind Exp $
  *
  */
 
@@ -33,7 +33,8 @@ static void jffs2_erase_succeeded(struct jffs2_sb_info *c, struct jffs2_eraseblo
 static void jffs2_free_all_node_refs(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb);
 static void jffs2_mark_erased_block(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb);
 
-void jffs2_erase_block(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb)
+static void jffs2_erase_block(struct jffs2_sb_info *c,
+			      struct jffs2_eraseblock *jeb)
 {
 	int ret;
 	uint32_t bad_offset;
@@ -43,9 +44,11 @@ void jffs2_erase_block(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb)
                jffs2_erase_succeeded(c, jeb);
                return;
        }
+       bad_offset = jeb->offset;
 #else /* Linux */
 	struct erase_info *instr;
 
+	D1(printk(KERN_DEBUG "jffs2_erase_block(): erase block %#x (range %#x-%#x)\n", jeb->offset, jeb->offset, jeb->offset + c->sector_size));
 	instr = kmalloc(sizeof(struct erase_info) + sizeof(struct erase_priv_struct), GFP_KERNEL);
 	if (!instr) {
 		printk(KERN_WARNING "kmalloc for struct erase_info in jffs2_erase_block failed. Refiling block for later\n");
@@ -231,7 +234,7 @@ static inline void jffs2_remove_node_refs_from_ino_list(struct jffs2_sb_info *c,
 			continue;
 		} 
 
-		if (((*prev)->flash_offset & ~(c->sector_size -1)) == jeb->offset) {
+		if (SECTOR_ADDR((*prev)->flash_offset) == jeb->offset) {
 			/* It's in the block we're erasing */
 			struct jffs2_raw_node_ref *this;
 
@@ -275,11 +278,8 @@ static inline void jffs2_remove_node_refs_from_ino_list(struct jffs2_sb_info *c,
 		printk("\n");
 	});
 
-	if (ic->nodes == (void *)ic) {
-		D1(printk(KERN_DEBUG "inocache for ino #%u is all gone now. Freeing\n", ic->ino));
+	if (ic->nodes == (void *)ic && ic->nlink == 0)
 		jffs2_del_ino_cache(c, ic);
-		jffs2_free_inode_cache(ic);
-	}
 }
 
 static void jffs2_free_all_node_refs(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb)
@@ -308,7 +308,7 @@ static void jffs2_mark_erased_block(struct jffs2_sb_info *c, struct jffs2_eraseb
 	int ret;
 	uint32_t bad_offset;
 
-	if (!jffs2_cleanmarker_oob(c)) {
+	if ((!jffs2_cleanmarker_oob(c)) && (c->cleanmarker_size > 0)) {
 		marker_ref = jffs2_alloc_raw_node_ref();
 		if (!marker_ref) {
 			printk(KERN_WARNING "Failed to allocate raw node ref for clean marker\n");
@@ -333,7 +333,8 @@ static void jffs2_mark_erased_block(struct jffs2_sb_info *c, struct jffs2_eraseb
 
 			bad_offset = ofs;
 
-			ret = jffs2_flash_read(c, ofs, readlen, &retlen, ebuf);
+			ret = c->mtd->read(c->mtd, ofs, readlen, &retlen, ebuf);
+
 			if (ret) {
 				printk(KERN_WARNING "Read of newly-erased block at 0x%08x failed: %d. Putting on bad_list\n", ofs, ret);
 				goto bad;
@@ -349,7 +350,7 @@ static void jffs2_mark_erased_block(struct jffs2_sb_info *c, struct jffs2_eraseb
 					bad_offset += i;
 					printk(KERN_WARNING "Newly-erased block contained word 0x%lx at offset 0x%08x\n", datum, bad_offset);
 				bad: 
-					if (!jffs2_cleanmarker_oob(c))
+					if ((!jffs2_cleanmarker_oob(c)) && (c->cleanmarker_size > 0))
 						jffs2_free_raw_node_ref(marker_ref);
 					kfree(ebuf);
 				bad2:
@@ -385,7 +386,15 @@ static void jffs2_mark_erased_block(struct jffs2_sb_info *c, struct jffs2_eraseb
 		jeb->used_size = 0;
 		jeb->dirty_size = 0;
 		jeb->wasted_size = 0;
+	} else if (c->cleanmarker_size == 0) {
+		jeb->first_node = jeb->last_node = NULL;
+
+		jeb->free_size = c->sector_size;
+		jeb->used_size = 0;
+		jeb->dirty_size = 0;
+		jeb->wasted_size = 0;
 	} else {
+		struct kvec vecs[1];
 		struct jffs2_unknown_node marker = {
 			.magic =	cpu_to_je16(JFFS2_MAGIC_BITMASK),
 			.nodetype =	cpu_to_je16(JFFS2_NODETYPE_CLEANMARKER),
@@ -394,8 +403,10 @@ static void jffs2_mark_erased_block(struct jffs2_sb_info *c, struct jffs2_eraseb
 
 		marker.hdr_crc = cpu_to_je32(crc32(0, &marker, sizeof(struct jffs2_unknown_node)-4));
 
-		/* We only write the header; the rest was noise or padding anyway */
-		ret = jffs2_flash_write(c, jeb->offset, sizeof(marker), &retlen, (char *)&marker);
+		vecs[0].iov_base = (unsigned char *) &marker;
+		vecs[0].iov_len = sizeof(marker);
+		ret = jffs2_flash_direct_writev(c, vecs, 1, jeb->offset, &retlen);
+		
 		if (ret) {
 			printk(KERN_WARNING "Write clean marker to block at 0x%08x failed: %d\n",
 			       jeb->offset, ret);

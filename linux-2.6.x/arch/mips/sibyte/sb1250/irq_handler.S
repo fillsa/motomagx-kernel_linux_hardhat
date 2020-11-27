@@ -65,6 +65,8 @@
 #endif
 	/* Read cause */
 	mfc0	s0, CP0_CAUSE
+	mfc0	t0, CP0_STATUS
+	and	s0, s0, t0
 
 #ifdef CONFIG_SIBYTE_SB1250_PROF
 	/* Cpu performance counter interrupt is routed to IP[7] */
@@ -80,6 +82,18 @@
 0:
 #endif
 
+#ifdef CONFIG_CPU_TIMER
+	andi	t1, s0, CAUSEF_IP7
+	beqz	t1, 1f
+	nop
+	li	a0, 64
+	move	a1, sp
+	jal	ll_timer_interrupt
+	nop
+	j	ret_from_irq
+	nop
+#else
+
 	/* Timer interrupt is routed to IP[4] */
 	andi	t1, s0, CAUSEF_IP4
 	beqz	t1, 1f
@@ -88,6 +102,7 @@
 	 move	a0, sp			/* Pass the registers along */
 	j	ret_from_irq
 	 nop				# delay slot
+#endif
 1:
 
 #ifdef CONFIG_SMP
@@ -123,7 +138,7 @@
 	 * check the 1250 interrupt registers to figure out what to do
 	 * Need to detect which CPU we're on, now that smp_affinity is supported.
 	 */
-	PTR_LA	v0, KSEG1 + A_IMR_CPU0_BASE
+	PTR_LA	v0, CKSEG1 + A_IMR_CPU0_BASE
 #ifdef CONFIG_SMP
 	lw	t1, TI_CPU($28)
 	sll	t1, IMR_REGISTER_SPACING_SHIFT

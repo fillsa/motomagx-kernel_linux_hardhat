@@ -49,8 +49,8 @@ static void cpufreq_delayed_get(void);
 
 extern int using_apic_timer;
 
-spinlock_t rtc_lock = SPIN_LOCK_UNLOCKED;
-spinlock_t i8253_lock = SPIN_LOCK_UNLOCKED;
+DEFINE_RAW_SPINLOCK(rtc_lock);
+DEFINE_RAW_SPINLOCK(i8253_lock);
 
 static int nohpet __initdata = 0;
 static int notsc __initdata = 0;
@@ -863,7 +863,7 @@ int __init time_setup(char *str)
 }
 
 static struct irqaction irq0 = {
-	timer_interrupt, SA_INTERRUPT, CPU_MASK_NONE, "timer", NULL, NULL
+	timer_interrupt, SA_INTERRUPT | SA_NODELAY, CPU_MASK_NONE, "timer", NULL, NULL
 };
 
 extern void __init config_acpi_tables(void);

@@ -819,7 +819,7 @@ static inline void __netif_rx_schedule(struct net_device *dev)
 		dev->quota += dev->weight;
 	else
 		dev->quota = dev->weight;
-	__raise_softirq_irqoff(NET_RX_SOFTIRQ);
+	raise_softirq_irqoff(NET_RX_SOFTIRQ);
 	local_irq_restore(flags);
 }
 
@@ -843,7 +843,7 @@ static inline int netif_rx_reschedule(struct net_device *dev, int undo)
 
 		local_irq_save(flags);
 		list_add_tail(&dev->poll_list, &__get_cpu_var(softnet_data).poll_list);
-		__raise_softirq_irqoff(NET_RX_SOFTIRQ);
+		raise_softirq_irqoff(NET_RX_SOFTIRQ);
 		local_irq_restore(flags);
 		return 1;
 	}

@@ -54,6 +54,7 @@
 #include <mach_apic.h>
 #include <mach_wakecpu.h>
 #include <smpboot_hooks.h>
+#include <linux/hrtime.h>
 
 /* Set if we find a B stepping CPU */
 static int __initdata smp_b_stepping;
@@ -247,6 +248,9 @@ static void __init synchronize_tsc_bp (void)
 		wmb();
 		atomic_inc(&tsc_count_stop);
 	}
+#ifdef CONFIG_HIGH_RES_TIMERS
+	CLEAR_REF_TSC;
+#endif
 
 	sum = 0;
 	for (i = 0; i < NR_CPUS; i++) {
@@ -459,6 +463,9 @@ void __init initialize_secondary(void)
 
 	asm volatile(
 		"movl %0,%%esp\n\t"
+#ifdef CONFIG_KGDB
+		"pushl end_of_stack_stop_unwind_function\n\t"
+#endif
 		"jmp *%1"
 		:
 		:"r" (current->thread.esp),"r" (current->thread.eip));

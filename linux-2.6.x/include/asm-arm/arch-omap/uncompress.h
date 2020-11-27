@@ -30,7 +30,7 @@ unsigned int system_rev;
 #define check_port(base, shift) ((base[UART_OMAP_MDR1 << shift] & 7) == 0)
 #define omap_get_id() ((*(volatile unsigned int *)(0xfffed404)) >> 12) & ID_MASK
 
-static void
+static __noinstrument void
 putstr(const char *s)
 {
 	volatile u8 * uart = 0;

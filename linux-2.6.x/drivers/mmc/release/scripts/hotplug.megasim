@@ -1,0 +1,73 @@
+#!/bin/sh
+
+# Copyright (c) 2006, 2007, Motorola Inc
+
+# This program is free software; you can redistribute it
+# and/or modify it under the terms of the GNU General
+# Public License as published by the Free Software
+# Foundation; either version 2 of the License, or (at
+# your option) any later version.  You should have
+# received a copy of the GNU General Public License
+# along with this program; if not, write to the Free
+# Software Foundation, Inc., 675 Mass Ave,
+# Cambridge, MA 02139, USA
+
+# This Program is distributed in the hope that it will
+# be useful, but WITHOUT ANY WARRANTY;
+# without even the implied warranty of
+# MERCHANTIBILITY or FITNESS FOR A
+# PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+
+#Date           Author          Comment
+#10/20/06       Motorola        create
+#4/18/07	Motorola	add auto fdisk, fix fuser call to dev node when no FAT is mounted.
+#
+
+#set env
+. /etc/initservices/services/ezxenv.sh
+
+if [ "$SLOT" = 1 ] && [ "$ACTION" = add ]; 
+then
+	if busybox fdisk -l /dev/mmc/blk1/disc | grep part1 >/dev/null
+	then
+	    echo "dosfsck MEGASIM card begin"
+	    dosfsck -a -v -V /dev/mmc/blk1/part1
+	    ret=$?
+	    if [ $ret -ne 0 ]; then
+	        echo "dosfsck MEGASIM card failed"
+	    fi
+	else
+	    /etc/fdisk_megasim.sh
+	    mkdosfs -F 16 /dev/mmc/blk1/part1
+	fi
+
+	echo "try to mount MEGASIM card"
+	mount -t vfat /dev/mmc/blk1/part1 /mmc/megasim1 -o uid=2000 -o gid=233 -o utf8 -o shortname=mixed -o umask=002 -o noatime
+	echo "mount MEGASIM card end"
+fi
+
+if [ "$SLOT" = 1 ] && [ "$ACTION" = remove ]; 
+then
+	echo "try to wait process exit"
+	retry=10
+	while [ "$retry" -gt 0 ]
+	do
+		if mount | grep /mmc/megasim1 >/dev/null
+		then
+			fuser -mk /mmc/megasim1; umount /mmc/megasim1
+			ret=$?
+			if [ $ret -eq 0 ]; then
+				break
+			fi
+			retry=$(($retry - 1))
+		else
+			break
+		fi
+	done
+	echo "umount MEGASIM card end"
+	
+fi
+
+# MMC Hotplug Module
+exec /sbin/mmchotplug $SLOT $ACTION

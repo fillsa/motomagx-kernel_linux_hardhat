@@ -16,6 +16,28 @@
 #include <net/inet_ecn.h>
 #include <net/ipv6.h>
 #include <net/xfrm.h>
+#ifdef CONFIG_IPV6_MIP6
+#include <net/mip6.h>
+#endif
+
+#ifdef CONFIG_XFRM_ENHANCEMENT
+static int xfrm6_place_find(struct sk_buff *skb, u8 **nexthdr, u8 proto)
+{
+	switch (proto) {
+	case IPPROTO_ESP:
+	case IPPROTO_AH:
+	case IPPROTO_COMP:
+	default: /* XXX */
+		return ip6_find_1stfragopt(skb, nexthdr);
+#ifdef CONFIG_IPV6_MIP6
+	case IPPROTO_ROUTING:
+		return mip6_rthdr_place_find(skb, nexthdr);
+	case IPPROTO_DSTOPTS:
+		return mip6_destopt_place_find(skb, nexthdr);
+#endif
+	}
+}
+#endif
 
 /* Add encapsulation header.
  *
@@ -46,7 +68,11 @@ static void xfrm6_encap(struct sk_buff *skb)
 		u8 *prevhdr;
 		int hdr_len;
 
+#ifdef CONFIG_XFRM_ENHANCEMENT
+		hdr_len = xfrm6_place_find(skb, &prevhdr, x->id.proto);
+#else
 		hdr_len = ip6_find_1stfragopt(skb, &prevhdr);
+#endif
 		skb->nh.raw = prevhdr - x->props.header_len;
 		skb->h.raw = skb->data + hdr_len;
 		memmove(skb->data, iph, hdr_len);
@@ -103,16 +129,16 @@ int xfrm6_output(struct sk_buff *skb)
 			goto error_nolock;
 	}
 
+	if (x->props.mode) {
+		err = xfrm6_tunnel_check_size(skb);
+		if (err)
+			goto error_nolock;
+	}
+
 	spin_lock_bh(&x->lock);
 	err = xfrm_state_check(x, skb);
 	if (err)
 		goto error;
-
-	if (x->props.mode) {
-		err = xfrm6_tunnel_check_size(skb);
-		if (err)
-			goto error;
-	}
 
 	xfrm6_encap(skb);
 
@@ -122,6 +148,7 @@ int xfrm6_output(struct sk_buff *skb)
 
 	x->curlft.bytes += skb->len;
 	x->curlft.packets++;
+	x->curlft.use_time = (unsigned long) xtime.tv_sec;
 
 	spin_unlock_bh(&x->lock);
 

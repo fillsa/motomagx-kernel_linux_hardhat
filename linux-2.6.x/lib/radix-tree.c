@@ -103,6 +103,8 @@ radix_tree_node_free(struct radix_tree_node *node)
 	kmem_cache_free(radix_tree_node_cachep, node);
 }
 
+#ifndef CONFIG_PREEMPT_RT
+
 /*
  * Load up this CPU's radix_tree_node buffer with sufficient objects to
  * ensure that the addition of a single element in the tree cannot fail.  On
@@ -133,6 +135,8 @@ int radix_tree_preload(int gfp_mask)
 out:
 	return ret;
 }
+
+#endif
 
 static inline void tag_set(struct radix_tree_node *node, int tag, int offset)
 {

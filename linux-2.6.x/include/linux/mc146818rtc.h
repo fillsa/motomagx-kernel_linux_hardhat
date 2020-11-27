@@ -17,7 +17,7 @@
 
 #ifdef __KERNEL__
 #include <linux/spinlock.h>		/* spinlock_t */
-extern spinlock_t rtc_lock;		/* serialize CMOS RAM access */
+extern raw_spinlock_t rtc_lock;		/* serialize CMOS RAM access */
 #endif
 
 /**********************************************************************
@@ -88,5 +88,13 @@ extern spinlock_t rtc_lock;		/* serialize CMOS RAM access */
 #define RTC_VALID	RTC_REG_D
 # define RTC_VRT 0x80		/* valid RAM and time */
 /**********************************************************************/
+
+#ifndef RTC_IO_EXTENT
+#define RTC_IO_EXTENT	0x8
+#endif
+
+#ifndef RTC_IOMAPPED
+#define RTC_IOMAPPED	1	/* Default to I/O mapping. */
+#endif
 
 #endif /* _MC146818RTC_H */

@@ -66,8 +66,8 @@ config USB_GADGET_NET2280
 	select USB_GADGET_DUALSPEED
 	help
 	   NetChip 2280 is a PCI based USB peripheral controller which
-	   supports both full and high speed USB 2.0 data transfers.  
-	   
+	   supports both full and high speed USB 2.0 data transfers.
+
 	   It has six configurable endpoints, as well as endpoint zero
 	   (for control transfers) and several endpoints with dedicated
 	   functions.
@@ -83,7 +83,7 @@ config USB_NET2280
 
 config USB_GADGET_PXA2XX
 	boolean "PXA 2xx or IXP 4xx"
-	depends on ARCH_PXA || ARCH_IXP4XX
+	depends on (ARCH_PXA && PXA25x) || ARCH_IXP4XX
 	help
 	   Intel's PXA 2xx series XScale ARM-5TE processors include
 	   an integrated full speed USB 1.1 device controller.  The
@@ -111,13 +111,34 @@ config USB_PXA2XX_SMALL
 	default y if USB_ETH
 	default y if USB_G_SERIAL
 
+config USB_GADGET_PXA27X
+	boolean "PXA 27x"
+	depends on ARCH_PXA && PXA27x
+	help
+	   Intel's PXA 27x series XScale ARM-5TE processors include
+	   an integrated full speed USB 1.1 device controller.
+
+	   Say "y" to link the driver statically, or "m" to build a
+	   dynamically linked module called "pxa27x_udc" and force all
+	   gadget drivers to also be dynamically linked.
+
+config USB_PXA27X
+	tristate
+	depends on USB_GADGET_PXA27X
+	default USB_GADGET
+
+config USB_PXA27X_DMA
+	bool "Use DMA support"
+	depends on USB_GADGET_PXA27X
+	default n
+
 config USB_GADGET_GOKU
 	boolean "Toshiba TC86C001 'Goku-S'"
 	depends on PCI
 	help
 	   The Toshiba TC86C001 is a PCI device which includes controllers
 	   for full speed USB devices, IDE, I2C, SIO, plus a USB host (OHCI).
-	   
+
 	   The device controller has three configurable (bulk or interrupt)
 	   endpoints, plus endpoint zero (for control transfers).
 
@@ -168,11 +189,11 @@ config USB_GADGET_DUMMY_HCD
 	  side is the master; the gadget side is the slave.  Gadget drivers
 	  can be high, full, or low speed; and they have access to endpoints
 	  like those from NET2280, PXA2xx, or SA1100 hardware.
-	  
+
 	  This may help in some stages of creating a driver to embed in a
 	  Linux device, since it lets you debug several parts of the gadget
 	  driver without its hardware or drivers being involved.
-	  
+
 	  Since such a gadget side driver needs to interoperate with a host
 	  side Linux-USB device driver, this may help to debug both sides
 	  of a USB protocol stack.
@@ -189,7 +210,7 @@ config USB_DUMMY_HCD
 config USB_GADGET_OMAP
 	boolean "OMAP USB Device Controller"
 	depends on ARCH_OMAP
-	select ISP1301_OMAP if MACH_OMAP_H2
+	select ISP1301_OMAP if MACH_OMAP_H2 || MACH_OMAP_H3
 	help
 	   Many Texas Instruments OMAP processors have flexible full
 	   speed USB device controllers, with support for up to 30
@@ -206,16 +227,42 @@ config USB_OMAP
 	depends on USB_GADGET_OMAP
 	default USB_GADGET
 
+config USB_GADGET_ARC
+	boolean "ARC USB Device Controller"
+	depends on ARCH_MXC
+	depends on !ARCH_MXC91131
+	depends on !ARCH_MXC91231
+	depends on !ARCH_MXC91331
+	depends on !ARCH_MXC91321
+	select USB_GADGET_DUALSPEED
+	select USB_GADGET_ARC_OTGHS
+	help
+	   Some Freescale processors have an ARC High Speed
+	   USBOTG controller, which supports device mode.
+	   This driver supports the controller in the i.MX31,
+	   and should work with controllers
+	   in other Freescale processors too, given minor tweaks.
+
+	   Say "y" to link the driver statically, or "m" to build a
+	   dynamically linked module called "arc_udc" and force all
+	   gadget drivers to also be dynamically linked.
+
+config USB_ARC
+	tristate
+	depends on USB_GADGET_ARC
+	default USB_GADGET
+
+
 config USB_OTG
 	boolean "OTG Support"
-	depends on USB_GADGET_OMAP && ARCH_OMAP_OTG && USB_OHCI_HCD
+	depends on (USB_GADGET_OMAP && ARCH_OMAP_OTG && USB_OHCI_HCD) || (USB_GADGET_ARC)
 	help
 	   The most notable feature of USB OTG is support for a
 	   "Dual-Role" device, which can act as either a device
 	   or a host.  The initial role choice can be changed
 	   later, when two dual-role devices talk to each other.
 
-	   Select this only if your OMAP board has a Mini-AB connector.
+	   Select this only if your board has a Mini-AB connector.
 
 endchoice
 
@@ -226,6 +273,34 @@ config USB_GADGET_DUALSPEED
 	help
 	  Means that gadget drivers should include extra descriptors
 	  and code to handle dual-speed controllers.
+
+
+choice
+	prompt "Select OTG transceiver"
+	depends on USB_GADGET_ARC
+
+config USB_GADGET_ARC_OTGFS
+	bool "Full Speed"
+#   disable until FS is actually possible.
+	depends on 0
+	help
+	  The ARC OTG controller can be connected to either a FS or
+	  a HS transceiver.
+
+	  Enable this configuration option if you want to use the HS
+	  transceiver.
+
+config USB_GADGET_ARC_OTGHS
+	bool "High Speed"
+	help
+	  The ARC OTG controller can be connected to either a FS or
+	  a HS transceiver.
+
+	  Enable this configuration option if you want to use the HS
+	  transceiver.
+
+endchoice
+
 
 #
 # USB Gadget Drivers
@@ -278,7 +353,7 @@ config USB_ETH
 	help
 	  This driver implements Ethernet style communication, in either
 	  of two ways:
-	  
+
 	   - The "Communication Device Class" (CDC) Ethernet Control Model.
 	     That protocol is often avoided with pure Ethernet adapters, in
 	     favor of simpler vendor-specific hardware, but is widely

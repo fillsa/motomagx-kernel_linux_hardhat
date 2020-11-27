@@ -36,6 +36,7 @@
 #include <linux/utsname.h>
 #include <linux/file.h>
 #include <linux/unistd.h>
+#include <linux/ltt-events.h>
 
 #include <asm/uaccess.h>
 #include <asm/ipc.h>
@@ -58,6 +59,8 @@ sys_ipc (uint call, int first, int second, int third, void __user *ptr, long fif
 
 	version = call >> 16; /* hack for backward compatibility */
 	call &= 0xffff;
+
+	ltt_ev_ipc(LTT_EV_IPC_CALL, call, first);
 
 	ret = -ENOSYS;
 	switch (call) {

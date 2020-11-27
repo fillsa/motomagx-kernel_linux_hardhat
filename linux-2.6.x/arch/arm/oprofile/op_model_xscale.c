@@ -424,15 +424,15 @@ static int xscale_detect_pmu(void)
 	}
 
 	if (!ret) {
-		op_xscale_spec.name = pmu->name;
-		op_xscale_spec.num_counters = pmu->num_counters;
+		op_arm_spec.name = pmu->name;
+		op_arm_spec.num_counters = pmu->num_counters;
 		pr_debug("xscale_detect_pmu: detected %s PMU\n", pmu->name);
 	}
 
 	return ret;
 }
 
-struct op_arm_model_spec op_xscale_spec = {
+struct op_arm_model_spec op_arm_spec = {
 	.init		= xscale_detect_pmu,
 	.setup_ctrs	= xscale_setup_ctrs,
 	.start		= xscale_pmu_start,

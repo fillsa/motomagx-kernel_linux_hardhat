@@ -4,6 +4,7 @@
  *  Copyright (C)  1998,2000  Rik van Riel
  *	Thanks go out to Claus Fischer for some serious inspiration and
  *	for goading me into coding this file...
+ *  Copyright (C) 2007 Motorola, Inc. 
  *
  *  The routines in this file are used to kill a process when
  *  we're seriously out of memory. This gets called from kswapd()
@@ -13,6 +14,13 @@
  *  machine) this file will double as a 'coding guide' and a signpost
  *  for newbie kernel hackers. It features several pointers to major
  *  kernel subsystems and hints as to where to find out what things do.
+ * 
+ * DATE          AUTHOR         COMMMENT
+ * ----          ------         --------
+ * 03/16/2007    Motorola       Added memory usage information in out of memory
+ *                              handler before kernel panic.
+ * 11/21/2007    Motorola       Remove OOM kernel panic.
+ *
  */
 
 #include <linux/mm.h>
@@ -20,8 +28,232 @@
 #include <linux/swap.h>
 #include <linux/timex.h>
 #include <linux/jiffies.h>
+#ifdef CONFIG_PRIORITIZED_OOM_KILL
+#include <linux/proc_fs.h>
+#include <linux/oom.h>
+#include <asm/uaccess.h>
+#include <linux/string.h>
 
-/* #define DEBUG */
+
+static int oom_debug = 0;
+#define DPRINT if (oom_debug) printk 
+oom_procs_t oom_killable;
+oom_procs_t oom_dontkill;
+
+int
+dontkill_read_proc(char *page_buffer, char **first_byte, off_t offset,
+	int length, int *eof, void *data)
+{
+	int len = 0;
+	char *const base = page_buffer;
+	static int bucket = 0;
+	oom_procs_t *entry = NULL;
+
+	if (offset == 0) {
+		/* 
+		 * Just been opened so display the header information 
+		 */
+		len += sprintf(base + len, "OOM killer dontkill list\n");
+	} else if (bucket == -1) {
+		 *eof = 1;
+		 return 0;
+	}
+
+	entry = &oom_dontkill;
+	do {
+		len += sprintf(base + len, "%s\n", entry->name);
+		entry = entry->next;
+	} while ((entry != NULL) && (len < length));
+
+	if (entry == NULL) 
+		bucket = -1;
+	*first_byte = page_buffer;
+	return  len;
+}
+
+ssize_t
+dontkill_write_proc(struct file *file, const char *buf, size_t count,
+    loff_t *ppos)
+{
+	oom_procs_t *next, *this, *entry;
+	int i;
+
+	if (count >= PROC_NAME_SIZE)
+		count = PROC_NAME_SIZE - 1;
+	if ((entry = (oom_procs_t *)kmalloc(sizeof (struct oom_procs),
+	    GFP_KERNEL)) == NULL) {
+		return -ENOMEM;
+	}
+	for (i = 0; i < PROC_NAME_SIZE; i++)
+		entry->name[i] = '\0';
+	if (copy_from_user(entry->name, buf, count)) {
+		kfree(entry);
+		return -EFAULT;
+	}
+	if (entry->name[count - 1] == '\n')
+		entry->name[count - 1] = '\0';
+
+	/*
+	 * If they pass the string erase, then erase the entire list
+	 */
+
+	if (strncmp("erase", entry->name, 5) == 0) {
+		DPRINT("erasing dontkill list ");
+		next = oom_dontkill.next;
+		/* erase first entry */
+		for (i = 0; i < PROC_NAME_SIZE; i++)
+			oom_dontkill.name[i] = '\0';
+		/* erase the chain */
+		while (next != NULL) {
+			this = next;
+			next = next->next;
+			DPRINT("%s ", this->name);
+			kfree(this);
+		}
+		oom_dontkill.next = NULL;
+		kfree(entry);
+		return count;
+	}
+
+	/*
+ 	 * else add the oom_procs struct to the linked list 
+	 */
+
+	if (count >= PROC_NAME_SIZE)
+		count = PROC_NAME_SIZE - 1;
+	/* get first entry in */
+	if (oom_dontkill.name[0] == '\0') {
+		DPRINT("adding %s %d to the first dontkill slot\n",
+		    entry->name, count);
+		strncpy(oom_dontkill.name, entry->name, count);
+		oom_dontkill.len = count;
+		oom_dontkill.next = NULL;
+		return count;
+	}
+	/* chain all other entries to the end in FIFO fashion */
+	this = &oom_dontkill;
+	next = oom_dontkill.next;
+	do {
+		if (next == NULL) {
+			this->next = entry;
+			entry->next = NULL;
+			entry->len = count;
+			DPRINT("adding %s %d to chain 0x%p\n", this->name,
+			    this->len, this);
+			break;
+		}
+		this = next;
+		next = next->next;
+	} while (this != NULL);
+
+	return count;
+}
+
+int
+killable_read_proc(char *page_buffer, char **first_byte, off_t offset,
+	int length, int *eof, void *data)
+{
+	int len = 0;
+	char *const base = page_buffer;
+	static int bucket = 0;
+	oom_procs_t *entry = NULL;
+
+	if (offset == 0) {
+		/* 
+		 * Just been opened so display the header information 
+		 */
+		len += sprintf(base + len, "OOM killer prioritized victims\n");
+	} else if (bucket == -1) {
+		 *eof = 1;
+		 return 0;
+	}
+	entry = &oom_killable;
+	do {
+		len += sprintf(base + len, "%s\n", entry->name);
+		entry = entry->next;
+	} while ((entry != NULL) && (len < length));
+
+	if (entry == NULL) 
+		bucket = -1;
+	*first_byte = page_buffer;
+	return  len;
+}
+
+ssize_t
+killable_write_proc(struct file *file, const char *buf, size_t count,
+    loff_t *ppos)
+{
+	oom_procs_t *next, *this, *entry;
+	int i;
+
+	if (count >= PROC_NAME_SIZE)
+		count = PROC_NAME_SIZE - 1;
+	if ((entry = (oom_procs_t *)kmalloc(sizeof (struct oom_procs),
+	    GFP_KERNEL)) == NULL) {
+		return -ENOMEM;
+	}
+	for (i = 0; i < PROC_NAME_SIZE; i++)
+		entry->name[i] = '\0';
+	if (copy_from_user(entry->name, buf, count)) {
+		kfree(entry);
+		return -EFAULT;
+	}
+	if (entry->name[count - 1] == '\n')
+		entry->name[count - 1] = '\0';
+	/*
+	 * If they pass the string erase, then erase the entire list
+	 */
+	if (strncmp("erase", entry->name, 5) == 0) {
+		DPRINT("erasing killable list ");
+		next = oom_killable.next;
+		for (i = 0; i < PROC_NAME_SIZE; i++)
+			oom_killable.name[i] = '\0';
+		while (next != NULL) {
+			this = next;
+			next = next->next;
+			DPRINT("%s ", this->name);
+			kfree(this);
+		}
+		oom_killable.next = NULL;
+		oom_killable.len = 0;
+		kfree(entry);
+		return count;
+	}
+	/*
+	 * else add the oom_procs struct to the linked list 
+	 */
+	if (count >= PROC_NAME_SIZE)
+		count = PROC_NAME_SIZE - 1;
+	/* add first entry */
+	if (oom_killable.name[0] == '\0') {
+		DPRINT("adding %s %d to first killabke stlot\n",
+		    entry->name, count);
+		strncpy(oom_killable.name, entry->name, count);
+		oom_killable.len = count;
+		oom_killable.next = NULL;
+		return count;
+	}
+	/* chain other entris in the list in FIFO fashion. */
+	this = &oom_killable;
+	next = oom_killable.next;
+	do {
+		if (next == NULL) {
+			this->next = entry;
+			entry->next = NULL;
+			entry->len = count;
+			DPRINT("adding %s %d to chain 0x%p\n", entry->name,
+			    entry->len, this);
+			break;
+		}
+		this = next;
+		next = next->next;
+	} while (this != NULL);
+	return count;
+}
+#endif /* CONFIG_PRIORITIZED_OOM_KILL */
+
+
+#ifndef CONFIG_MOT_FEAT_PANIC_ON_OOM
 
 /**
  * oom_badness - calculate a numeric value for how bad this task has been
@@ -118,8 +350,57 @@ static struct task_struct * select_bad_process(void)
 	struct task_struct *chosen = NULL;
 	struct timespec uptime;
 
-	do_posix_clock_monotonic_gettime(&uptime);
-	do_each_thread(g, p)
+#ifdef CONFIG_PRIORITIZED_OOM_KILL
+ 	oom_procs_t *entry = NULL;
+ 	int skip = 0;
+ 
+ 	/* 
+ 	 * we're going to implement 2 lists in /proc.  One list contains
+ 	 * the names of processes to NOT kill the other contains lists
+ 	 * of processes the user says can be killed in extreme emergencies.
+ 	 * /proc/sys/kernel/oom/dontkill, /proc/sys/kernel/oom/killable
+ 	 * the last resort is to fall back on the normal hueristic.
+ 	 * for each process in the killable list do
+ 	 *      find the process and kill it.  If we've reclaimed
+ 	 *      enough memory return after erasing the kill process's
+ 	 *      name from the killable list.
+ 	 * If we don't have enough memory after killing everyone in
+ 	 * the killable list we go to the old hueristic, except
+ 	 * we skip the ones in the don't kill list.
+ 	 */
+ 	if (oom_killable.name[0] == '\0')
+ 		goto no_killable_list;
+ 	entry = &oom_killable;
+ 	do_each_thread(g, p) {
+ 		while (entry != NULL) {
+ 			DPRINT("comparing %s and %s at %d to kill\n", p->comm,
+ 			    entry->name, entry->len);
+ 			if ((strncmp(p->comm, entry->name, entry->len)) == 0) {
+ 				DPRINT("returning victim %s\n", entry->name);
+ 				return(p);
+ 			}
+ 			entry = entry->next;
+ 		}
+ 	} while_each_thread(g, p);
+no_killable_list:
+ #endif /* CONFIG_PRIORITIZED_OOM_KILL */	
+  	do_posix_clock_monotonic_gettime(&uptime);
+ 	do_each_thread(g, p) {
+#ifdef CONFIG_PRIORITIZED_OOM_KILL
+ 		entry = &oom_dontkill;
+ 		while (entry != NULL) {
+ 			if (strncmp(p->comm, entry->name, entry->len) == 0) {
+ 				DPRINT("skipping %s as a potential victim\n",
+ 				    entry->name);
+ 				skip = 1;
+ 				p = next_thread(p);
+ 			}
+ 			entry = entry->next;
+ 		}
+ 		if (skip) {
+ 			skip = 0;
+ 		} else
+#endif 
 		if (p->pid) {
 			unsigned long points = badness(p, uptime.tv_sec);
 			if (points > maxpoints) {
@@ -129,7 +410,7 @@ static struct task_struct * select_bad_process(void)
 			if (p->flags & PF_SWAPOFF)
 				return p;
 		}
-	while_each_thread(g, p);
+	} while_each_thread(g, p);
 	return chosen;
 }
 
@@ -233,7 +514,7 @@ void out_of_memory(int gfp_mask)
 	 * oom_lock protects out_of_memory()'s static variables.
 	 * It's a global lock; this is not performance-critical.
 	 */
-	static spinlock_t oom_lock = SPIN_LOCK_UNLOCKED;
+	static DEFINE_SPINLOCK(oom_lock);
 	static unsigned long first, last, count, lastkill;
 	unsigned long now, since;
 
@@ -298,3 +579,59 @@ reset:
 out_unlock:
 	spin_unlock(&oom_lock);
 }
+
+#else
+
+/* Show the memory usage of each process */
+static void show_mem_usage(void)
+{
+	struct task_struct *task;
+	struct mm_struct *mm;
+
+	printk("pid:command:VM:RSS:DATA:STACK\n");
+	for_each_process(task) {
+		mm = get_task_mm(task);
+		if (mm) {
+			printk("%d:%s:%lu:%lu:%lu:%lu\n",
+			task->pid, task->comm,
+			(mm->total_vm - mm->reserved_vm) << (PAGE_SHIFT-10), /* SzVM */
+			mm->rss << (PAGE_SHIFT-10), /* RSS */
+			(mm->total_vm - mm->shared_vm - mm->stack_vm) << (PAGE_SHIFT-10), /* data */
+			mm->stack_vm << (PAGE_SHIFT-10)); /* stack */
+			mmput(mm);
+		}
+	}
+}
+
+extern void dump_stack(void);
+#ifdef CONFIG_MOT_FEAT_KPANIC
+extern int meminfo_read_proc(char *, char **, off_t, int, int *, void *);
+extern int kpanic_in_progress;
+#endif
+
+/**
+ * out_of_memory - Intentionally panic in out of memory situations
+ */
+void out_of_memory(int gfp_mask)
+{
+	char buf[1024];
+#ifdef CONFIG_MOT_FEAT_KPANIC
+	int kpanic = kpanic_in_progress;
+#endif
+
+	memset(buf, 0, sizeof(buf));
+
+	printk(KERN_ERR "Phone is in extremely low memory situation.\n");
+	printk(KERN_ERR "Dump some useful infomation:\n");
+
+	dump_stack();
+	show_mem_usage();
+
+#ifdef CONFIG_MOT_FEAT_KPANIC
+	kpanic_in_progress = 1; /* to make the meminfo_read_proc print out */
+	meminfo_read_proc(buf, NULL, 0, 0, NULL, NULL);
+	kpanic_in_progress = kpanic;
+#endif
+}
+
+#endif /* CONFIG_MOT_FEAT_PANIC_ON_OOM */

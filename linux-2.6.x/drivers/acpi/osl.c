@@ -828,14 +828,14 @@ acpi_os_create_semaphore(
 	u32		initial_units,
 	acpi_handle	*handle)
 {
-	struct semaphore	*sem = NULL;
+	struct compat_semaphore	*sem = NULL;
 
 	ACPI_FUNCTION_TRACE ("os_create_semaphore");
 
-	sem = acpi_os_allocate(sizeof(struct semaphore));
+	sem = acpi_os_allocate(sizeof(struct compat_semaphore));
 	if (!sem)
 		return_ACPI_STATUS (AE_NO_MEMORY);
-	memset(sem, 0, sizeof(struct semaphore));
+	memset(sem, 0, sizeof(struct compat_semaphore));
 
 	sema_init(sem, initial_units);
 
@@ -859,7 +859,7 @@ acpi_status
 acpi_os_delete_semaphore(
 	acpi_handle	handle)
 {
-	struct semaphore *sem = (struct semaphore*) handle;
+	struct compat_semaphore *sem = (struct compat_semaphore*) handle;
 
 	ACPI_FUNCTION_TRACE ("os_delete_semaphore");
 
@@ -891,7 +891,7 @@ acpi_os_wait_semaphore(
 	u16			timeout)
 {
 	acpi_status		status = AE_OK;
-	struct semaphore	*sem = (struct semaphore*)handle;
+	struct compat_semaphore	*sem = (struct compat_semaphore*)handle;
 	int			ret = 0;
 
 	ACPI_FUNCTION_TRACE ("os_wait_semaphore");
@@ -973,7 +973,7 @@ acpi_os_signal_semaphore(
     acpi_handle 	    handle,
     u32 		    units)
 {
-	struct semaphore *sem = (struct semaphore *) handle;
+	struct compat_semaphore *sem = (struct compat_semaphore *) handle;
 
 	ACPI_FUNCTION_TRACE ("os_signal_semaphore");
 

@@ -2,6 +2,17 @@
  * compatible types passed or none at all... Please include
  * only stuff that is compatible on *all architectures*.
  */
+
+/*
+  Copyright (C) 2006 - Motorola
+  2006-Feb-12
+  Changes to add IOCTL for l2cap character device *
+
+        1. L2CAPCREATEDEV       IOCTL command to create l2cap char device file.
+        2. L2CAPRELEASEDEV      IOCTL command to release l2cap char device file
+*/
+
+
 #ifndef COMPATIBLE_IOCTL /* pointer to compatible structure or no argument */
 #define COMPATIBLE_IOCTL(cmd)  HANDLE_IOCTL((cmd),(ioctl_trans_handler_t)sys_ioctl)
 #endif
@@ -25,6 +36,8 @@ COMPATIBLE_IOCTL(TCSETSF)
 COMPATIBLE_IOCTL(TIOCLINUX)
 COMPATIBLE_IOCTL(TIOCSBRK)
 COMPATIBLE_IOCTL(TIOCCBRK)
+ULONG_IOCTL(TIOCMIWAIT)
+COMPATIBLE_IOCTL(TIOCGICOUNT)
 /* Little t */
 COMPATIBLE_IOCTL(TIOCGETD)
 COMPATIBLE_IOCTL(TIOCSETD)
@@ -641,6 +654,8 @@ COMPATIBLE_IOCTL(HCISETSCOMTU)
 COMPATIBLE_IOCTL(HCIINQUIRY)
 COMPATIBLE_IOCTL(HCIUARTSETPROTO)
 COMPATIBLE_IOCTL(HCIUARTGETPROTO)
+COMPATIBLE_IOCTL(L2CAPCREATEDEV)
+COMPATIBLE_IOCTL(L2CAPRELEASEDEV)
 COMPATIBLE_IOCTL(RFCOMMCREATEDEV)
 COMPATIBLE_IOCTL(RFCOMMRELEASEDEV)
 COMPATIBLE_IOCTL(RFCOMMGETDEVLIST)

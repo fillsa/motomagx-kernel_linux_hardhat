@@ -14,6 +14,7 @@
 #include <linux/syscalls.h>
 #include <linux/tty.h>
 #include <linux/ioctl32.h>
+#include <linux/mc146818rtc.h>
 
 #include <asm/semaphore.h>
 #include <asm/processor.h>
@@ -33,8 +34,6 @@
 #include <asm/delay.h>
 #include <asm/tlbflush.h>
 #include <asm/kdebug.h>
-
-extern spinlock_t rtc_lock;
 
 #ifdef CONFIG_SMP
 extern void __write_lock_failed(rwlock_t *rw);
@@ -63,10 +62,12 @@ EXPORT_SYMBOL(pm_idle);
 EXPORT_SYMBOL(pm_power_off);
 EXPORT_SYMBOL(get_cmos_time);
 
+#ifdef CONFIG_RWSEM_GENERIC_SPINLOCK
 EXPORT_SYMBOL(__down_failed);
 EXPORT_SYMBOL(__down_failed_interruptible);
 EXPORT_SYMBOL(__down_failed_trylock);
 EXPORT_SYMBOL(__up_wakeup);
+#endif
 /* Networking helper routines. */
 EXPORT_SYMBOL(csum_partial_copy_nocheck);
 EXPORT_SYMBOL(ip_compute_csum);
@@ -194,7 +195,7 @@ EXPORT_SYMBOL(rwsem_down_write_failed_thunk);
 EXPORT_SYMBOL(empty_zero_page);
 
 #ifdef CONFIG_HAVE_DEC_LOCK
-EXPORT_SYMBOL(_atomic_dec_and_lock);
+EXPORT_SYMBOL(_atomic_dec_and_raw_spin_lock);
 #endif
 
 EXPORT_SYMBOL(die_chain);

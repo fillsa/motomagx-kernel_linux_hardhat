@@ -9,6 +9,7 @@
 #include <asm/uaccess.h>
 #include <asm/pgtable.h>
 #include <asm/desc.h>
+#include <asm/semaphore.h>
 
 static struct fs_struct init_fs = INIT_FS;
 static struct files_struct init_files = INIT_FILES;

@@ -1,6 +1,7 @@
 /*
  *  linux/fs/vfat/namei.c
  *
+ *  Copyright (C) 2007-2008 Motorola Inc.
  *  Written 1992,1993 by Werner Almesberger
  *
  *  Windows95/Windows NT compatible extended MSDOS filesystem
@@ -14,6 +15,15 @@
  *  Support Multibyte character and cleanup by
  *  				OGAWA Hirofumi <hirofumi@mail.parknet.co.jp>
  */
+
+
+
+/* ChangeLog:
+ * (mm-dd-yyyy)  Author    Comment
+ * 1i-21-2007    Motorola  Upmerge from 6.1. (Succeed hidden and system attr from parent inode)
+ * 02-20-2008    Motorola  change hidden way
+ */
+
 
 #include <linux/module.h>
 
@@ -699,10 +709,15 @@ static int vfat_add_entry(struct inode *dir,struct qstr* qname,
 	struct msdos_dir_entry *dummy_de;
 	struct buffer_head *dummy_bh;
 	loff_t dummy_i_pos;
+	int is_hid = 0;  
 
 	len = vfat_striptail_len(qname);
 	if (len == 0)
 		return -ENOENT;
+	
+	/* if create a hidden dir on linux OS, set ATTR_HIDDEN for windows */
+	if (qname->name[0] == '.')
+	    is_hid = 1;
 
 	dir_slots =
 	       kmalloc(sizeof(struct msdos_dir_slot) * MSDOS_SLOTS, GFP_KERNEL);
@@ -741,6 +756,9 @@ static int vfat_add_entry(struct inode *dir,struct qstr* qname,
 	fat_date_unix2dos(dir->i_mtime.tv_sec, &(*de)->time, &(*de)->date);
 	(*de)->ctime = (*de)->time;
 	(*de)->adate = (*de)->cdate = (*de)->date;
+
+	if (is_hid)
+	    (*de)->attr |= ATTR_HIDDEN | ATTR_SYS;
 
 	mark_buffer_dirty(*bh);
 

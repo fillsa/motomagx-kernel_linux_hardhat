@@ -23,30 +23,91 @@
 #include <linux/init.h>
 #include <linux/device.h>
 #include <linux/delay.h>
+#include <linux/mtd/mtd.h>
+#include <linux/mtd/partitions.h>
+#include <linux/nodemask.h>
 
+#include <asm/setup.h>
 #include <asm/hardware.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
+#include <asm/mach/flash.h>
 #include <asm/mach/map.h>
 
 #include <asm/arch/clocks.h>
 #include <asm/arch/gpio.h>
+#include <asm/arch/tc.h>
 #include <asm/arch/usb.h>
-#include <asm/arch/serial.h>
+#include <asm/arch/fpga.h>
 
 #include "common.h"
 
+extern int omap_gpio_init(void);
+
 static int __initdata h2_serial_ports[OMAP_MAX_NR_PORTS] = {1, 1, 1};
+
+static struct mtd_partition h2_partitions[] = {
+	/* bootloader (U-Boot, etc) in first sector */
+	{
+	      .name		= "bootloader",
+	      .offset		= 0,
+	      .size		= SZ_128K,
+	      .mask_flags	= MTD_WRITEABLE, /* force read-only */
+	},
+	/* bootloader params in the next sector */
+	{
+	      .name		= "params",
+	      .offset		= MTDPART_OFS_APPEND,
+	      .size		= SZ_128K,
+	      .mask_flags	= 0,
+	},
+	/* kernel */
+	{
+	      .name		= "kernel",
+	      .offset		= MTDPART_OFS_APPEND,
+	      .size		= SZ_2M,
+	      .mask_flags	= 0
+	},
+	/* file system */
+	{
+	      .name		= "filesystem",
+	      .offset		= MTDPART_OFS_APPEND,
+	      .size		= MTDPART_SIZ_FULL,
+	      .mask_flags	= 0
+	}
+};
+
+static struct flash_platform_data h2_flash_data = {
+	.map_name	= "cfi_probe",
+	.width		= 2,
+	.parts		= h2_partitions,
+	.nr_parts	= ARRAY_SIZE(h2_partitions),
+};
+
+static struct resource h2_flash_resource = {
+	/* This is on CS3, wherever it's mapped */
+	.flags		= IORESOURCE_MEM,
+};
+
+static struct platform_device h2_flash_device = {
+	.name		= "omapflash",
+	.id		= 0,
+	.dev		= {
+		.platform_data	= &h2_flash_data,
+	},
+	.num_resources	= 1,
+	.resource	= &h2_flash_resource,
+};
 
 static struct resource h2_smc91x_resources[] = {
 	[0] = {
 		.start	= OMAP1610_ETHR_START,		/* Physical */
-		.end	= OMAP1610_ETHR_START + SZ_4K,
+		.end	= OMAP1610_ETHR_START + 0xf,
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= 0,				/* Really GPIO 0 */
-		.end	= 0,
+		.start	= OMAP_GPIO_IRQ(0),
+		.end	= OMAP_GPIO_IRQ(0),
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -58,15 +119,39 @@ static struct platform_device h2_smc91x_device = {
 	.resource	= h2_smc91x_resources,
 };
 
-static struct platform_device *h2_devices[] __initdata = {
-	&h2_smc91x_device,
+static struct platform_device keypad_device = {
+	.name	   = "omap-keypad",
+	.id	     = -1,
 };
+
+static struct platform_device *h2_devices[] __initdata = {
+	&h2_flash_device,
+	&h2_smc91x_device,
+	&keypad_device,
+};
+
+static void __init h2_init_smc91x(void)
+{
+	if ((omap_request_gpio(0)) < 0) {
+		printk("Error requesting gpio 0 for smc91x irq\n");
+		return;
+	}
+	omap_set_gpio_edge_ctrl(0, OMAP_GPIO_FALLING_EDGE);
+}
 
 void h2_init_irq(void)
 {
 	omap_init_irq();
+	omap_gpio_init();
+	h2_init_smc91x();
 }
 
+/* Only FPGA needs to be mapped here. All others are done with ioremap */
+static struct map_desc omap_h2_io_desc[] __initdata = {
+        {H2P2_DBG_FPGA_BASE, H2P2_DBG_FPGA_START, H2P2_DBG_FPGA_SIZE,
+         MT_DEVICE},
+};	
+		
 static struct omap_usb_config h2_usb_config __initdata = {
 	/* usb1 has a Mini-AB port and external isp1301 transceiver */
 	.otg		= 2,
@@ -95,6 +180,12 @@ static struct omap_board_config_kernel h2_config[] = {
 
 static void __init h2_init(void)
 {
+	/* NOTE: revC boards support NAND-boot, which can put NOR on CS2B
+	 * and NAND (either 16bit or 8bit) on CS3.
+	 */
+	h2_flash_resource.end = h2_flash_resource.start = omap_cs3_phys();
+	h2_flash_resource.end += SZ_32M - 1;
+
 	platform_add_devices(h2_devices, ARRAY_SIZE(h2_devices));
 	omap_board_config = h2_config;
 	omap_board_config_size = ARRAY_SIZE(h2_config);
@@ -103,13 +194,30 @@ static void __init h2_init(void)
 static void __init h2_map_io(void)
 {
 	omap_map_io();
+	iotable_init(omap_h2_io_desc,
+                     ARRAY_SIZE(omap_h2_io_desc));
 	omap_serial_init(h2_serial_ports);
 }
+
+#ifdef CONFIG_DISCONTIGMEM
+static void __init
+fixup_h2(struct machine_desc *desc, struct tag *tags,
+	 char **cmdline, struct meminfo *mi)
+{
+	int nid;
+	mi->nr_banks = OMAP_NUMNODES;
+	for (nid=0; nid < mi->nr_banks; nid++)
+		SET_NODE(mi, nid);
+}
+#endif
 
 MACHINE_START(OMAP_H2, "TI-H2")
 	MAINTAINER("Imre Deak <imre.deak@nokia.com>")
 	BOOT_MEM(0x10000000, 0xfff00000, 0xfef00000)
 	BOOT_PARAMS(0x10000100)
+#ifdef CONFIG_DISCONTIGMEM
+        FIXUP(fixup_h2)
+#endif
 	MAPIO(h2_map_io)
 	INITIRQ(h2_init_irq)
 	INIT_MACHINE(h2_init)

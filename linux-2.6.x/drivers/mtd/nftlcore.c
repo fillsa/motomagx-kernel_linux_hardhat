@@ -1,7 +1,7 @@
 /* Linux driver for NAND Flash Translation Layer      */
 /* (c) 1999 Machine Vision Holdings, Inc.             */
 /* Author: David Woodhouse <dwmw2@infradead.org>      */
-/* $Id: nftlcore.c,v 1.97 2004/11/16 18:28:59 dwmw2 Exp $ */
+/* $Id: nftlcore.c,v 1.96 2004/06/28 13:52:55 dbrown Exp $ */
 
 /*
   The contents of this file are distributed under the GNU General
@@ -749,7 +749,7 @@ extern char nftlmountrev[];
 
 static int __init init_nftl(void)
 {
-	printk(KERN_INFO "NFTL driver: nftlcore.c $Revision: 1.97 $, nftlmount.c %s\n", nftlmountrev);
+	printk(KERN_INFO "NFTL driver: nftlcore.c $Revision: 1.96 $, nftlmount.c %s\n", nftlmountrev);
 
 	return register_mtd_blktrans(&nftl_tr);
 }

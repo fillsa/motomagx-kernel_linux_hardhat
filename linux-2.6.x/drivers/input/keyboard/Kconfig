@@ -96,3 +96,44 @@ config KEYBOARD_AMIGA
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called amikbd.
+
+config KEYBOARD_OMAP
+	tristate "TI OMAP keypad support"
+        depends on ARCH_OMAP && INPUT && INPUT_KEYBOARD
+        help
+	  Say Y here if you want to use the OMAP keypad. 
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called omap-keypad.
+
+config OMAP_PS2
+	tristate "TI OMAP Innovator 1510 PS/2 keyboard & mouse support"
+	depends on ARCH_OMAP1510 && MACH_OMAP_INNOVATOR && INPUT && INPUT_KEYBOARD
+	help
+	  Say Y here if you want to use the OMAP Innovator 1510 PS/2
+	  keyboard and mouse.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called innovator_ps2.
+	  
+config KEYBOARD_MAINSTONE
+	tristate "Intel Mainstone (HCDDBBVA0) keypad support"
+	depends on MACH_MAINSTONE
+	help
+	  Say Y here if you want to use the Mainstone keypad.
+	  
+config KEYBOARD_MXC
+	tristate "Freescale MXC Keypad Driver"
+	depends on ARCH_MXC && INPUT && INPUT_KEYBOARD
+	help
+	  Say Y here if you want to use the Freescale MXC Keypad.
+
+config KEYBOARD_PNX4008
+	tristate "PNX4008 keypad support"
+	depends on ARCH_PNX4008 && INPUT && INPUT_KEYBOARD
+	help
+	  Say Y here if you want to use the keypad installed
+	  on the PNX4008 development board.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called pnx4008_kbd.

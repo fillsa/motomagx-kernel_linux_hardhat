@@ -53,7 +53,7 @@
 #define force_inline __attribute__((always_inline)) inline
 
 int __sysctl_vsyscall __section_sysctl_vsyscall = 1;
-seqlock_t __xtime_lock __section_xtime_lock = SEQLOCK_UNLOCKED;
+raw_seqlock_t __xtime_lock __section_xtime_lock = RAW_SEQLOCK_UNLOCKED;
 
 #include <asm/unistd.h>
 

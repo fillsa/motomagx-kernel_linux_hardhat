@@ -19,9 +19,22 @@
  * ==FILEVERSION 20000322==
  */
 
+/*
+ * Copyright 2005 Motorola, Inc.
+ */
+
+/*
+ * DATE          AUTHOR         COMMMENT
+ * ----          ------         --------
+ * 11/15/2005    Motorola       Added extern for idle time function.
+ */
+
 #include <linux/list.h>
 #include <linux/skbuff.h>
 #include <linux/poll.h>
+#ifdef CONFIG_MOT_FEAT_PPP_EZX_COMPAT
+#include <linux/ppp_defs.h>
+#endif
 
 struct ppp_channel;
 
@@ -67,6 +80,10 @@ extern int ppp_channel_index(struct ppp_channel *);
 
 /* Get the unit number associated with a channel, or -1 if none */
 extern int ppp_unit_number(struct ppp_channel *);
+
+#ifdef CONFIG_MOT_FEAT_PPP_EZX_COMPAT
+extern int ppp_idle_time( struct ppp_channel *, struct ppp_idle * );
+#endif
 
 /*
  * SMP locking notes:

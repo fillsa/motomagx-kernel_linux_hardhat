@@ -83,7 +83,7 @@ static spinlock_t rpc_queue_lock = SPIN_LOCK_UNLOCKED;
 /*
  * Spinlock for other critical sections of code.
  */
-static spinlock_t rpc_sched_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(rpc_sched_lock);
 
 /*
  * Disable the timer for a given RPC task. Should be called with
@@ -1089,7 +1089,7 @@ rpc_killall_tasks(struct rpc_clnt *clnt)
 	spin_unlock(&rpc_sched_lock);
 }
 
-static DECLARE_MUTEX_LOCKED(rpciod_running);
+static DECLARE_WAIT_QUEUE_HEAD(rpciod_running);
 
 static inline int
 rpciod_task_pending(void)
@@ -1111,7 +1111,7 @@ rpciod(void *ptr)
 	 * Let our maker know we're running ...
 	 */
 	rpciod_pid = current->pid;
-	up(&rpciod_running);
+	wake_up(&rpciod_running);
 
 	daemonize("rpciod");
 	allow_signal(SIGKILL);
@@ -1216,7 +1216,11 @@ rpciod_up(void)
 		rpciod_users--;
 		goto out;
 	}
-	down(&rpciod_running);
+	/* Wait, but not too long since we're holding the semaphore. */
+	if (wait_event_interruptible_timeout(rpciod_running,
+				rpciod_pid != 0, HZ) <= 0)
+		printk(KERN_WARNING "rpciod_up: rpciod failed to start\n");
+
 	error = 0;
 out:
 	up(&rpciod_sema);

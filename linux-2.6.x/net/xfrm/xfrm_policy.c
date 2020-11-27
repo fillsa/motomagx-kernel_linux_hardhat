@@ -10,9 +10,29 @@
  * 	YOSHIFUJI Hideaki
  * 		Split up af-specific portion
  *	Derek Atkins <derek@ihtfp.com>		Add the post_input processor
- * 	
+ *
+ * Copyright (C) 2007 Motorola Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+ * 02111-1307, USA
+ *
+ * Date         Author          Comment
+ * 04/2007      Motorola        UMA DSCP changes - Make
+ *                              xfrm_policy_lookup public
  */
 
+#include <asm/bug.h>
 #include <linux/config.h>
 #include <linux/slab.h>
 #include <linux/kmod.h>
@@ -26,11 +46,11 @@
 
 DECLARE_MUTEX(xfrm_cfg_sem);
 
-static rwlock_t xfrm_policy_lock = RW_LOCK_UNLOCKED;
+static DEFINE_RWLOCK(xfrm_policy_lock);
 
 struct xfrm_policy *xfrm_policy_list[XFRM_POLICY_MAX*2];
 
-static rwlock_t xfrm_policy_afinfo_lock = RW_LOCK_UNLOCKED;
+static DEFINE_RWLOCK(xfrm_policy_afinfo_lock);
 static struct xfrm_policy_afinfo *xfrm_policy_afinfo[NPROTO];
 
 kmem_cache_t *xfrm_dst_cache;
@@ -38,7 +58,7 @@ kmem_cache_t *xfrm_dst_cache;
 static struct work_struct xfrm_policy_gc_work;
 static struct list_head xfrm_policy_gc_list =
 	LIST_HEAD_INIT(xfrm_policy_gc_list);
-static spinlock_t xfrm_policy_gc_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(xfrm_policy_gc_lock);
 
 static struct xfrm_policy_afinfo *xfrm_policy_get_afinfo(unsigned short family);
 static void xfrm_policy_put_afinfo(struct xfrm_policy_afinfo *afinfo);
@@ -291,19 +311,23 @@ static void xfrm_policy_gc_task(void *data)
 
 static void xfrm_policy_kill(struct xfrm_policy *policy)
 {
-	write_lock_bh(&policy->lock);
-	if (policy->dead)
-		goto out;
+	int dead;
 
+	write_lock_bh(&policy->lock);
+	dead = policy->dead;
 	policy->dead = 1;
+	write_unlock_bh(&policy->lock);
+
+	if (unlikely(dead)) {
+		WARN_ON(1);
+		return;
+	}
 
 	spin_lock(&xfrm_policy_gc_lock);
 	list_add(&policy->list, &xfrm_policy_gc_list);
 	spin_unlock(&xfrm_policy_gc_lock);
-	schedule_work(&xfrm_policy_gc_work);
 
-out:
-	write_unlock_bh(&policy->lock);
+	schedule_work(&xfrm_policy_gc_work);
 }
 
 /* Generate new index... KAME seems to generate them ordered by cost
@@ -343,7 +367,8 @@ int xfrm_policy_insert(int dir, struct xfrm_policy *policy, int excl)
 			}
 			*p = pol->next;
 			delpol = pol;
-			if (policy->priority > pol->priority)
+			if (policy->priority > pol->priority &&
+			    pol->next != NULL)
 				continue;
 		} else if (policy->priority >= pol->priority) {
 			p = &pol->next;
@@ -374,6 +399,16 @@ int xfrm_policy_insert(int dir, struct xfrm_policy *policy, int excl)
 	return 0;
 }
 
+#ifdef CONFIG_XFRM_ENHANCEMENT
+/* Allows comparison of selectors with wildcard user value */
+static inline int selector_cmp(struct  xfrm_selector *user_sel,  
+			       struct  xfrm_selector *sel)
+{
+	return (memcmp(user_sel, sel, sizeof(*sel) - sizeof(sel->user)) || 
+		((user_sel->user != sel->user) && user_sel->user));
+}
+#endif
+
 struct xfrm_policy *xfrm_policy_bysel(int dir, struct xfrm_selector *sel,
 				      int delete)
 {
@@ -381,7 +416,11 @@ struct xfrm_policy *xfrm_policy_bysel(int dir, struct xfrm_selector *sel,
 
 	write_lock_bh(&xfrm_policy_lock);
 	for (p = &xfrm_policy_list[dir]; (pol=*p)!=NULL; p = &pol->next) {
+#ifdef CONFIG_XFRM_ENHANCEMENT
+		if (selector_cmp(sel, &pol->selector) == 0) {
+#else
 		if (memcmp(sel, &pol->selector, sizeof(*sel)) == 0) {
+#endif
 			xfrm_pol_hold(pol);
 			if (delete)
 				*p = pol->next;
@@ -472,10 +511,15 @@ out:
 }
 
 
-/* Find policy to apply to this flow. */
 
+/* Find policy to apply to this flow. */
+#ifdef CONFIG_MOT_FEAT_DSCP_UMA
+void xfrm_policy_lookup(struct flowi *fl, u16 family, u8 dir,
+                        void **objp, atomic_t **obj_refp)
+#else
 static void xfrm_policy_lookup(struct flowi *fl, u16 family, u8 dir,
-			       void **objp, atomic_t **obj_refp)
+                               void **objp, atomic_t **obj_refp)
+#endif
 {
 	struct xfrm_policy *pol;
 
@@ -496,6 +540,11 @@ static void xfrm_policy_lookup(struct flowi *fl, u16 family, u8 dir,
 	read_unlock_bh(&xfrm_policy_lock);
 	if ((*objp = (void *) pol) != NULL)
 		*obj_refp = &pol->refcnt;
+#ifdef CONFIG_XFRM_DEBUG
+	printk(KERN_DEBUG "%s: lookup policy [list] found=%s\n",
+	       __FUNCTION__, ((pol) ? "yes (cache to flow newly)" : "no"));
+#endif
+
 }
 
 struct xfrm_policy *xfrm_sk_policy_lookup(struct sock *sk, int dir, struct flowi *fl)
@@ -690,9 +739,14 @@ xfrm_bundle_create(struct xfrm_policy *policy, struct xfrm_state **xfrm, int nx,
 
 static inline int policy_to_flow_dir(int dir)
 {
+#ifdef CONFIG_USE_POLICY_FWD
 	if (XFRM_POLICY_IN == FLOW_DIR_IN &&
 	    XFRM_POLICY_OUT == FLOW_DIR_OUT &&
 	    XFRM_POLICY_FWD == FLOW_DIR_FWD)
+#else
+	if (XFRM_POLICY_IN == FLOW_DIR_IN &&
+	    XFRM_POLICY_OUT == FLOW_DIR_OUT)
+#endif
 		return dir;
 	switch (dir) {
 	default:
@@ -700,8 +754,10 @@ static inline int policy_to_flow_dir(int dir)
 		return FLOW_DIR_IN;
 	case XFRM_POLICY_OUT:
 		return FLOW_DIR_OUT;
+#ifdef CONFIG_USE_POLICY_FWD
 	case XFRM_POLICY_FWD:
 		return FLOW_DIR_FWD;
+#endif
 	};
 }
 
@@ -722,6 +778,18 @@ int xfrm_lookup(struct dst_entry **dst_p, struct flowi *fl,
 	int err;
 	u32 genid;
 	u16 family = dst_orig->ops->family;
+#ifdef CONFIG_XFRM_DEBUG
+	printk(KERN_DEBUG "%s: called: [output START]\n", __FUNCTION__);
+	if (fl) {
+		if (family == AF_INET) {
+			printk(KERN_DEBUG "%s: flow dst=%s\n", __FUNCTION__, XFRMSTRADDR(fl->fl4_dst, family));
+			printk(KERN_DEBUG "%s: flow src=%s\n", __FUNCTION__, XFRMSTRADDR(fl->fl4_src, family));
+		} else if (family == AF_INET6) {
+			printk(KERN_DEBUG "%s: flow dst=%s\n", __FUNCTION__, XFRMSTRADDR(fl->fl6_dst, family));
+			printk(KERN_DEBUG "%s: flow src=%s\n", __FUNCTION__, XFRMSTRADDR(fl->fl6_src, family));
+		}
+	}
+#endif
 restart:
 	genid = atomic_read(&flow_cache_genid);
 	policy = NULL;
@@ -764,6 +832,7 @@ restart:
 		dst = xfrm_find_bundle(fl, policy, family);
 		if (IS_ERR(dst)) {
 			xfrm_pol_put(policy);
+			XFRM_DBG("%s: failed to find bundle at policy index = %u\n", __FUNCTION__, policy->index);
 			return PTR_ERR(dst);
 		}
 
@@ -796,8 +865,10 @@ restart:
 				}
 				err = nx;
 			}
-			if (err < 0)
+			if (err < 0) {
+				XFRM_DBG("%s: failed to resolve tmpl\n", __FUNCTION__);
 				goto error;
+			}
 		}
 		if (nx == 0) {
 			/* Flow passes not transformed. */
@@ -812,6 +883,7 @@ restart:
 			int i;
 			for (i=0; i<nx; i++)
 				xfrm_state_put(xfrm[i]);
+			XFRM_DBG("%s: failed to create bundle\n", __FUNCTION__);
 			goto error;
 		}
 
@@ -827,6 +899,7 @@ restart:
 			xfrm_pol_put(policy);
 			if (dst)
 				dst_free(dst);
+			XFRM_DBG("%s: policy has gone, retrying\n", __FUNCTION__);
 			goto restart;
 		}
 		dst->next = policy->bundles;
@@ -840,6 +913,8 @@ restart:
 	return 0;
 
 error:
+ 	XFRM_DBG("%s: error = %d, policy index = %u\n", __FUNCTION__, err,
+ 		 policy->index);
 	dst_release(dst_orig);
 	xfrm_pol_put(policy);
 	*dst_p = NULL;
@@ -862,7 +937,14 @@ xfrm_state_ok(struct xfrm_tmpl *tmpl, struct xfrm_state *x,
 		(x->id.spi == tmpl->id.spi || !tmpl->id.spi) &&
 		(x->props.reqid == tmpl->reqid || !tmpl->reqid) &&
 		x->props.mode == tmpl->mode &&
+#ifdef CONFIG_XFRM_ENHANCEMENT
+		((tmpl->id.proto != IPPROTO_AH &&
+		  tmpl->id.proto != IPPROTO_ESP &&
+		  tmpl->id.proto != IPPROTO_COMP) ||
+		 (tmpl->aalgos & (1<<x->props.aalgo))) &&
+#else
 		(tmpl->aalgos & (1<<x->props.aalgo)) &&
+#endif
 		!(x->props.mode && xfrm_state_addr_cmp(tmpl, x, family));
 }
 
@@ -877,6 +959,7 @@ xfrm_policy_ok(struct xfrm_tmpl *tmpl, struct sec_path *sp, int start,
 			return start;
 	} else
 		start = -1;
+
 	for (; idx < sp->len; idx++) {
 		if (xfrm_state_ok(tmpl, sp->x[idx].xvec, family))
 			return ++idx;
@@ -915,24 +998,29 @@ int __xfrm_policy_check(struct sock *sk, int dir, struct sk_buff *skb,
 	struct xfrm_policy *pol;
 	struct flowi fl;
 
-	if (_decode_session(skb, &fl, family) < 0)
+	if (_decode_session(skb, &fl, family) < 0) {
+		XFRM_DBG("%s: failed to decode session\n", __FUNCTION__);
 		return 0;
+	}
 
 	/* First, check used SA against their selectors. */
 	if (skb->sp) {
 		int i;
-
 		for (i=skb->sp->len-1; i>=0; i--) {
-		  struct sec_decap_state *xvec = &(skb->sp->x[i]);
-			if (!xfrm_selector_match(&xvec->xvec->sel, &fl, family))
-				return 0;
+			struct sec_decap_state *xvec = &(skb->sp->x[i]);
+			if (!xfrm_selector_match(&xvec->xvec->sel, &fl, family)) {
+				XFRM_DBG("%s: mismatch selector at sec proto = %u\n", __FUNCTION__, xvec->xvec->id.proto);
+				goto reject;
+			}
 
 			/* If there is a post_input processor, try running it */
 			if (xvec->xvec->type->post_input &&
 			    (xvec->xvec->type->post_input)(xvec->xvec,
 							   &(xvec->decap),
-							   skb) != 0)
+							   skb) != 0) {
+				XFRM_DBG("%s: failed post input at sec proto = %u\n", __FUNCTION__, xvec->xvec->id.proto);
 				return 0;
+			}
 		}
 	}
 
@@ -950,6 +1038,10 @@ int __xfrm_policy_check(struct sock *sk, int dir, struct sk_buff *skb,
 
 	pol->curlft.use_time = (unsigned long)xtime.tv_sec;
 
+	if (pol->action == XFRM_POLICY_BLOCK) {
+		xfrm_pol_put(pol);
+		return 0;
+	}
 	if (pol->action == XFRM_POLICY_ALLOW) {
 		struct sec_path *sp;
 		static struct sec_path dummy;
@@ -966,12 +1058,16 @@ int __xfrm_policy_check(struct sock *sk, int dir, struct sk_buff *skb,
 		 */
 		for (i = pol->xfrm_nr-1, k = 0; i >= 0; i--) {
 			k = xfrm_policy_ok(pol->xfrm_vec+i, sp, k, family);
-			if (k < 0)
+			if (k < 0) {
+				XFRM_DBG("%s: failed to check policy at tmpl proto = %u\n", __FUNCTION__, ((struct xfrm_tmpl *)pol->xfrm_vec+i)->id.proto);
 				goto reject;
+			}
 		}
 
-		if (secpath_has_tunnel(sp, k))
+		if (secpath_has_tunnel(sp, k)) {
+				XFRM_DBG("%s: unexpected tunnel mode state proto = %u\n", __FUNCTION__, sp->x[k].xvec->id.proto);
 			goto reject;
+		}
 
 		xfrm_pol_put(pol);
 		return 1;
@@ -979,6 +1075,19 @@ int __xfrm_policy_check(struct sock *sk, int dir, struct sk_buff *skb,
 
 reject:
 	xfrm_pol_put(pol);
+#ifdef CONFIG_XFRM_ENHANCEMENT
+	if (skb->sp) {
+		int i;
+		for (i=skb->sp->len-1; i>=0; i--) {
+			struct sec_decap_state *xvec = &(skb->sp->x[i]);
+			if (xvec->xvec->type->post_reject)
+				xvec->xvec->type->post_reject(xvec->xvec,
+							      &(xvec->decap),
+							      skb, &fl);
+		}
+	}
+#endif
+
 	return 0;
 }
 
@@ -1025,6 +1134,20 @@ static void xfrm_dst_destroy(struct dst_entry *dst)
 		return;
 	xfrm_state_put(dst->xfrm);
 	dst->xfrm = NULL;
+}
+
+static void xfrm_dst_ifdown(struct dst_entry *dst, int unregister)
+{
+	struct net_device *dev = dst->dev;
+
+	if (!unregister)
+		return;
+
+	while ((dst = dst->child) && dst->xfrm && dst->dev == dev) {
+		dst->dev = &loopback_dev;
+		dev_hold(&loopback_dev);
+		dev_put(dev);
+	}
 }
 
 static void xfrm_link_failure(struct sk_buff *skb)
@@ -1150,6 +1273,8 @@ int xfrm_policy_register_afinfo(struct xfrm_policy_afinfo *afinfo)
 			dst_ops->check = xfrm_dst_check;
 		if (likely(dst_ops->destroy == NULL))
 			dst_ops->destroy = xfrm_dst_destroy;
+		if (likely(dst_ops->ifdown == NULL))
+			dst_ops->ifdown = xfrm_dst_ifdown;
 		if (likely(dst_ops->negative_advice == NULL))
 			dst_ops->negative_advice = xfrm_negative_advice;
 		if (likely(dst_ops->link_failure == NULL))
@@ -1181,6 +1306,7 @@ int xfrm_policy_unregister_afinfo(struct xfrm_policy_afinfo *afinfo)
 			dst_ops->kmem_cachep = NULL;
 			dst_ops->check = NULL;
 			dst_ops->destroy = NULL;
+			dst_ops->ifdown = NULL;
 			dst_ops->negative_advice = NULL;
 			dst_ops->link_failure = NULL;
 			dst_ops->get_mss = NULL;

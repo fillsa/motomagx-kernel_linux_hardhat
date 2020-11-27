@@ -43,7 +43,7 @@
  * This is maintained separately from nmi_active because the NMI
  * watchdog may also be driven from the I/O APIC timer.
  */
-static spinlock_t lapic_nmi_owner_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_RAW_SPINLOCK(lapic_nmi_owner_lock);
 static unsigned int lapic_nmi_owner;
 #define LAPIC_NMI_WATCHDOG	(1<<0)
 #define LAPIC_NMI_RESERVED	(1<<1)
@@ -376,18 +376,53 @@ void touch_nmi_watchdog (void)
 		alert_counter[i] = 0;
 }
 
+int nmi_show_regs[NR_CPUS];
+
+void nmi_show_all_regs(void)
+{
+	int i;
+
+	if (nmi_watchdog == NMI_NONE)
+		return;
+	if (system_state != SYSTEM_RUNNING) {
+		printk("nmi_show_all_regs(): system state %d, not doing.\n",
+			system_state);
+		return;
+	}
+		
+	for_each_online_cpu(i)
+		nmi_show_regs[i] = 1;
+	for_each_online_cpu(i)
+		while (nmi_show_regs[i] == 1)
+			barrier();
+}
+
+static DEFINE_RAW_SPINLOCK(nmi_print_lock);
+
 void nmi_watchdog_tick (struct pt_regs * regs, unsigned reason)
 {
 	int sum, cpu;
 
 	cpu = safe_smp_processor_id();
 	sum = read_pda(apic_timer_irqs);
+	if (nmi_show_regs[cpu]) {
+		nmi_show_regs[cpu] = 0;
+		spin_lock(&nmi_print_lock);
+		show_regs(regs);
+		spin_unlock(&nmi_print_lock);
+	}
 	if (last_irq_sums[cpu] == sum) {
 		/*
 		 * Ayiee, looks like this CPU is stuck ...
 		 * wait a few IRQs (5 seconds) before doing the oops ...
 		 */
 		alert_counter[cpu]++;
+		if (alert_counter[cpu] == 5*nmi_hz) {
+			int i;
+
+			for (i = 0; i < NR_CPUS; i++)
+				nmi_show_regs[i] = 1;
+		}
 		if (alert_counter[cpu] == 5*nmi_hz) {
 			if (notify_die(DIE_NMI, "nmi", regs, reason, 2, SIGINT)
 							== NOTIFY_STOP) {

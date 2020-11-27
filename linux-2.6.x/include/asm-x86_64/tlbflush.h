@@ -9,11 +9,13 @@
 	do {								\
 		unsigned long tmpreg;					\
 									\
+		preempt_disable();					\
 		__asm__ __volatile__(					\
 			"movq %%cr3, %0;  # flush TLB \n"		\
 			"movq %0, %%cr3;              \n"		\
 			: "=r" (tmpreg)					\
 			:: "memory");					\
+		preempt_enable();					\
 	} while (0)
 
 /*
@@ -24,6 +26,7 @@
 	do {								\
 		unsigned long tmpreg;					\
 									\
+		preempt_disable();					\
 		__asm__ __volatile__(					\
 			"movq %1, %%cr4;  # turn off PGE     \n"	\
 			"movq %%cr3, %0;  # flush TLB        \n"	\
@@ -33,6 +36,7 @@
 			: "r" (mmu_cr4_features & ~X86_CR4_PGE),	\
 			  "r" (mmu_cr4_features)			\
 			: "memory");					\
+		preempt_enable();					\
 	} while (0)
 
 extern unsigned long pgkern_mask;

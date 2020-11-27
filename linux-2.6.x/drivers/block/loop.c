@@ -44,6 +44,14 @@
  * - Should use an own CAP_* category instead of CAP_SYS_ADMIN
  *
  */
+/*
+ * Copyright (C) 2007 Motorola, Inc.
+ * 
+ * Date        Author            Comment
+ * ==========  ================  ========================
+ * 10/24/2007  Motorola    	 Mark super block dirty for data consistency.
+ * 
+ */
 
 #include <linux/config.h>
 #include <linux/module.h>
@@ -243,6 +251,12 @@ do_lo_send(struct loop_device *lo, struct bio_vec *bvec, int bsize, loff_t pos)
 		flush_dcache_page(page);
 		if (aops->commit_write(file, page, offset, offset+size))
 			goto unlock;
+#ifdef CONFIG_MOT_FEAT_FAT_SYNC 
+		/*
+		 *  Mark dirty super block 
+		 */
+		file->f_dentry->d_sb->s_dirt = 1;
+#endif 
 		if (transfer_result)
 			goto unlock;
 		bv_offs += size;
@@ -378,7 +392,7 @@ static void loop_add_bio(struct loop_device *lo, struct bio *bio)
 		lo->lo_bio = lo->lo_biotail = bio;
 	spin_unlock_irqrestore(&lo->lo_lock, flags);
 
-	up(&lo->lo_bh_mutex);
+	complete(&lo->lo_bh_done);
 }
 
 /*
@@ -427,7 +441,7 @@ static int loop_make_request(request_queue_t *q, struct bio *old_bio)
 	return 0;
 err:
 	if (atomic_dec_and_test(&lo->lo_pending))
-		up(&lo->lo_bh_mutex);
+		complete(&lo->lo_bh_done);
 out:
 	bio_io_error(old_bio, old_bio->bi_size);
 	return 0;
@@ -495,12 +509,12 @@ static int loop_thread(void *data)
 	/*
 	 * up sem, we are running
 	 */
-	up(&lo->lo_sem);
+	complete(&lo->lo_done);
 
 	for (;;) {
-		down_interruptible(&lo->lo_bh_mutex);
+		wait_for_completion_interruptible(&lo->lo_bh_done);
 		/*
-		 * could be upped because of tear-down, not because of
+		 * could be completed because of tear-down, not because of
 		 * pending work
 		 */
 		if (!atomic_read(&lo->lo_pending))
@@ -521,7 +535,7 @@ static int loop_thread(void *data)
 			break;
 	}
 
-	up(&lo->lo_sem);
+	complete(&lo->lo_done);
 	return 0;
 }
 
@@ -708,7 +722,7 @@ static int loop_set_fd(struct loop_device *lo, struct file *lo_file,
 	set_blocksize(bdev, lo_blocksize);
 
 	kernel_thread(loop_thread, lo, CLONE_KERNEL);
-	down(&lo->lo_sem);
+	wait_for_completion(&lo->lo_done);
 	return 0;
 
  out_putf:
@@ -773,10 +787,10 @@ static int loop_clr_fd(struct loop_device *lo, struct block_device *bdev)
 	spin_lock_irq(&lo->lo_lock);
 	lo->lo_state = Lo_rundown;
 	if (atomic_dec_and_test(&lo->lo_pending))
-		up(&lo->lo_bh_mutex);
+		complete(&lo->lo_bh_done);
 	spin_unlock_irq(&lo->lo_lock);
 
-	down(&lo->lo_sem);
+	wait_for_completion(&lo->lo_done);
 
 	lo->lo_backing_file = NULL;
 
@@ -1153,8 +1167,8 @@ int __init loop_init(void)
 		if (!lo->lo_queue)
 			goto out_mem4;
 		init_MUTEX(&lo->lo_ctl_mutex);
-		init_MUTEX_LOCKED(&lo->lo_sem);
-		init_MUTEX_LOCKED(&lo->lo_bh_mutex);
+		init_completion(&lo->lo_done);
+		init_completion(&lo->lo_bh_done);
 		lo->lo_number = i;
 		spin_lock_init(&lo->lo_lock);
 		disk->major = LOOP_MAJOR;

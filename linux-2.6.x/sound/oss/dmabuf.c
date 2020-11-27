@@ -362,11 +362,13 @@ static void dma_reset_output(int dev)
 	else
 		adev->d->halt_output(dev);
 	adev->dmap_out->flags &= ~DMA_STARTED;
-	
-	f=claim_dma_lock();
-	clear_dma_ff(dmap->dma);
-	disable_dma(dmap->dma);
-	release_dma_lock(f);
+
+	if (dmap->dma >= 0) {
+		f=claim_dma_lock();
+		clear_dma_ff(dmap->dma);
+		disable_dma(dmap->dma);
+		release_dma_lock(f);
+	}
 	
 	dmap->byte_counter = 0;
 	reorganize_buffers(dev, adev->dmap_out, 0);
@@ -638,12 +640,11 @@ int DMAbuf_get_buffer_pointer(int dev, struct dma_buffparms *dmap, int direction
 
 	int pos;
 	unsigned long f;
+	int chan = dmap->dma;
 
-	if (!(dmap->flags & DMA_ACTIVE))
+	if ((!(dmap->flags & DMA_ACTIVE)) || (chan < 0))
 		pos = 0;
 	else {
-		int chan = dmap->dma;
-		
 		f=claim_dma_lock();
 		clear_dma_ff(chan);
 		

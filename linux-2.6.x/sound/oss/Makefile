@@ -3,13 +3,72 @@
 # 18 Apr 1998, Michael Elizabeth Chastain, <mailto:mec@shout.net>
 # Rewritten to use lists instead of if-statements.
 
+# Module dependencies for the MXC driver
+
+#
+# Define the header file locations for mc13783 PMIC drivers.
+#
+ifdef CONFIG_MXC_MC13783_LEGACY
+CFLAGS_mxc_audio_mc13783.o  = -I$(TOPDIR)/drivers/mxc
+endif
+
+#
+# Define the header file locations for sc55112 PMIC drivers.
+#
+ifdef CONFIG_MXC_PMIC_SC55112
+CFLAGS_mxc-oss.o          = -I$(TOPDIR)/drivers/mxc/sc55112/module \
+			    -I$(TOPDIR)/drivers/mxc/sc55112/core   \
+                            -I$(TOPDIR)/drivers/mxc/ssi               \
+			    -I$(TOPDIR)/drivers/mxc/dam
+CFLAGS_mxc-oss-hw.o       = -I$(TOPDIR)/drivers/mxc/sc55112/module \
+                            -I$(TOPDIR)/drivers/mxc/ssi               \
+			    -I$(TOPDIR)/drivers/mxc/dam
+endif
+
+#
+# If we want to build an mxc-sound.ko loadable module, then we must explicitly
+# define the CONFIG_SOUND_MXC macro when compiling the audio.c, dmabuf.c, and
+# soundcard.c in order to select the correct code sections.
+#
+# Note that if we are not building a kernel module (i.e., CONFIG_SOUND_MXC=y),
+# then the kernel build process will automatically create  the following
+# statement:
+#
+#     #define CONFIG_SOUND_MXC 1
+#
+# In this case we don't need to explicitly redefine the CONFIG_SOUND_MXC macro.
+#
+ifeq ($(CONFIG_SOUND_MXC),m)
+CFLAGS_audio.o     += -DCONFIG_SOUND_MXC
+CFLAGS_dmabuf.o    += -DCONFIG_SOUND_MXC
+CFLAGS_soundcard.o += -DCONFIG_SOUND_MXC
+endif
+
+#
+# Define a macro to enable Virtio-specific code.
+#
+ifdef CONFIG_VIRTIO_SUPPORT
+ifdef CONFIG_MXC_MC13783_LEGACY
+CFLAGS_mxc-audio.o       += -DDRV_FOR_VIRTIO_MODEL
+CFLAGS_mxc-hwdep.o       += -DDRV_FOR_VIRTIO_MODEL
+endif
+ifdef CONFIG_MXC_PMIC_SC55112
+CFLAGS_mxc-oss.o         += -DDRV_FOR_VIRTIO_MODEL
+CFLAGS_mxc-oss-hw.o      += -DDRV_FOR_VIRTIO_MODEL
+endif
+endif
+
 # Each configuration option enables a list of files.
 
 obj-$(CONFIG_SOUND_OSS)		+= sound.o
 obj-$(CONFIG_SOUND_CS4232)	+= cs4232.o ad1848.o 
 
+obj-$(CONFIG_SOUND_OMAP)        += omap-audio-dma-intfc.o omap-audio.o
+obj-$(CONFIG_SOUND_OMAP_TSC2101)+= omap-audio-tsc2101.o
+
 # Please leave it as is, cause the link order is significant !
 
+obj-$(CONFIG_SOUND_MXC)		+= mxc-sound.o
 obj-$(CONFIG_SOUND_SH_DAC_AUDIO)	+= sh_dac_audio.o
 obj-$(CONFIG_SOUND_HAL2)	+= hal2.o
 obj-$(CONFIG_SOUND_AEDSP16)	+= aedsp16.o
@@ -64,6 +123,8 @@ endif
 obj-$(CONFIG_SOUND_ES1370)	+= es1370.o
 obj-$(CONFIG_SOUND_ES1371)	+= es1371.o ac97_codec.o
 obj-$(CONFIG_SOUND_VRC5477)	+= nec_vrc5477.o ac97_codec.o
+obj-$(CONFIG_SOUND_AU1000)	+= au1000.o ac97_codec.o  
+obj-$(CONFIG_SOUND_AU1550_AC97)	+= au1550_ac97.o ac97_codec.o  
 obj-$(CONFIG_SOUND_ESSSOLO1)	+= esssolo1.o
 obj-$(CONFIG_SOUND_FUSION)	+= cs46xx.o ac97_codec.o
 obj-$(CONFIG_SOUND_MAESTRO)	+= maestro.o
@@ -71,6 +132,7 @@ obj-$(CONFIG_SOUND_MAESTRO3)	+= maestro3.o ac97_codec.o
 obj-$(CONFIG_SOUND_TRIDENT)	+= trident.o ac97_codec.o
 obj-$(CONFIG_SOUND_HARMONY)	+= harmony.o
 obj-$(CONFIG_SOUND_EMU10K1)	+= ac97_codec.o
+obj-$(CONFIG_SOUND_BCM_CS4297A)	+= swarm_cs4297a.o
 obj-$(CONFIG_SOUND_RME96XX)     += rme96xx.o
 obj-$(CONFIG_SOUND_BT878)	+= btaudio.o
 obj-$(CONFIG_SOUND_ALI5455)	+= ali5455.o ac97_codec.o
@@ -79,6 +141,7 @@ obj-$(CONFIG_SOUND_FORTE)	+= forte.o ac97_codec.o
 
 obj-$(CONFIG_SOUND_AD1980)	+= ac97_plugin_ad1980.o
 obj-$(CONFIG_SOUND_WM97XX)	+= ac97_plugin_wm97xx.o
+obj-$(CONFIG_SOUND_PNX4008)	+= pnx4008-dsp.o
 
 ifeq ($(CONFIG_MIDI_EMU10K1),y)
   obj-$(CONFIG_SOUND_EMU10K1)	+= sound.o
@@ -102,6 +165,13 @@ sb-objs		:= sb_card.o
 sb_lib-objs	:= sb_common.o sb_audio.o sb_midi.o sb_mixer.o sb_ess.o
 vidc_mod-objs	:= vidc.o vidc_fill.o
 wavefront-objs  := wavfront.o wf_midi.o yss225.o
+
+ifdef CONFIG_MXC_MC13783_LEGACY
+mxc-sound-objs  := mxc_audio_mc13783.o
+endif
+ifdef CONFIG_MXC_PMIC_SC55112
+mxc-sound-objs  := mxc-oss.o mxc-oss-hw.o
+endif
 
 hostprogs-y	:= bin2hex hex2hex
 

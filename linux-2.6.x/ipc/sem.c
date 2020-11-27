@@ -72,6 +72,7 @@
 #include <linux/smp_lock.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
+#include <linux/ltt-events.h>
 #include <asm/uaccess.h>
 #include "util.h"
 
@@ -211,7 +212,7 @@ asmlinkage long sys_semget (key_t key, int nsems, int semflg)
 	if (nsems < 0 || nsems > sc_semmsl)
 		return -EINVAL;
 	down(&sem_ids.sem);
-	
+
 	if (key == IPC_PRIVATE) {
 		err = newary(key, nsems, semflg);
 	} else if ((id = ipc_findkey(&sem_ids, key)) == -1) {  /* key not used */
@@ -239,6 +240,8 @@ asmlinkage long sys_semget (key_t key, int nsems, int semflg)
 	}
 
 	up(&sem_ids.sem);
+	ltt_ev_ipc(LTT_EV_IPC_SEM_CREATE, err, semflg);
+
 	return err;
 }
 
@@ -358,6 +361,12 @@ static void update_queue (struct sem_array * sma)
 		if (error <= 0) {
 			struct sem_queue *n;
 			remove_from_queue(sma,q);
+			/*
+			 * Make sure that the wakeup doesnt preempt
+			 * _this_ CPU prematurely. (on PREEMPT_RT)
+			 */
+			preempt_disable();
+
 			n = q->next;
 			q->status = IN_WAKEUP;
 			wake_up_process(q->sleeper);
@@ -365,6 +374,7 @@ static void update_queue (struct sem_array * sma)
 			 * writing q->status.
 			 */
 			q->status = error;
+			preempt_enable();
 			q = n;
 		} else {
 			q = q->next;
@@ -439,12 +449,18 @@ static void freeary (struct sem_array *sma, int id)
 	q = sma->sem_pending;
 	while(q) {
 		struct sem_queue *n;
+		/*
+		 * Make sure that the wakeup doesnt preempt
+		 * _this_ CPU prematurely. (on PREEMPT_RT)
+		 */
+		preempt_disable();
 		/* lazy remove_from_queue: we are killing the whole queue */
 		q->prev = NULL;
 		n = q->next;
 		q->status = IN_WAKEUP;
 		wake_up_process(q->sleeper); /* doesn't sleep */
 		q->status = -EIDRM;	/* hands-off q */
+		preempt_enable();
 		q = n;
 	}
 

@@ -18,7 +18,9 @@
 #include <linux/errno.h>
 #include <linux/interrupt.h>
 #include <linux/device.h>
-
+#ifdef CONFIG_PM
+#include <linux/pm.h>
+#endif
 #include <pcmcia/ss.h>
 
 #include <asm/hardware.h>
@@ -179,10 +181,14 @@ static int __init mst_pcmcia_init(void)
 	mst_pcmcia_device->dev.platform_data = &mst_pcmcia_ops;
 
 	ret = platform_device_register(mst_pcmcia_device);
-	if (ret)
+	if (ret) {
 		kfree(mst_pcmcia_device);
-
-	return ret;
+		return ret;
+	}
+#ifdef CONFIG_PM
+	device_init_wakeup(&mst_pcmcia_device->dev, 1);
+#endif
+	return 0;
 }
 
 static void __exit mst_pcmcia_exit(void)

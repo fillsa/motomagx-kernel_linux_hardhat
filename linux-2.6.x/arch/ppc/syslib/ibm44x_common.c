@@ -4,7 +4,7 @@
  * PPC44x system library
  *
  * Matt Porter <mporter@kernel.crashing.org>
- * Copyright 2002-2004 MontaVista Software Inc.
+ * Copyright 2002-2005 MontaVista Software Inc.
  *
  * Eugene Surovegin <eugene.surovegin@zultys.com> or <ebs@ebshome.net>
  * Copyright (c) 2003, 2004 Zultys Technologies
@@ -19,6 +19,7 @@
 #include <linux/time.h>
 #include <linux/types.h>
 #include <linux/serial.h>
+#include <linux/module.h>
 
 #include <asm/ibm44x.h>
 #include <asm/mmu.h>
@@ -38,15 +39,22 @@ phys_addr_t fixup_bigphys_addr(phys_addr_t addr, phys_addr_t size)
 	 * address in the 440's 36-bit address space.  Fix
 	 * them up with the appropriate ERPN
 	 */
-	if ((addr >= PPC44x_IO_LO) && (addr < PPC44x_IO_HI))
+	if ((addr >= PPC44x_IO_LO) && (addr <= PPC44x_IO_HI))
 		page_4gb = PPC44x_IO_PAGE;
-	else if ((addr >= PPC44x_PCICFG_LO) && (addr < PPC44x_PCICFG_HI))
+	else if ((addr >= PPC44x_PCI0CFG_LO) && (addr <= PPC44x_PCI0CFG_HI))
 		page_4gb = PPC44x_PCICFG_PAGE;
-	else if ((addr >= PPC44x_PCIMEM_LO) && (addr < PPC44x_PCIMEM_HI))
+#ifdef CONFIG_440SP
+	else if ((addr >= PPC44x_PCI1CFG_LO) && (addr <= PPC44x_PCI1CFG_HI))
+		page_4gb = PPC44x_PCICFG_PAGE;
+	else if ((addr >= PPC44x_PCI2CFG_LO) && (addr <= PPC44x_PCI2CFG_HI))
+		page_4gb = PPC44x_PCICFG_PAGE;
+#endif
+	else if ((addr >= PPC44x_PCIMEM_LO) && (addr <= PPC44x_PCIMEM_HI))
 		page_4gb = PPC44x_PCIMEM_PAGE;
 
 	return (page_4gb | addr);
 };
+EXPORT_SYMBOL(fixup_bigphys_addr);
 
 void __init ibm44x_calibrate_decr(unsigned int freq)
 {
@@ -142,19 +150,9 @@ static unsigned long __init ibm44x_find_end_of_memory(void)
 	return mem_size;
 }
 
-static void __init ibm44x_init_irq(void)
-{
-	int i;
-
-	ppc4xx_pic_init();
-
-	for (i = 0; i < NR_IRQS; i++)
-		irq_desc[i].handler = ppc4xx_pic;
-}
-
 void __init ibm44x_platform_init(void)
 {
-	ppc_md.init_IRQ = ibm44x_init_irq;
+	ppc_md.init_IRQ = ppc4xx_pic_init;
 	ppc_md.find_end_of_memory = ibm44x_find_end_of_memory;
 	ppc_md.restart = ibm44x_restart;
 	ppc_md.power_off = ibm44x_power_off;
@@ -163,9 +161,6 @@ void __init ibm44x_platform_init(void)
 #ifdef CONFIG_SERIAL_TEXT_DEBUG
 	ppc_md.progress = gen550_progress;
 #endif /* CONFIG_SERIAL_TEXT_DEBUG */
-#ifdef CONFIG_KGDB
-	ppc_md.kgdb_map_scc = gen550_kgdb_map_scc;
-#endif
 
 	/*
 	 * The Abatron BDI JTAG debugger does not tolerate others
@@ -180,3 +175,16 @@ void __init ibm44x_platform_init(void)
 #endif
 }
 
+/* Called from MachineCheckException */
+void platform_machine_check(struct pt_regs *regs)
+{
+    	printk("PLB0: BEAR=0x%08x%08x ACR=  0x%08x BESR= 0x%08x\n",
+		mfdcr(DCRN_PLB0_BEARH), mfdcr(DCRN_PLB0_BEARL),
+		mfdcr(DCRN_PLB0_ACR),  mfdcr(DCRN_PLB0_BESR));
+	printk("POB0: BEAR=0x%08x%08x BESR0=0x%08x BESR1=0x%08x\n",
+		mfdcr(DCRN_POB0_BEARH), mfdcr(DCRN_POB0_BEARL),
+		mfdcr(DCRN_POB0_BESR0), mfdcr(DCRN_POB0_BESR1));
+	printk("OPB0: BEAR=0x%08x%08x BSTAT=0x%08x\n",
+		mfdcr(DCRN_OPB0_BEARH), mfdcr(DCRN_OPB0_BEARL),
+		mfdcr(DCRN_OPB0_BSTAT));
+}

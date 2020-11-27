@@ -298,8 +298,21 @@ int ide_build_dmatable (ide_drive_t *drive, struct request *rq)
 	}
 
 	if (count) {
-		if (!is_trm290)
+		int adj = 0;
+
+		if (!is_trm290) {
+			adj = 1;
 			*--table |= cpu_to_le32(0x80000000);
+		}
+
+#ifdef CONFIG_NOT_COHERENT_CACHE
+		/*
+		** sync out the dma physical region descriptor table
+		*/
+		__dma_sync(hwif->dmatable_cpu,
+			(table - hwif->dmatable_cpu + adj) * sizeof(unsigned int),
+			PCI_DMA_BIDIRECTIONAL);
+#endif
 		return count;
 	}
 	printk(KERN_ERR "%s: empty DMA table?\n", drive->name);

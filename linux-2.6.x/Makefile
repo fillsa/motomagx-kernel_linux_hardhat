@@ -4,6 +4,12 @@ SUBLEVEL = 10
 EXTRAVERSION =
 NAME=Woozy Numbat
 
+# Copyright (C) 2006-2007 Motorola, Inc.
+# Date          Author         Comment
+# 09/26/2006    Motorola       Initialization.
+# 04/17/2007    Motorola       Add support to the kernel for getting test coverage information
+# 08/13/2007    Motorola       Add comments.
+
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
 # More info can be located in ./README
@@ -79,7 +85,9 @@ endif
 # make
 #
 # The O= assigment takes precedence over the KBUILD_OUTPUT environment variable.
-
+ifeq ($(TEST_COVERAGE), 1)
+GCOV_FLAGS	= -fprofile-arcs -ftest-coverage
+endif
 
 # KBUILD_SRC is set on invocation of make in OBJ directory
 # KBUILD_SRC is not intended to be used by the regular user (for now)
@@ -190,8 +198,14 @@ SUBARCH := $(shell uname -m | sed -e s/i.86/i386/ -e s/sun4u/sparc64/ \
 # Default value for CROSS_COMPILE is not to prefix executables
 # Note: Some architectures assign CROSS_COMPILE in their arch/*/Makefile
 
-ARCH		?= $(SUBARCH)
-CROSS_COMPILE	?=
+ARCH := $(shell if [ -f .mvl_target_cpu ]; then \
+			cat .mvl_target_cpu; \
+		else \
+			echo $(SUBARCH); \
+		fi)
+CROSS_COMPILE   = $(shell if [ -f .mvl_cross_compile ]; then \
+			          cat .mvl_cross_compile; \
+			  fi)
 
 # Architecture as present in compile.h
 UTS_MACHINE := $(ARCH)
@@ -201,10 +215,20 @@ CONFIG_SHELL := $(shell if [ -x "$$BASH" ]; then echo $$BASH; \
 	  else if [ -x /bin/bash ]; then echo /bin/bash; \
 	  else echo sh; fi ; fi)
 
+HOSTINCLUDE	= $(shell if [ -n "`which mvl-whereami 2> /dev/null`" ] ; then \
+				echo "-I`mvl-whereami`/../include"; \
+			  fi)
 HOSTCC  	= gcc
 HOSTCXX  	= g++
-HOSTCFLAGS	= -Wall -Wstrict-prototypes -O2 -fomit-frame-pointer
+HOSTCFLAGS	= -Wall -Wstrict-prototypes -O2 -fomit-frame-pointer $(HOSTINCLUDE)
 HOSTCXXFLAGS	= -O2
+
+HOSTOS=$(shell uname)
+ifeq (${HOSTOS},SunOS)
+TOOLDIR=""
+else
+TOOLDIR="/sbin/"
+endif
 
 # 	Decide whether to build built-in, modular, or both.
 #	Normally, just do built-in.
@@ -327,7 +351,7 @@ OBJCOPY		= $(CROSS_COMPILE)objcopy
 OBJDUMP		= $(CROSS_COMPILE)objdump
 AWK		= awk
 GENKSYMS	= scripts/genksyms/genksyms
-DEPMOD		= /sbin/depmod
+DEPMOD		= $(TOOLDIR)depmod
 KALLSYMS	= scripts/kallsyms
 PERL		= perl
 CHECK		= sparse
@@ -343,10 +367,15 @@ NOSTDINC_FLAGS  = -nostdinc -iwithprefix include
 
 # Use LINUXINCLUDE when you must reference the include/ directory.
 # Needed to be compatible with the O= option
+ifeq ($(TEST_COVERAGE), 1)
+LINUXINCLUDE     := -I$(objtree)/include -I$(srctree) -I$(objtree) \
+		   $(if $(KBUILD_SRC),-I$(objtree)/include2 -I$(srctree)/include)
+else
 LINUXINCLUDE    := -Iinclude \
                    $(if $(KBUILD_SRC),-Iinclude2 -I$(srctree)/include)
-
+endif
 CPPFLAGS        := -D__KERNEL__ $(LINUXINCLUDE)
+
 
 CFLAGS 		:= -Wall -Wstrict-prototypes -Wno-trigraphs \
 	  	   -fno-strict-aliasing -fno-common
@@ -360,6 +389,9 @@ export	VERSION PATCHLEVEL SUBLEVEL EXTRAVERSION LOCALVERSION KERNELRELEASE \
 export CPPFLAGS NOSTDINC_FLAGS LINUXINCLUDE OBJCOPYFLAGS LDFLAGS
 export CFLAGS CFLAGS_KERNEL CFLAGS_MODULE 
 export AFLAGS AFLAGS_KERNEL AFLAGS_MODULE
+ifeq ($(TEST_COVERAGE), 1)
+export CFLAGS_NOGCOV GCOV_FLAGS
+endif
 
 # When compiling out-of-tree modules, put MODVERDIR in the module
 # tree rather than in the kernel tree. The kernel tree might
@@ -371,11 +403,14 @@ export MODVERDIR := $(if $(KBUILD_EXTMOD),$(firstword $(KBUILD_EXTMOD))/).tmp_ve
 comma := ,
 depfile = $(subst $(comma),_,$(@D)/.$(@F).d)
 
+# Get quilt metadata directory locations
+QUILT_PC := $(shell [ -r "$$HOME/.quiltrc" ] && . "$$HOME/.quiltrc" ; echo "$${QUILT_PC:-.pc}")
+QUILT_PATCHES := $(shell [ -r "$$HOME/.quiltrc" ] && . "$$HOME/.quiltrc" ; echo "$${QUILT_PATCHES:-patches}")
 # Files to ignore in find ... statements
 
-RCS_FIND_IGNORE := \( -name SCCS -o -name BitKeeper -o -name .svn -o -name CVS -o -name .pc \) -prune -o
-RCS_TAR_IGNORE := --exclude SCCS --exclude BitKeeper --exclude .svn --exclude CVS --exclude .pc
-
+RCS_FIND_IGNORE := \( -name SCCS -o -name BitKeeper -o -name .svn -o -name CVS -o -name "$(QUILT_PATCHES)" -o -name "$(QUILT_PC)" \) -prune -o
+RCS_TAR_IGNORE := --exclude SCCS --exclude BitKeeper --exclude .svn --exclude CVS --exclude "$(QUILT_PATCHES)" --exclude "$(QUILT_PC)"
+ 
 # ===========================================================================
 # Rules shared between *config targets and build targets
 
@@ -404,7 +439,7 @@ outputmakefile:
 # Detect when mixed targets is specified, and make a second invocation
 # of make so .config is not included in this case either (for *config).
 
-no-dot-config-targets := clean mrproper distclean \
+no-dot-config-targets := clean mrproper distclean kernelrelease \
 			 cscope TAGS tags help %docs check%
 
 config-targets := 0
@@ -471,7 +506,7 @@ init-y		:= init/
 drivers-y	:= drivers/ sound/
 net-y		:= net/
 libs-y		:= lib/
-core-y		:= usr/
+core-y		:= usr/ mvl_patches/ ktools/
 endif # KBUILD_EXTMOD
 
 ifeq ($(dot-config),1)
@@ -516,10 +551,18 @@ CFLAGS		+= $(call add-align,CONFIG_CC_ALIGN_LABELS,-labels)
 CFLAGS		+= $(call add-align,CONFIG_CC_ALIGN_LOOPS,-loops)
 CFLAGS		+= $(call add-align,CONFIG_CC_ALIGN_JUMPS,-jumps)
 
-ifdef CONFIG_FRAME_POINTER
-CFLAGS		+= -fno-omit-frame-pointer
+ifdef CONFIG_MCOUNT
+CFLAGS		+= -pg -fno-omit-frame-pointer
 else
-CFLAGS		+= -fomit-frame-pointer
+ ifdef CONFIG_FRAME_POINTER
+ CFLAGS		+= -fno-omit-frame-pointer
+ else
+ CFLAGS		+= -fomit-frame-pointer
+ endif
+endif
+
+ifdef CONFIG_KFI
+CFLAGS += -finstrument-functions
 endif
 
 ifdef CONFIG_DEBUG_INFO
@@ -547,9 +590,15 @@ export KBUILD_IMAGE ?= vmlinux
 
 #
 # INSTALL_MOD_PATH specifies a prefix to MODLIB for module directory
-# relocations required by build roots.  This is not defined in the
-# makefile but the arguement can be passed to make if needed.
+# relocations required by build roots.
 #
+
+INSTALL_MOD_PATH ?= $(shell \
+	if [ -n "`which mvl-whereami 2> /dev/null`" ] ; then \
+	 if [ -f .mvl_target_installdir ]; then \
+		echo -n "`mvl-whereami`/../devkit/`cat .mvl_target_installdir`/target"; \
+	 fi \
+	fi)
 
 MODLIB	:= $(INSTALL_MOD_PATH)/lib/modules/$(KERNELRELEASE)
 export MODLIB
@@ -842,6 +891,13 @@ depend dep:
 # ---------------------------------------------------------------------------
 # Modules
 
+ifeq ($(TEST_COVERAGE), 1)
+CFLAGS_NOGCOV := $(CFLAGS)
+ifdef CONFIG_GCOV_ALL
+CFLAGS += $(GCOV_FLAGS)
+endif
+endif
+
 ifdef CONFIG_MODULES
 
 # 	By default, build modules as well
@@ -866,12 +922,13 @@ modules_install: _modinst_ _modinst_post
 
 .PHONY: _modinst_
 _modinst_:
-	@if [ -z "`$(DEPMOD) -V | grep module-init-tools`" ]; then \
+	@if [ -z "$(CROSS_COMPILE)" -a \
+			-z "`$(DEPMOD) -V | grep module-init-tools`" ]; then \
 		echo "Warning: you may need to install module-init-tools"; \
 		echo "See http://www.codemonkey.org.uk/docs/post-halloween-2.6.txt";\
 		sleep 1; \
 	fi
-	@rm -rf $(MODLIB)/kernel
+	-@rm -rf $(MODLIB)/kernel
 	@rm -f $(MODLIB)/source
 	@mkdir -p $(MODLIB)/kernel
 	@ln -s $(srctree) $(MODLIB)/source
@@ -893,7 +950,9 @@ depmod_opts	:= -b $(INSTALL_MOD_PATH) -r
 endif
 .PHONY: _modinst_post
 _modinst_post: _modinst_
-	if [ -r System.map ]; then $(DEPMOD) -ae -F System.map $(depmod_opts) $(KERNELRELEASE); fi
+	if [ "$(CROSS_COMPILE)" = "" ]; then \
+		if [ -r System.map ]; then \
+			$(DEPMOD) -ae -F System.map $(depmod_opts) $(KERNELRELEASE);fi;fi
 
 else # CONFIG_MODULES
 
@@ -944,7 +1003,7 @@ CLEAN_FILES +=	vmlinux System.map \
 
 # Directories & files removed with 'make mrproper'
 MRPROPER_DIRS  += include/config include2
-MRPROPER_FILES += .config .config.old include/asm .version \
+MRPROPER_FILES += .config .config.old include/asm .version include/linux/dwarf2-defs.h \
                   include/linux/autoconf.h include/linux/version.h \
                   Module.symvers tags TAGS cscope*
 
@@ -963,6 +1022,8 @@ clean: archclean $(clean-dirs)
 	$(call cmd,rmfiles)
 	@find . $(RCS_FIND_IGNORE) \
 	 	\( -name '*.[oas]' -o -name '*.ko' -o -name '.*.cmd' \
+		-o -name '*.bb' -o -name '*.bbg' -o -name '*.da' \
+		-o -name '*.gcno' -o -name '*.gcda' \
 		-o -name '.*.d' -o -name '.*.tmp' -o -name '*.mod.c' \) \
 		-type f -print | xargs rm -f
 
@@ -1210,6 +1271,9 @@ checkstack:
 	$(OBJDUMP) -d vmlinux $$(find . -name '*.ko') | \
 	$(PERL) $(src)/scripts/checkstack.pl $(ARCH)
 
+kernelrelease:
+	@echo $(KERNELRELEASE)
+
 # FIXME Should go into a make.lib or something 
 # ===========================================================================
 
@@ -1314,5 +1378,8 @@ clean := -f $(if $(KBUILD_SRC),$(srctree)/)scripts/Makefile.clean obj
 descend =$(Q)$(MAKE) -f $(if $(KBUILD_SRC),$(srctree)/)scripts/Makefile.build obj=$(1) $(2)
 
 endif	# skip-makefile
+include/linux/dwarf2-defs.h: $(srctree)/include/linux/dwarf2.h $(srctree)/scripts/dwarfh.awk
+	mkdir -p include/linux/
+	awk -f $(srctree)/scripts/dwarfh.awk $(srctree)/include/linux/dwarf2.h > include/linux/dwarf2-defs.h
 
-FORCE:
+FORCE: include/linux/dwarf2-defs.h

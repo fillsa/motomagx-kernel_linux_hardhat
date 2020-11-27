@@ -36,7 +36,6 @@ struct fib6_node
 
 	__u16			fn_bit;		/* bit key */
 	__u16			fn_flags;
-	__u32			fn_sernum;
 };
 
 
@@ -76,6 +75,7 @@ struct rt6_info
 	struct rt6key			rt6i_src;
 
 	u8				rt6i_protocol;
+	u8				rt6i_table;
 };
 
 struct fib6_walker_t
@@ -139,11 +139,6 @@ struct rt6_statistics {
 #define RTPRI_KERN_DFLT	4096		/* Kernel default routes	*/
 
 #define	MAX_FLOW_BACKTRACE	32
-
-
-typedef void			(*f_pnode)(struct fib6_node *fn, void *);
-
-extern struct fib6_node		ip6_routing_table;
 
 /*
  *	exported functions

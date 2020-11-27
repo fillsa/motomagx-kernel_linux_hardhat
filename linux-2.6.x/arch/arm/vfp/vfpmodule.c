@@ -1,6 +1,7 @@
 /*
  *  linux/arch/arm/vfp/vfpmodule.c
  *
+ *  Copyright (C) 2006 Motorola Inc.
  *  Copyright (C) 2004 ARM Limited.
  *  Written by Deep Blue Solutions Limited.
  *
@@ -46,6 +47,10 @@ void vfp_flush_thread(union vfp_state *vfp)
 	vfp->hard.fpexc = FPEXC_ENABLE;
 	vfp->hard.fpscr = FPSCR_ROUND_NEAREST;
 
+#ifdef CONFIG_MOT_WFN456
+	vfp->hard.fpscr |= FPSCR_DEFAULT_NAN | FPSCR_FLUSHTOZERO;
+#endif
+	
 	/*
 	 * Disable VFP to ensure we initialise it first.
 	 */
@@ -89,7 +94,7 @@ void vfp_raise_sigfpe(unsigned int sicode, struct pt_regs *regs)
 	current->thread.error_code = 0;
 	current->thread.trap_no = 6;
 
-	force_sig_info(SIGFPE, &info, current);
+	send_sig_info(SIGFPE, &info, current);
 }
 
 static void vfp_panic(char *reason)
@@ -180,7 +185,7 @@ static u32 vfp_emulate_instruction(u32 inst, u32 fpscr, struct pt_regs *regs)
 		 * emulate it.
 		 */
 	}
-	return exceptions;
+	return exceptions & ~VFP_NAN_FLAG;
 }
 
 /*
@@ -199,6 +204,13 @@ void VFP9_bounce(u32 trigger, u32 fpexc, struct pt_regs *regs)
 
 	orig_fpscr = fpscr = fmrx(FPSCR);
 
+#ifdef CONFIG_MOT_WFN456
+	vfp_panic("Exception -- must have left RunFast mode!\n");
+#ifdef CONFIG_MOT_FEAT_VFP_RUNFAST_PANIC
+	panic("VFP exception, left RunFast mode!\n");
+#endif /* CONFIG_MOT_FEAT_VFP_RUNFAST_PANIC */
+#endif /* CONFIG_MOT_WFN456 */
+	
 	/*
 	 * If we are running with inexact exceptions enabled, we need to
 	 * emulate the trigger instruction.  Note that as we're emulating
@@ -245,7 +257,7 @@ void VFP9_bounce(u32 trigger, u32 fpexc, struct pt_regs *regs)
 	 */
 	barrier();
 	trigger = fmrx(FPINST2);
-	fpscr = fmrx(FPSCR);
+	orig_fpscr = fpscr = fmrx(FPSCR);
 
  emulate:
 	exceptions = vfp_emulate_instruction(trigger, fpscr, regs);
@@ -268,6 +280,9 @@ static int __init vfp_init(void)
 	vfpsid = fmrx(FPSID);
 
 	printk(KERN_INFO "VFP support v0.3: ");
+#ifdef CONFIG_MOT_WFN456
+        printk(KERN_INFO "VFP: Enabling RunFast mode to work around ARM errata 395242\n");
+#endif
 	if (VFP_arch) {
 		printk("not present\n");
 	} else if (vfpsid & FPSID_NODOUBLE) {

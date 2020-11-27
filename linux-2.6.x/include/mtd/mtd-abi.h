@@ -1,6 +1,16 @@
 /*
- * $Id: mtd-abi.h,v 1.6 2004/08/09 13:38:30 dwmw2 Exp $
+ * $Id: mtd-abi.h,v 1.10 2005/02/09 09:17:42 pavlov Exp $
  *
+ *  Copyright (C) 2006-2007 Motorola, Inc.
+ *
+ * ChangeLog:
+ * (mm-dd-yyyy) Author    Comment
+ * 06-28-2006	Motorola  implemented CONFIG_MOT_FEAT_NAND_RDDIST feature.
+ *			  added 3 ioctl function definition to support nand
+ *			  read disturb detection and correction functionality.
+ *
+ * 06-15-2007   Motorola  update read disturb max value for threshold from 2^8 to 2^16.
+ * 
  * Portions of MTD ABI definition which are shared by kernel and user space 
  */
 
@@ -29,6 +39,7 @@ struct mtd_oob_buf {
 #define MTD_NORFLASH		3
 #define MTD_NANDFLASH		4
 #define MTD_PEROM		5
+#define MTD_DATAFLASH		6
 #define MTD_OTHER		14
 #define MTD_UNKNOWN		15
 
@@ -40,6 +51,8 @@ struct mtd_oob_buf {
 #define MTD_XIP			32	// eXecute-In-Place possible
 #define MTD_OOB			64	// Out-of-band data (NAND flash)
 #define MTD_ECC			128	// Device capable of automatic ECC
+#define MTD_NO_VIRTBLOCKS	256	// Virtual blocks not allowed
+#define MTD_PROGRAM_REGIONS	512	// Configurable Programming Regions
 
 // Some common devices / combinations of capabilities
 #define MTD_CAP_ROM		0
@@ -59,6 +72,12 @@ struct mtd_oob_buf {
 #define MTD_NANDECC_PLACE	1	// Use the given placement in the structure (YAFFS1 legacy mode)
 #define MTD_NANDECC_AUTOPLACE	2	// Use the default placement scheme
 #define MTD_NANDECC_PLACEONLY	3	// Use the given placement in the structure (Do not store ecc result on read)
+#define MTD_NANDECC_AUTOPL_USR 	4	// Use the given autoplacement scheme rather than using the default
+
+/* OTP mode selection */
+#define MTD_OTP_OFF		0
+#define MTD_OTP_FACTORY		1
+#define MTD_OTP_USER		2
 
 struct mtd_info_user {
 	uint8_t type;
@@ -79,6 +98,12 @@ struct region_info_user {
 	uint32_t regionindex;
 };
 
+struct otp_info {
+	uint32_t start;
+	uint32_t length;
+	uint32_t locked;
+};
+
 #define MEMGETINFO              _IOR('M', 1, struct mtd_info_user)
 #define MEMERASE                _IOW('M', 2, struct erase_info_user)
 #define MEMWRITEOOB             _IOWR('M', 3, struct mtd_oob_buf)
@@ -91,6 +116,27 @@ struct region_info_user {
 #define MEMGETOOBSEL		_IOR('M', 10, struct nand_oobinfo)
 #define MEMGETBADBLOCK		_IOW('M', 11, loff_t)
 #define MEMSETBADBLOCK		_IOW('M', 12, loff_t)
+#define OTPSELECT		_IOR('M', 13, int)
+#define OTPGETREGIONCOUNT	_IOW('M', 14, int)
+#define OTPGETREGIONINFO	_IOW('M', 15, struct otp_info)
+#define OTPLOCK		_IOR('M', 16, struct otp_info)
+
+#ifdef CONFIG_MOT_FEAT_NAND_RDDIST
+typedef uint16_t block_cnt_type;
+
+struct nand_blkcnt_info {
+	block_cnt_type	*blk_tbl[2];	/* pointer holds the block count table */
+	uint16_t threshold;	/* threshold for reporting selected block count info */
+	uint8_t cnt_type;	/* block count type: 0 - rd blkcnt, 1 - wrt blkcnt, 2 - ers blkcnt */
+	uint8_t reset_flag;	/* reset the driver block cnttbl after report threshols reached */ 
+};
+#define RDDIST_FIXBLOCK		_IOR('M', 17, int)
+#define GETBLOCKCNT		_IOR('M', 18, struct nand_blkcnt_info)
+#define GETPARTOFFSET		_IOR('M', 19, uint32_t)
+
+#define RDCNT_TBL		0
+#define ERASECNT_TBL		1
+#endif /* CONFIG_MOT_FEAT_NAND_RDDIST */
 
 struct nand_oobinfo {
 	uint32_t useecc;

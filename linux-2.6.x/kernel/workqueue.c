@@ -8,7 +8,7 @@
  *
  * Derived from the taskqueue/keventd code by:
  *
- *   David Woodhouse <dwmw2@redhat.com>
+ *   David Woodhouse <dwmw2@infradead.org>
  *   Andrew Morton <andrewm@uow.edu.au>
  *   Kai Petzke <wpp@marie.physik.tu-berlin.de>
  *   Theodore Ts'o <tytso@mit.edu>
@@ -17,6 +17,7 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
+#include <linux/dpm.h>
 #include <linux/init.h>
 #include <linux/signal.h>
 #include <linux/completion.h>
@@ -25,6 +26,7 @@
 #include <linux/cpu.h>
 #include <linux/notifier.h>
 #include <linux/kthread.h>
+#include <linux/syscalls.h>
 
 /*
  * The per-CPU workqueue (if single thread, we always use cpu 0's).
@@ -64,7 +66,7 @@ struct workqueue_struct {
 
 /* All the per-cpu workqueues on the system, for hotplug cpu to add/remove
    threads to each one as cpus come/go. */
-static spinlock_t workqueue_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(workqueue_lock);
 static LIST_HEAD(workqueues);
 
 /* If it's single threaded, it isn't in the list of workqueues. */
@@ -93,10 +95,12 @@ static void __queue_work(struct cpu_workqueue_struct *cwq,
  *
  * We queue the work to the CPU it was submitted, but there is no
  * guarantee that it will be processed by that CPU.
+ *
+ * Especially no such guarantee on PREEMPT_RT.
  */
 int fastcall queue_work(struct workqueue_struct *wq, struct work_struct *work)
 {
-	int ret = 0, cpu = get_cpu();
+	int ret = 0, cpu = _smp_processor_id();
 
 	if (!test_and_set_bit(0, &work->pending)) {
 		if (unlikely(is_single_threaded(wq)))
@@ -105,7 +109,6 @@ int fastcall queue_work(struct workqueue_struct *wq, struct work_struct *work)
 		__queue_work(wq->cpu_wq + cpu, work);
 		ret = 1;
 	}
-	put_cpu();
 	return ret;
 }
 
@@ -188,7 +191,12 @@ static int worker_thread(void *__cwq)
 
 	current->flags |= PF_NOFREEZE;
 
-	set_user_nice(current, -10);
+	set_user_nice(current, -5);
+
+#ifdef CONFIG_DPM
+	/* Identify as a system task for DPM purposes */
+        current->dpm_state = DPM_NO_STATE;
+#endif
 
 	/* Block and flush all signals */
 	sigfillset(&blocked);
@@ -310,10 +318,9 @@ struct workqueue_struct *__create_workqueue(const char *name,
 
 	BUG_ON(strlen(name) > 10);
 
-	wq = kmalloc(sizeof(*wq), GFP_KERNEL);
+	wq = kzalloc(sizeof(*wq), GFP_KERNEL);
 	if (!wq)
 		return NULL;
-	memset(wq, 0, sizeof(*wq));
 
 	wq->name = name;
 	/* We don't need the distraction of CPUs appearing and vanishing. */
@@ -364,6 +371,39 @@ static void cleanup_workqueue_thread(struct workqueue_struct *wq, int cpu)
 	if (p)
 		kthread_stop(p);
 }
+
+void set_workqueue_thread_prio(struct workqueue_struct *wq, int cpu,
+				int policy, int rt_priority, int nice)
+{
+	struct task_struct *p = wq->cpu_wq[cpu].thread;
+	struct sched_param param = { .sched_priority = rt_priority };
+	int ret;
+
+	set_user_nice(p, nice);
+	ret = sys_sched_setscheduler(p->pid, policy, &param);
+	if (ret)
+		printk("BUG: wq(%s) setscheduler() returned: %d.\n",
+			wq->name, ret);
+	
+}
+
+void set_workqueue_prio(struct workqueue_struct *wq, int policy,
+			int rt_priority, int nice)
+{
+	int cpu;
+
+	/* We don't need the distraction of CPUs appearing and vanishing. */
+	lock_cpu_hotplug();
+	if (is_single_threaded(wq))
+		set_workqueue_thread_prio(wq, 0, policy, rt_priority, nice);
+	else {
+		for_each_online_cpu(cpu)
+			set_workqueue_thread_prio(wq, cpu, policy,
+						  rt_priority, nice);
+	}
+	unlock_cpu_hotplug();
+}
+
 
 void destroy_workqueue(struct workqueue_struct *wq)
 {
@@ -485,8 +525,10 @@ static int __devinit workqueue_cpu_callback(struct notifier_block *nfb,
 
 	case CPU_ONLINE:
 		/* Kick off worker threads. */
-		list_for_each_entry(wq, &workqueues, list)
+		list_for_each_entry(wq, &workqueues, list) {
+			kthread_bind(wq->cpu_wq[hotcpu].thread, hotcpu);
 			wake_up_process(wq->cpu_wq[hotcpu].thread);
+		}
 		break;
 
 	case CPU_UP_CANCELED:
@@ -515,6 +557,7 @@ void init_workqueues(void)
 	hotcpu_notifier(workqueue_cpu_callback, 0);
 	keventd_wq = create_workqueue("events");
 	BUG_ON(!keventd_wq);
+	set_workqueue_prio(keventd_wq, SCHED_FIFO, 1, -20);
 }
 
 EXPORT_SYMBOL_GPL(__create_workqueue);

@@ -148,6 +148,38 @@ static struct sysrq_key_op sysrq_showregs_op = {
 	.action_msg	= "Show Regs",
 };
 
+#ifdef CONFIG_RT_DEADLOCK_DETECT
+ 
+static void sysrq_handle_showlocks(int key, struct pt_regs *pt_regs,
+				   struct tty_struct *tty) 
+{
+	show_all_locks();
+}
+
+static struct sysrq_key_op sysrq_showlocks_op = {
+	.handler	= sysrq_handle_showlocks,
+	.help_msg	= "show-all-locks(D)",
+	.action_msg	= "Show Locks Held",
+};
+
+#endif
+
+#if defined(__i386__)
+ 
+static void sysrq_handle_showallregs(int key, struct pt_regs *pt_regs,
+				     struct tty_struct *tty) 
+{
+	nmi_show_all_regs();
+}
+
+static struct sysrq_key_op sysrq_showallregs_op = {
+	.handler	= sysrq_handle_showallregs,
+	.help_msg	= "showalLcpupc",
+	.action_msg	= "Show Regs On All CPUs",
+};
+
+#endif
+
 
 static void sysrq_handle_showstate(int key, struct pt_regs *pt_regs,
 				   struct tty_struct *tty) 
@@ -228,7 +260,7 @@ static struct sysrq_key_op sysrq_unrt_op = {
 };
 
 /* Key Operations table and lock */
-static spinlock_t sysrq_key_table_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(sysrq_key_table_lock);
 #define SYSRQ_KEY_TABLE_LENGTH 36
 static struct sysrq_key_op *sysrq_key_table[SYSRQ_KEY_TABLE_LENGTH] = {
 /* 0 */	&sysrq_loglevel_op,
@@ -246,7 +278,11 @@ static struct sysrq_key_op *sysrq_key_table[SYSRQ_KEY_TABLE_LENGTH] = {
 		 and will never arrive */
 /* b */	&sysrq_reboot_op,
 /* c */ NULL,
+#ifdef CONFIG_RT_DEADLOCK_DETECT
+/* d */	&sysrq_showlocks_op,
+#else
 /* d */	NULL,
+#endif
 /* e */	&sysrq_term_op,
 /* f */	NULL,
 /* g */	NULL,
@@ -258,7 +294,11 @@ static struct sysrq_key_op *sysrq_key_table[SYSRQ_KEY_TABLE_LENGTH] = {
 #else
 /* k */	NULL,
 #endif
+#if defined(__i386__)
+/* l */	&sysrq_showallregs_op,
+#else
 /* l */	NULL,
+#endif
 /* m */	&sysrq_showmem_op,
 /* n */	&sysrq_unrt_op,
 /* o */	NULL, /* This will often be registered

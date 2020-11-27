@@ -4,7 +4,7 @@
  * Author: SAW (IBM), derived from walnut.c.
  *         Maintained by MontaVista Software <source@mvista.com>
  *
- * 2003 (c) MontaVista Softare Inc.  This file is licensed under the
+ * 2003-2004 (c) MontaVista Softare Inc.  This file is licensed under the
  * terms of the GNU General Public License version 2. This program is
  * licensed "as is" without any warranty of any kind, whether express
  * or implied.
@@ -101,17 +101,26 @@ bubinga_early_serial_map(void)
 	port.flags = ASYNC_BOOT_AUTOCONF | ASYNC_SKIP_TEST;
 	port.line = 0;
 
-	if (early_serial_setup(&port) != 0) {
+#ifdef CONFIG_SERIAL_8250
+	if (early_serial_setup(&port) != 0)
 		printk("Early serial init of port 0 failed\n");
-	}
+#endif
+
+#ifdef CONFIG_KGDB_8250
+	kgdb8250_add_port(0, &port);
+#endif
 
 	port.membase = (void*)ACTING_UART1_IO_BASE;
 	port.irq = ACTING_UART1_INT;
 	port.line = 1;
 
-	if (early_serial_setup(&port) != 0) {
+#ifdef CONFIG_SERIAL_8250
+	if (early_serial_setup(&port) != 0)
 		printk("Early serial init of port 1 failed\n");
-	}
+#endif
+#ifdef CONFIG_KGDB_8250
+	kgdb8250_add_port(1, &port);
+#endif
 }
 
 void __init
@@ -256,8 +265,4 @@ platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 	ppc_md.nvram_read_val = todc_direct_read_val;
 	ppc_md.nvram_write_val = todc_direct_write_val;
 #endif
-#ifdef CONFIG_KGDB
-	ppc_md.early_serial_map = bubinga_early_serial_map;
-#endif
 }
-

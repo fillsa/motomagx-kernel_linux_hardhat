@@ -3,7 +3,7 @@
  *
  *  Copyright (C) 2004 Embedded Edge, LLC
  *
- * $Id: au1550nd.c,v 1.11 2004/11/04 12:53:10 gleixner Exp $
+ * $Id: au1550nd.c,v 1.10 2004/10/31 23:48:33 ppopov Exp $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as

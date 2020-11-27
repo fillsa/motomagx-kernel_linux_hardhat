@@ -95,6 +95,24 @@ config SYSVIPC
 	  section 6.4 of the Linux Programmer's Guide, available from
 	  <http://www.tldp.org/guides.html>.
 
+config SYSVIPC_SEMMNI
+        int "Max number of semaphore identifiers"
+        depends on SYSVIPC
+        default "128"
+        help
+          Set the maximum number of semaphore identifiers in the SYSVIPC	
+	  subsystem.  The product of SEMMNI times SEMMSL can not exceed
+	  SEMVMX which is defined in <include/linux/sem.h>
+
+config SYSVIPC_SEMMSL
+        int "Max number of semaphores per id"
+        depends on SYSVIPC
+        default "250"
+        help
+          Set the maximum number of semaphores per id in the SYSVIPC	
+	  subsystem.  The product of SEMMNI times SEMMSL can not exceed
+	  SEMVMX which is defined in <include/linux/sem.h>
+
 config POSIX_MQUEUE
 	bool "POSIX Message Queues"
 	depends on NET && EXPERIMENTAL
@@ -362,6 +380,136 @@ config CC_ALIGN_JUMPS
 	  no dummy operations need be executed.
 	  Zero means use compiler's default.
 
+config LTT
+	bool "Linux Trace Toolkit support"
+	depends on RELAYFS_FS=y
+	default n
+	---help---
+	  It is possible for the kernel to log important events to a trace
+	  facility. Doing so, enables the use of the generated traces in order
+	  to reconstruct the dynamic behavior of the kernel, and hence the
+	  whole system.
+
+	  The tracing process contains 4 parts :
+	      1) The logging of events by key parts of the kernel.
+	      2) The tracer that keeps the events in a data buffer (uses
+	         relayfs).
+	      3) A trace daemon that interacts with the tracer and is
+	         notified every time there is a certain quantity of data to
+	         read from the tracer.
+	      4) A trace event data decoder that reads the accumulated data
+	         and formats it in a human-readable format.
+
+	  If you say Y, the first two components will be built into the kernel.
+	  Critical parts of the kernel will call upon the kernel tracing
+	  function. The data is then recorded by the tracer if a trace daemon
+	  is running in user-space and has issued a "start" command.
+
+	  In order to enable LTT support you must first select relayfs as
+	  built-in.
+
+	  For more information on kernel tracing, the trace daemon or the event
+	  decoder, please check the following address :
+	       http://www.opersys.com/ltt
+
+menuconfig LTT_MAX_HANDLES
+	int "Maximum number of active handles" if LTT
+	default 128
+	help
+	  A maximum number of simultaneous handles created by 
+	  LTT_TRACER_ALLOC_HANDLE ioctl command.
+
+menuconfig BOOT_FLIGHT_RECORDER
+       bool "Start flight recorder at the time of boot" if LTT
+       default n
+
+config LOCKLESS
+       bool "Lockless support" if BOOT_FLIGHT_RECORDER
+       default y
+       help
+         Use the lock-free tracing scheme.
+
+config BOOT_FLIGHT_BUFFERS
+       int "BOOT_FLIGHT_BUFFERS: The number of trace module data collection buffers" if BOOT_FLIGHT_RECORDER
+       range 2 256
+       default 4 if LOCKLESS
+       default 2
+       help
+         Sets the number of trace module data collection buffers for
+         the lock-free scheme to the number given by NBuffers.
+         If LOCKLESS defined, the defaults will be 4 buffers of 512 K
+         each.
+         If LOCKLESS undefined, the locking scheme will be used
+         with 2 buffers of 1000000 each.
+config BOOT_FLIGHT_SIZE
+       int "BOOT_FLIGHT_SIZE: Trace buffer size" if BOOT_FLIGHT_RECORDER
+       range 1024 16777216
+       default 524288 if LOCKLESS
+       default 1048580
+       help
+         Sets the trace module's data collection buffer to
+         the size given by BufSize. Giving too small of a size
+         will result in a loss of events and too large of a size
+         will result in lost kernel space. The default size
+         for the locking scheme is 1000000 bytes. The default size
+         for the lock-free scheme is 524288 (512K).
+         For the lock-free scheme, the size should be a power of 2;
+         if it isn't, it will be rounded down to the next lower
+         power of 2.
+
+config FLIGHT_PROC_BUFFERS
+       int "FLIGHT_PROC_BUFFERS: The number of metadata collection buffers" if BOOT_FLIGHT_RECORDER
+       range 2 256
+       default 8 if LOCKLESS
+       default 16
+       help
+         Sets the number of metadata collection buffers for
+         the lock-free scheme to the number given by NBuffers.
+         If LOCKLESS defined, the defaults will be 8 buffers of 8K
+         each.
+         If LOCKLESS undefined, the locking scheme will be used
+         with 16 buffers of 8K each.
+config FLIGHT_PROC_SIZE
+       int "FLIGHT_PROC_SIZE: Metadata buffer size" if BOOT_FLIGHT_RECORDER
+       range 1024 16777216
+       default 8192
+       help
+         Sets the metadata collection buffer to
+         the size given by BufSize. Giving too small of a size
+         will result in a loss of events and too large of a size
+         will result in lost kernel space. The default size
+         both for the locking and the lockless scheme is 8192 bytes.
+         For the lock-free scheme, the size should be a power of 2;
+         if it isn't, it will be rounded down to the next lower power of 2.
+
+config NEWEV
+       bool "NEWEV : Creation of new event type" if BOOT_FLIGHT_RECORDER
+       default y
+       help
+         Log the new user-defined event type creation.
+
+config CSTM
+       bool "CSTM : Custom event occurrences" if BOOT_FLIGHT_RECORDER
+       default y
+       help
+         Log user-defined events occurrences. 
+
+config LTT_DPM 
+	depends on DPM 
+	bool "DPM : Power management events occurrences" if BOOT_FLIGHT_RECORDER
+	default y
+	help
+	  Log 'set operating state' and 'set operating point' DPM events.
+
+config GPIO
+	tristate "GPIO pin class driver"
+	default y if PXA27x
+	default n
+	help
+	  Enabling this option adds sysfs support for generic GPIO pins.
+
+	  If unsure, say N. 
+
 endmenu		# General setup
 
 config TINY_SHMEM
@@ -459,4 +607,11 @@ config STOP_MACHINE
 	depends on (SMP && MODULE_UNLOAD) || HOTPLUG_CPU
 	help
 	  Need stop_machine() primitive.
+
+config SUAPI
+	bool "Suapi Userland"
+	default n
+	depends on MODULES
+	help
+          Turn this on when you need to use suapi. 
 endmenu

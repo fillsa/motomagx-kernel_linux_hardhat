@@ -6,6 +6,7 @@
  *		Generic socket support routines. Memory allocators, socket lock/release
  *		handler for protocols to use and generic option handler.
  *
+ * Copyright 2006 Motorola Inc.
  *
  * Version:	$Id: sock.c,v 1.117 2002/02/01 22:01:03 davem Exp $
  *
@@ -81,6 +82,12 @@
  *		Andi Kleen	:	Fix write_space callback
  *		Chris Evans	:	Security fixes - signedness again
  *		Arnaldo C. Melo :       cleanups, use skb_queue_purge
+ *
+ * Revision History:
+ *
+ * Date         Author    Comment
+ * ----------   --------  ---------------------------
+ * 03/09/2006   Motorola  Removed access check for setsockopt SO_BINDTODEVICE 
  *
  * To Fix:
  *
@@ -361,11 +368,17 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 		{
 			char devname[IFNAMSIZ]; 
 
+#ifndef CONFIG_MOT_FEAT_SO_BINDTODEVICE_EZX_COMPAT
+            /*
+             * we need to call bind to interface for all client
+             * thus remove this permission check
+             */
 			/* Sorry... */ 
 			if (!capable(CAP_NET_RAW)) {
 				ret = -EPERM;
 				break;
 			}
+#endif /* CONFIG_MOT_FEAT_SO_BINDTODEVICE_EZX_COMPAT */
 
 			/* Bind this socket to a particular device like "eth0",
 			 * as specified in the passed interface name. If the
@@ -942,6 +955,15 @@ static void __release_sock(struct sock *sk)
 
 			skb->next = NULL;
 			sk->sk_backlog_rcv(sk, skb);
+
+			/*
+			 * We are in process context here with softirqs
+			 * disabled, use cond_resched_softirq() to preempt.
+			 * This is safe to do because we've taken the backlog
+			 * queue private:
+			 */
+			cond_resched_softirq();
+
 			skb = next;
 		} while (skb != NULL);
 

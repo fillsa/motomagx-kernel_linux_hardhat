@@ -132,7 +132,7 @@ static struct ip_tunnel *tunnels_l[HASH_SIZE];
 static struct ip_tunnel *tunnels_wc[1];
 static struct ip_tunnel **tunnels[4] = { tunnels_wc, tunnels_l, tunnels_r, tunnels_r_l };
 
-static rwlock_t ipip_lock = RW_LOCK_UNLOCKED;
+static DEFINE_RWLOCK(ipip_lock);
 
 static struct ip_tunnel * ipip_tunnel_lookup(u32 remote, u32 local)
 {
@@ -155,6 +155,14 @@ static struct ip_tunnel * ipip_tunnel_lookup(u32 remote, u32 local)
 	}
 	if ((t = tunnels_wc[0]) != NULL && (t->dev->flags&IFF_UP))
 		return t;
+	return NULL;
+}
+
+static struct net_device *ipip_dev_lookup(struct iphdr *iph)
+{
+	struct ip_tunnel *t = ipip_tunnel_lookup(iph->saddr, iph->daddr);
+	if (t != NULL)
+		return t->dev;
 	return NULL;
 }
 
@@ -855,6 +863,7 @@ static int __init ipip_fb_tunnel_init(struct net_device *dev)
 static struct xfrm_tunnel ipip_handler = {
 	.handler	=	ipip_rcv,
 	.err_handler	=	ipip_err,
+	.dev_lookup	=	ipip_dev_lookup,
 };
 
 static char banner[] __initdata =

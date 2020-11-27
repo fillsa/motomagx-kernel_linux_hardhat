@@ -1,0 +1,19 @@
+#!/bin/sh
+#
+# wlanext --- WLAN driver default initialization script
+
+ethx="eth0"
+
+while [ $# -ge 1 ]; do
+            case $1 in
+            -i)    shift; ethx=$1;;
+             *)    echo -e 1>&2 "\nInvalid argument $1";exit;;
+            esac
+            shift
+done
+
+echo ">>> setting WLAN_HOST_WAKEB as GPIO by FW to wakeup Host <<<"
+iwpriv $ethx hscfg 0xF 1 15
+
+exit
+

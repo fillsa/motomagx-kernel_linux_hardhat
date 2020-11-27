@@ -3,6 +3,8 @@
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
  *
+ *  Copyright (C) 2006-2007 Motorola, Inc.
+ *
  *  super.c contains code to handle: - mount structures
  *                                   - super-block tables
  *                                   - filesystem drivers list
@@ -20,6 +22,13 @@
  *  Heavily rewritten for 'one fs - one tree' dcache architecture. AV, Mar 2000
  */
 
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 31-Oct-2006  Motorola        Added inotify    
+ * 15-Nov-2007  Motorola        Upmerge from 6.1 (Change the sync sequency)
+ */
+
+
 #include <linux/config.h>
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -29,7 +38,7 @@
 #include <linux/blkdev.h>
 #include <linux/quotaops.h>
 #include <linux/namei.h>
-#include <linux/buffer_head.h>		/* for fsync_super() */
+#include <linux/buffer_head.h>		/* for f-2007sync_super() */
 #include <linux/mount.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
@@ -37,6 +46,9 @@
 #include <linux/writeback.h>		/* for the emergency remount stuff */
 #include <linux/idr.h>
 #include <linux/kobject.h>
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+#include <linux/fsnotify.h>
+#endif
 #include <asm/uaccess.h>
 
 
@@ -45,7 +57,7 @@ void put_filesystem(struct file_system_type *fs);
 struct file_system_type *get_fs_type(const char *name);
 
 LIST_HEAD(super_blocks);
-spinlock_t sb_lock = SPIN_LOCK_UNLOCKED;
+DEFINE_SPINLOCK(sb_lock);
 
 /**
  *	alloc_super	-	create new superblock
@@ -227,6 +239,9 @@ void generic_shutdown_super(struct super_block *sb)
 
 	if (root) {
 		sb->s_root = NULL;
+#ifdef CONFIG_MOT_FEAT_INOTIFY
+		fsnotify_sb_umount(sb);
+#endif
 		shrink_dcache_parent(root);
 		shrink_dcache_anon(&sb->s_anon);
 		dput(root);
@@ -342,7 +357,7 @@ void sync_supers(void)
 	struct super_block * sb;
 restart:
 	spin_lock(&sb_lock);
-	sb = sb_entry(super_blocks.next);
+	sb = sb_entry(super_blocks.prev);
 	while (sb != sb_entry(&super_blocks))
 		if (sb->s_dirt) {
 			sb->s_count++;
@@ -352,7 +367,7 @@ restart:
 			drop_super(sb);
 			goto restart;
 		} else
-			sb = sb_entry(sb->s_list.next);
+			sb = sb_entry(sb->s_list.prev);
 	spin_unlock(&sb_lock);
 }
 
@@ -379,8 +394,8 @@ void sync_filesystems(int wait)
 
 	down(&mutex);		/* Could be down_interruptible */
 	spin_lock(&sb_lock);
-	for (sb = sb_entry(super_blocks.next); sb != sb_entry(&super_blocks);
-			sb = sb_entry(sb->s_list.next)) {
+	for (sb = sb_entry(super_blocks.prev); sb != sb_entry(&super_blocks);
+			sb = sb_entry(sb->s_list.prev)) {
 		if (!sb->s_op->sync_fs)
 			continue;
 		if (sb->s_flags & MS_RDONLY)
@@ -391,8 +406,8 @@ void sync_filesystems(int wait)
 
 restart:
 	spin_lock(&sb_lock);
-	for (sb = sb_entry(super_blocks.next); sb != sb_entry(&super_blocks);
-			sb = sb_entry(sb->s_list.next)) {
+	for (sb = sb_entry(super_blocks.prev); sb != sb_entry(&super_blocks);
+			sb = sb_entry(sb->s_list.prev)) {
 		if (!sb->s_need_sync_fs)
 			continue;
 		sb->s_need_sync_fs = 0;
@@ -588,7 +603,7 @@ void emergency_remount(void)
  */
 
 static struct idr unnamed_dev_idr;
-static spinlock_t unnamed_dev_lock = SPIN_LOCK_UNLOCKED;/* protects the above */
+static DEFINE_SPINLOCK(unnamed_dev_lock);/* protects the above */
 
 int set_anon_super(struct super_block *s, void *data)
 {

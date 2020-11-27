@@ -55,6 +55,7 @@
  * to work around the 'lost local interrupt if more than 2 IRQ
  * sources per level' errata.
  */
+#define LOCAL_TIMER_IPI_VECTOR  0xee
 #define LOCAL_TIMER_VECTOR	0xef
 
 /*

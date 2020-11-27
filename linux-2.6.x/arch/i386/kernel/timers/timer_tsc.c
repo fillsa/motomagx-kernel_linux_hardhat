@@ -24,6 +24,7 @@
 #include "mach_timer.h"
 
 #include <asm/hpet.h>
+#include <asm/i8253.h>
 
 #ifdef CONFIG_HPET_TIMER
 static unsigned long hpet_usec_quotient;
@@ -35,8 +36,6 @@ static inline void cpufreq_delayed_get(void);
 
 int tsc_disable __initdata = 0;
 
-extern spinlock_t i8253_lock;
-
 static int use_tsc;
 /* Number of usecs that the last interrupt was delayed */
 static int delay_at_last_interrupt;
@@ -44,18 +43,25 @@ static int delay_at_last_interrupt;
 static unsigned long last_tsc_low; /* lsb 32 bits of Time Stamp Counter */
 static unsigned long last_tsc_high; /* msb 32 bits of Time Stamp Counter */
 static unsigned long long monotonic_base;
-static seqlock_t monotonic_lock = SEQLOCK_UNLOCKED;
+static DECLARE_RAW_SEQLOCK(monotonic_lock);
 
 /* convert from cycles(64bits) => nanoseconds (64bits)
  *  basic equation:
- *		ns = cycles / (freq / ns_per_sec)
- *		ns = cycles * (ns_per_sec / freq)
- *		ns = cycles * (10^9 / (cpu_mhz * 10^6))
- *		ns = cycles * (10^3 / cpu_mhz)
+ *	ns = cycles / (freq / ns_per_sec)
+ *	ns = cycles / (cpu_cycles_in_time_X / time_X) / ns_per_sec
+ *	ns = cycles / cpu_cycles_in_time_X / (time_X * ns_per_sec)
+ *	ns = cycles * (time_X * ns_per_sec) / cpu_cycles_in_time_X
+ *
+ *     Here time_X = CALIBRATE_TIME (in USEC) * NSEC_PER_USEC
+ *       and cpu_cycles_in_time_X is tsc_cycles_per_50_ms so...
+ *
+ *      ns = cycles * (CALIBRATE_TIME * NSEC_PER_USEC) / tsc_cycles_per_50_ms
  *
  *	Then we use scaling math (suggested by george@mvista.com) to get:
- *		ns = cycles * (10^3 * SC / cpu_mhz) / SC
- *		ns = cycles * cyc2ns_scale / SC
+ *
+ *	ns = cycles * CALIBRATE_TIME * NSEC_PER_USEC * SC / tsc_cycles_per_50_ms / SC
+ *      cyc2ns_scale = CALIBRATE_TIME * NSEC_PER_USEC * SC / tsc_cycles_per_50_ms
+ *	ns = cycles * cyc2ns_scale / SC
  *
  *	And since SC is a constant power of two, we can convert the div
  *  into a shift.   
@@ -64,9 +70,12 @@ static seqlock_t monotonic_lock = SEQLOCK_UNLOCKED;
 static unsigned long cyc2ns_scale; 
 #define CYC2NS_SCALE_FACTOR 10 /* 2^10, carefully chosen */
 
-static inline void set_cyc2ns_scale(unsigned long cpu_mhz)
+static inline void set_cyc2ns_scale(void)
 {
-	cyc2ns_scale = (1000 << CYC2NS_SCALE_FACTOR)/cpu_mhz;
+	long long it = (CALIBRATE_TIME * NSEC_PER_USEC) << CYC2NS_SCALE_FACTOR;
+	
+	do_div(it, tsc_cycles_per_50_ms);
+	cyc2ns_scale = (unsigned long)it;
 }
 
 static inline unsigned long long cycles_2_ns(unsigned long long cyc)
@@ -171,9 +180,9 @@ static void delay_tsc(unsigned long loops)
 static void mark_offset_tsc_hpet(void)
 {
 	unsigned long long this_offset, last_offset;
- 	unsigned long offset, temp, hpet_current;
+ 	unsigned long offset, temp, hpet_current, flags;
 
-	write_seqlock(&monotonic_lock);
+	write_seqlock_irqsave(&monotonic_lock, flags);
 	last_offset = ((unsigned long long)last_tsc_high<<32)|last_tsc_low;
 	/*
 	 * It is important that these two operations happen almost at
@@ -201,7 +210,7 @@ static void mark_offset_tsc_hpet(void)
 	/* update the monotonic base value */
 	this_offset = ((unsigned long long)last_tsc_high<<32)|last_tsc_low;
 	monotonic_base += cycles_2_ns(this_offset - last_offset);
-	write_sequnlock(&monotonic_lock);
+	write_sequnlock_irqrestore(&monotonic_lock, flags);
 
 	/* calculate delay_at_last_interrupt */
 	/*
@@ -238,7 +247,7 @@ static void handle_cpufreq_delayed_get(void *v)
  * to verify the CPU frequency the timing core thinks the CPU is running
  * at is still correct.
  */
-static inline void cpufreq_delayed_get(void) 
+static inline void cpufreq_delayed_get(void)
 {
 	if (cpufreq_init && !cpufreq_delayed_issched) {
 		cpufreq_delayed_issched = 1;
@@ -253,6 +262,7 @@ static inline void cpufreq_delayed_get(void)
 
 static unsigned int  ref_freq = 0;
 static unsigned long loops_per_jiffy_ref = 0;
+static unsigned long cyc2ns_scale_ref;
 
 #ifndef CONFIG_SMP
 static unsigned long fast_gettimeoffset_ref = 0;
@@ -270,6 +280,7 @@ time_cpufreq_notifier(struct notifier_block *nb, unsigned long val,
 	if (!ref_freq) {
 		ref_freq = freq->old;
 		loops_per_jiffy_ref = cpu_data[freq->cpu].loops_per_jiffy;
+		cyc2ns_scale_ref = cyc2ns_scale;
 #ifndef CONFIG_SMP
 		fast_gettimeoffset_ref = fast_gettimeoffset_quotient;
 		cpu_khz_ref = cpu_khz;
@@ -287,7 +298,8 @@ time_cpufreq_notifier(struct notifier_block *nb, unsigned long val,
 		if (use_tsc) {
 			if (!(freq->flags & CPUFREQ_CONST_LOOPS)) {
 				fast_gettimeoffset_quotient = cpufreq_scale(fast_gettimeoffset_ref, freq->new, ref_freq);
-				set_cyc2ns_scale(cpu_khz/1000);
+				cyc2ns_scale = cpufreq_scale(cyc2ns_scale_ref,
+							     freq->new, ref_freq);
 			}
 		}
 #endif
@@ -322,7 +334,7 @@ static inline void cpufreq_delayed_get(void) { return; }
 
 static void mark_offset_tsc(void)
 {
-	unsigned long lost,delay;
+	unsigned long lost,delay, flags, flags2;
 	unsigned long delta = last_tsc_low;
 	int count;
 	int countmp;
@@ -330,7 +342,7 @@ static void mark_offset_tsc(void)
 	unsigned long long this_offset, last_offset;
 	static int lost_count = 0;
 
-	write_seqlock(&monotonic_lock);
+	write_seqlock_irqsave(&monotonic_lock, flags);
 	last_offset = ((unsigned long long)last_tsc_high<<32)|last_tsc_low;
 	/*
 	 * It is important that these two operations happen almost at
@@ -348,24 +360,26 @@ static void mark_offset_tsc(void)
 
 	rdtsc(last_tsc_low, last_tsc_high);
 
-	spin_lock(&i8253_lock);
-	outb_p(0x00, PIT_MODE);     /* latch the count ASAP */
-
-	count = inb_p(PIT_CH0);    /* read the latched count */
+	spin_lock_irqsave(&i8253_lock, flags2);
+	outb(0x00, PIT_MODE);     /* latch the count ASAP */
+	count = inb(PIT_CH0);    /* read the latched count */
 	count |= inb(PIT_CH0) << 8;
 
+#undef VIA686A_WORKAROUND
 	/*
 	 * VIA686a test code... reset the latch if count > max + 1
 	 * from timer_pit.c - cjb
 	 */
+#ifdef VIA686A_WORKAROUND
 	if (count > LATCH) {
 		outb_p(0x34, PIT_MODE);
 		outb_p(LATCH & 0xff, PIT_CH0);
 		outb(LATCH >> 8, PIT_CH0);
 		count = LATCH - 1;
 	}
+#endif
 
-	spin_unlock(&i8253_lock);
+	spin_unlock_irqrestore(&i8253_lock, flags2);
 
 	if (pit_latch_buggy) {
 		/* get center value of last 3 time lutch */
@@ -418,7 +432,7 @@ static void mark_offset_tsc(void)
 	/* update the monotonic base value */
 	this_offset = ((unsigned long long)last_tsc_high<<32)|last_tsc_low;
 	monotonic_base += cycles_2_ns(this_offset - last_offset);
-	write_sequnlock(&monotonic_lock);
+	write_sequnlock_irqrestore(&monotonic_lock, flags);
 
 	/* calculate delay_at_last_interrupt */
 	count = ((LATCH-1) - count) * TICK_SIZE;
@@ -516,7 +530,7 @@ static int __init init_tsc(char* override)
 	                	"0" (eax), "1" (edx));
 				printk("Detected %lu.%03lu MHz processor.\n", cpu_khz / 1000, cpu_khz % 1000);
 			}
-			set_cyc2ns_scale(cpu_khz/1000);
+			set_cyc2ns_scale();
 			return 0;
 		}
 	}

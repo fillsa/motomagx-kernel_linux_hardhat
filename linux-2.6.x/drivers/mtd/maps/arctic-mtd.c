@@ -1,5 +1,5 @@
 /*
- * $Id: arctic-mtd.c,v 1.13 2004/11/04 13:24:14 gleixner Exp $
+ * $Id: arctic-mtd.c,v 1.12 2004/09/16 23:27:12 gleixner Exp $
  * 
  * drivers/mtd/maps/arctic-mtd.c MTD mappings and partition tables for 
  *                              IBM 405LP Arctic boards.

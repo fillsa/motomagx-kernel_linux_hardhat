@@ -23,6 +23,7 @@
 #include <linux/cpu.h>
 #include <linux/profile.h>
 #include <linux/highmem.h>
+#include <linux/interrupt.h>
 #include <asm/sections.h>
 #include <asm/semaphore.h>
 
@@ -41,6 +42,7 @@ static atomic_t *prof_buffer;
 static unsigned long prof_len, prof_shift;
 static int prof_on;
 static cpumask_t prof_cpu_mask = CPU_MASK_ALL;
+int prof_pid = -1;
 #ifdef CONFIG_SMP
 static DEFINE_PER_CPU(struct profile_hit *[2], cpu_profile_hits);
 static DEFINE_PER_CPU(int, cpu_profile_flip);
@@ -51,17 +53,25 @@ static int __init profile_setup(char * str)
 {
 	int par;
 
-	if (!strncmp(str, "schedule", 8)) {
-		prof_on = SCHED_PROFILING;
-		printk(KERN_INFO "kernel schedule profiling enabled\n");
+	if (!strncmp(str, "preempt", 7)) {
+		prof_on = PREEMPT_PROFILING;
+		printk(KERN_INFO "kernel preemption profiling enabled\n");
 		if (str[7] == ',')
 			str += 8;
 	}
+	if (!strncmp(str, "schedule", 8)) {
+		prof_on = SCHED_PROFILING;
+		printk(KERN_INFO "kernel schedule profiling enabled\n");
+		if (str[8] == ',')
+			str += 9;
+	}
 	if (get_option(&str,&par)) {
 		prof_shift = par;
-		prof_on = CPU_PROFILING;
-		printk(KERN_INFO "kernel profiling enabled (shift: %ld)\n",
-			prof_shift);
+		if (!prof_on) {
+			prof_on = CPU_PROFILING;
+			printk(KERN_INFO "kernel CPU profiling enabled\n");
+		}
+		printk(KERN_INFO "kernel profiling shift: %ld\n", prof_shift);
 	}
 	return 1;
 }
@@ -83,7 +93,7 @@ void __init profile_init(void)
 #ifdef CONFIG_PROFILING
  
 static DECLARE_RWSEM(profile_rwsem);
-static rwlock_t handoff_lock = RW_LOCK_UNLOCKED;
+static DEFINE_RWLOCK(handoff_lock);
 static struct notifier_block * task_exit_notifier;
 static struct notifier_block * task_free_notifier;
 static struct notifier_block * munmap_notifier;
@@ -273,7 +283,7 @@ static void profile_discard_flip_buffers(void)
 	up(&profile_flip_mutex);
 }
 
-void profile_hit(int type, void *__pc)
+void notrace profile_hit(int type, void *__pc)
 {
 	unsigned long primary, secondary, flags, pc = (unsigned long)__pc;
 	int i, j, cpu;
@@ -381,12 +391,36 @@ void profile_hit(int type, void *__pc)
 }
 #endif /* !CONFIG_SMP */
 
-void profile_tick(int type, struct pt_regs *regs)
+#ifdef CONFIG_PREEMPT
+static void preemption_enabled(void)
+{
+}
+#endif
+
+static void preemption_disabled(void)
+{
+}
+
+void notrace profile_tick(int type, struct pt_regs *regs)
 {
 	if (type == CPU_PROFILING && timer_hook)
 		timer_hook(regs);
-	if (!user_mode(regs) && cpu_isset(smp_processor_id(), prof_cpu_mask))
-		profile_hit(type, (void *)profile_pc(regs));
+	if (!user_mode(regs) && (prof_pid == -1 || prof_pid == current->pid) &&
+			cpu_isset(smp_processor_id(), prof_cpu_mask)) {
+		if (prof_on == PREEMPT_PROFILING && type == CPU_PROFILING) {
+#ifdef CONFIG_PREEMPT
+			int count = preempt_count() - HARDIRQ_OFFSET;
+
+			if (!count)
+				profile_hit(PREEMPT_PROFILING,
+						(void *)preemption_enabled);
+			else
+#endif
+				profile_hit(PREEMPT_PROFILING,
+						(void *)preemption_disabled);
+		} else
+			profile_hit(type, (void *)profile_pc(regs));
+	}
 }
 
 #ifdef CONFIG_PROC_FS

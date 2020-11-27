@@ -23,6 +23,7 @@
 #include <linux/errno.h>
 #include <linux/sys.h>
 #include <linux/threads.h>
+#include <linux/ilatency.h>
 #include <asm/processor.h>
 #include <asm/page.h>
 #include <asm/mmu.h>
@@ -111,8 +112,10 @@ transfer_to_handler:
 	addi	r11,r1,STACK_FRAME_OVERHEAD
 	stw	r11,PT_REGS(r12)
 #if defined(CONFIG_40x) || defined(CONFIG_BOOKE)
-	lwz	r12,PTRACE-THREAD(r12)
-	andi.	r12,r12,PT_PTRACED
+	/* Check to see if the dbcr0 register is set up to debug.  Use the
+	   single-step bit to do this. */
+	lwz	r12,THREAD_DBCR0(r12)
+	andis.	r12,r12,DBCR0_IC@h
 	beq+	3f
 	/* From user and task is ptraced - load up global dbcr0 */
 	li	r12,-1			/* clear all pending debug events */
@@ -155,6 +158,34 @@ transfer_to_handler_cont:
 	mtlr	r9
 	SYNC
 	RFI				/* jump to handler, enable MMU */
+
+/* LTT stuff */
+#if (CONFIG_LTT)
+#define TRACE_REAL_ASM_SYSCALL_ENTRY	\
+	SAVE_NVGPRS(r1);	\
+	addi	r3,r1,STACK_FRAME_OVERHEAD;  	/* Put pointer to registers into r3 */	\
+	mflr	r29;				/* Save LR */ \
+	bl	trace_real_syscall_entry;	/* Call real trace function */ \
+	mtlr	r29;				/* Restore LR */ \
+	lwz	r0,GPR0(r1);			/* Restore original registers */ \
+	lwz	r3,GPR3(r1);	\
+	lwz	r4,GPR4(r1);	\
+	lwz	r5,GPR5(r1);	\
+	lwz	r6,GPR6(r1);	\
+	lwz	r7,GPR7(r1);	\
+	lwz	r8,GPR8(r1);	\
+	REST_NVGPRS(r1);
+#define TRACE_REAL_ASM_SYSCALL_EXIT \
+	bl	trace_real_syscall_exit;	/* Call real trace function */ \
+	lwz	r0,GPR0(r1);			/* Restore original registers */ \
+	lwz	r3,RESULT(r1); \
+	lwz	r4,GPR4(r1); \
+	lwz	r5,GPR5(r1); \
+	lwz	r6,GPR6(r1); \
+	lwz	r7,GPR7(r1); \
+	lwz	r8,GPR8(r1); \
+	addi	r9,r1,STACK_FRAME_OVERHEAD;
+#endif
 
 /*
  * On kernel stack overflow, load up an initial stack pointer
@@ -213,12 +244,19 @@ syscall_dotrace_cont:
 	bge-	66f
 	lwzx	r10,r10,r0	/* Fetch system call handler [ptr] */
 	mtlr	r10
+#if (CONFIG_LTT)
+	TRACE_REAL_ASM_SYSCALL_ENTRY ;
+#endif
 	addi	r9,r1,STACK_FRAME_OVERHEAD
 	blrl			/* Call handler */
 	.globl	ret_from_syscall
 ret_from_syscall:
 #ifdef SHOW_SYSCALLS
 	bl	do_show_syscall_exit
+#endif
+#if (CONFIG_LTT)
+       stw     r3,RESULT(r1)   /* Save result */
+       TRACE_REAL_ASM_SYSCALL_EXIT ;
 #endif
 	mr	r6,r3
 	li	r11,-_LAST_ERRNO
@@ -242,9 +280,10 @@ ret_from_syscall:
 	bne-	syscall_exit_work
 syscall_exit_cont:
 #if defined(CONFIG_4xx) || defined(CONFIG_BOOKE)
-	/* If the process has its own DBCR0 value, load it up */
-	lwz	r0,PTRACE(r2)
-	andi.	r0,r0,PT_PTRACED
+	/* If the process has its own DBCR0 value, load it up.  The single
+	   step bit tells us that dbcr0 should be loaded. */
+	lwz	r0,THREAD+THREAD_DBCR0(r2)
+	andis.	r10,r0,DBCR0_IC@h
 	bnel-	load_dbcr0
 #endif
 	stwcx.	r0,0,r1			/* to clear the reservation */
@@ -579,6 +618,7 @@ ret_from_except_full:
 
 	.globl	ret_from_except
 ret_from_except:
+	bl 	latency_check
 	/* Hard-disable interrupts so that current_thread_info()->flags
 	 * can't change between when we test it and when we return
 	 * from the interrupt. */
@@ -599,9 +639,10 @@ user_exc_return:		/* r10 contains MSR_KERNEL here */
 
 restore_user:
 #if defined(CONFIG_4xx) || defined(CONFIG_BOOKE)
-	/* Check whether this process has its own DBCR0 value */
-	lwz	r0,PTRACE(r2)
-	andi.	r0,r0,PT_PTRACED
+	/* Check whether this process has its own DBCR0 value.  The single
+	   step bit tells us that dbcr0 should be loaded. */
+	lwz	r0,THREAD+THREAD_DBCR0(r2)
+	andis.	r10,r0,DBCR0_IC@h
 	bnel-	load_dbcr0
 #endif
 
@@ -620,18 +661,8 @@ resume_kernel:
 	beq+	restore
 	andi.	r0,r3,MSR_EE	/* interrupts off? */
 	beq	restore		/* don't schedule if so */
-1:	lis	r0,PREEMPT_ACTIVE@h
-	stw	r0,TI_PREEMPT(r9)
-	ori	r10,r10,MSR_EE
-	SYNC
-	MTMSRD(r10)		/* hard-enable interrupts */
-	bl	schedule
-	LOAD_MSR_KERNEL(r10,MSR_KERNEL)
-	SYNC
-	MTMSRD(r10)		/* disable interrupts */
+1:	bl	preempt_schedule_irq
 	rlwinm	r9,r1,0,0,18
-	li	r0,0
-	stw	r0,TI_PREEMPT(r9)
 	lwz	r3,TI_FLAGS(r9)
 	andi.	r0,r3,_TIF_NEED_RESCHED
 	bne-	1b
@@ -876,17 +907,17 @@ ret_from_mcheck_exc:
 
 /*
  * Load the DBCR0 value for a task that is being ptraced,
- * having first saved away the global DBCR0.
+ * having first saved away the global DBCR0.  Note that r0
+ * has the dbcr0 value to set upon entry to this.
  */
 load_dbcr0:
-	mfmsr	r0		/* first disable debug exceptions */
-	rlwinm	r0,r0,0,~MSR_DE
-	mtmsr	r0
+	mfmsr	r10		/* first disable debug exceptions */
+	rlwinm	r10,r10,0,~MSR_DE
+	mtmsr	r10
 	isync
 	mfspr	r10,SPRN_DBCR0
 	lis	r11,global_dbcr0@ha
 	addi	r11,r11,global_dbcr0@l
-	lwz	r0,THREAD+THREAD_DBCR0(r2)
 	stw	r10,0(r11)
 	mtspr	SPRN_DBCR0,r0
 	lwz	r10,4(r11)

@@ -11,7 +11,7 @@
  * Derived from drivers/mtd/autcpu12.c
  *       Copyright (c) 2001 Thomas Gleixner (gleixner@autronix.de)
  *
- * $Id: tx4925ndfmc.c,v 1.5 2004/10/05 13:50:20 gleixner Exp $
+ * $Id: tx4925ndfmc.c,v 1.4 2004/09/16 23:27:15 gleixner Exp $
  *
  * Copyright (C) 2001 Toshiba Corporation 
  * 

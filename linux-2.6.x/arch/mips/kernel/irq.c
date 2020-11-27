@@ -22,10 +22,16 @@
 #include <linux/sched.h>
 #include <linux/seq_file.h>
 #include <linux/kallsyms.h>
+#include <linux/ilatency.h>
+#include <linux/ltt-events.h>
 
 #include <asm/atomic.h>
 #include <asm/system.h>
 #include <asm/uaccess.h>
+#include <asm/kgdb.h>
+
+/* Keep track of if we've done certain initialization already or not. */
+int kgdb_early_setup;
 
 /*
  * 'what should we do if we get a hw irq event on an illegal vector'.
@@ -47,11 +53,15 @@ atomic_t irq_err_count;
  */
 asmlinkage unsigned int do_IRQ(unsigned int irq, struct pt_regs *regs)
 {
+	ltt_ev_irq_entry(irq, !user_mode(regs));
+	interrupt_overhead_start();
 	irq_enter();
 
 	__do_IRQ(irq, regs);
 
+	ltt_ev_irq_exit();
 	irq_exit();
+	latency_check();
 
 	return 1;
 }
@@ -103,38 +113,31 @@ skip:
 	return 0;
 }
 
-#ifdef CONFIG_KGDB
-extern void breakpoint(void);
-extern void set_debug_traps(void);
-
-static int kgdb_flag = 1;
-static int __init nokgdb(char *str)
-{
-	kgdb_flag = 0;
-	return 1;
-}
-__setup("nokgdb", nokgdb);
-#endif
-
 void __init init_IRQ(void)
 {
 	int i;
+
+	if (kgdb_early_setup)
+		return;
 
 	for (i = 0; i < NR_IRQS; i++) {
 		irq_desc[i].status  = IRQ_DISABLED;
 		irq_desc[i].action  = NULL;
 		irq_desc[i].depth   = 1;
 		irq_desc[i].handler = &no_irq_type;
-		irq_desc[i].lock = SPIN_LOCK_UNLOCKED;
+		irq_desc[i].lock = RAW_SPIN_LOCK_UNLOCKED;
+#ifdef CONFIG_PREEMPT_HARDIRQS
+		irq_desc[i].thread = NULL;
+#endif
 	}
 
 	arch_init_irq();
-
 #ifdef CONFIG_KGDB
-	if (kgdb_flag) {
-		printk("Wait for gdb client connection ...\n");
-		set_debug_traps();
-		breakpoint();
-	}
+	/*
+	 * We have been called before kgdb_arch_init(). Hence,
+	 * we dont want the traps to be reinitialized
+	 */
+	if (kgdb_early_setup == 0)
+		kgdb_early_setup = 1;
 #endif
 }

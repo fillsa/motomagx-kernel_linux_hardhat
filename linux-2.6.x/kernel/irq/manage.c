@@ -7,8 +7,10 @@
  */
 
 #include <linux/irq.h>
-#include <linux/module.h>
 #include <linux/random.h>
+#include <linux/module.h>
+#include <linux/kthread.h>
+#include <linux/syscalls.h>
 #include <linux/interrupt.h>
 
 #include "internals.h"
@@ -28,8 +30,12 @@ void synchronize_irq(unsigned int irq)
 {
 	struct irq_desc *desc = irq_desc + irq;
 
-	while (desc->status & IRQ_INPROGRESS)
-		cpu_relax();
+	if (hardirq_preemption && !(desc->status & IRQ_NODELAY))
+		wait_event(desc->wait_for_handler,
+			!(desc->status & IRQ_INPROGRESS));
+	else
+		while (desc->status & IRQ_INPROGRESS)
+			cpu_relax();
 }
 
 EXPORT_SYMBOL(synchronize_irq);
@@ -125,6 +131,21 @@ void enable_irq(unsigned int irq)
 EXPORT_SYMBOL(enable_irq);
 
 /*
+ * If any action has SA_NODELAY then turn IRQ_NODELAY on:
+ */
+void recalculate_desc_flags(struct irq_desc *desc)
+{
+	struct irqaction *action;
+
+	desc->status &= ~IRQ_NODELAY;
+	for (action = desc->action ; action; action = action->next)
+		if (action->flags & SA_NODELAY)
+			desc->status |= IRQ_NODELAY;
+}
+
+static int start_irq_thread(int irq, struct irq_desc *desc);
+
+/*
  * Internal function that tells the architecture code whether a
  * particular irq has been exclusively allocated or is available
  * for driver use.
@@ -174,6 +195,9 @@ int setup_irq(unsigned int irq, struct irqaction * new)
 		rand_initialize_irq(irq);
 	}
 
+	if (!(new->flags & SA_NODELAY))
+		if (start_irq_thread(irq, desc))
+			return -ENOMEM;
 	/*
 	 * The following block of code has to be executed atomically
 	 */
@@ -196,6 +220,11 @@ int setup_irq(unsigned int irq, struct irqaction * new)
 
 	*p = new;
 
+	/*
+	 * Propagate any possible SA_NODELAY flag into IRQ_NODELAY:
+	 */
+	recalculate_desc_flags(desc);
+
 	if (!shared) {
 		desc->depth = 0;
 		desc->status &= ~(IRQ_DISABLED | IRQ_AUTODETECT |
@@ -209,7 +238,7 @@ int setup_irq(unsigned int irq, struct irqaction * new)
 
 	new->irq = irq;
 	register_irq_proc(irq);
-	new->dir = NULL;
+	new->dir = new->threaded = NULL;
 	register_handler_proc(irq, new);
 
 	return 0;
@@ -260,6 +289,7 @@ void free_irq(unsigned int irq, void *dev_id)
 				else
 					desc->handler->disable(irq);
 			}
+			recalculate_desc_flags(desc);
 			spin_unlock_irqrestore(&desc->lock,flags);
 			unregister_handler_proc(irq, action);
 
@@ -344,4 +374,172 @@ int request_irq(unsigned int irq,
 }
 
 EXPORT_SYMBOL(request_irq);
+
+#ifdef CONFIG_PREEMPT_HARDIRQS
+
+int hardirq_preemption = 1;
+
+EXPORT_SYMBOL(hardirq_preemption);
+
+/*
+ * Real-Time Preemption depends on hardirq threading:
+ */
+#ifndef CONFIG_PREEMPT_RT
+
+static int __init hardirq_preempt_setup (char *str)
+{
+	if (!strncmp(str, "off", 3))
+		hardirq_preemption = 0;
+	else
+		get_option(&str, &hardirq_preemption);
+	if (!hardirq_preemption)
+		printk("turning off hardirq preemption!\n");
+
+	return 1;
+}
+
+__setup("hardirq-preempt=", hardirq_preempt_setup);
+
+#endif
+
+static void do_hardirq(struct irq_desc *desc)
+{
+	struct irqaction * action;
+	unsigned int irq = desc - irq_desc;
+
+	local_irq_disable();
+
+	if (desc->status & IRQ_INPROGRESS) {
+		action = desc->action;
+		spin_lock(&desc->lock);
+		for (;;) {
+			irqreturn_t action_ret = 0;
+
+			if (action) {
+				spin_unlock(&desc->lock);
+				action_ret = handle_IRQ_event(irq, NULL,action);
+				local_irq_enable();
+				cond_resched_all();
+				spin_lock_irq(&desc->lock);
+			}
+			if (!noirqdebug)
+				note_interrupt(irq, desc, action_ret);
+			if (likely(!(desc->status & IRQ_PENDING)))
+				break;
+			desc->status &= ~IRQ_PENDING;
+		}
+		desc->status &= ~IRQ_INPROGRESS;
+		/*
+		 * The ->end() handler has to deal with interrupts which got
+		 * disabled while the handler was running.
+		 */
+		desc->handler->end(irq);
+		spin_unlock(&desc->lock);
+	}
+	local_irq_enable();
+	if (waitqueue_active(&desc->wait_for_handler))
+		wake_up(&desc->wait_for_handler);
+}
+
+extern asmlinkage void __do_softirq(void);
+
+static int curr_irq_prio = 49;
+
+static int do_irqd(void * __desc)
+{
+	struct sched_param param = { 0, };
+	struct irq_desc *desc = __desc;
+#ifdef CONFIG_SMP
+	int irq = desc - irq_desc;
+	cpumask_t mask;
+
+	mask = cpumask_of_cpu(any_online_cpu(irq_affinity[irq]));
+	set_cpus_allowed(current, mask);
+#endif
+	current->flags |= PF_NOFREEZE | PF_HARDIRQ;
+
+	/*
+	 * Scale irq thread priorities from prio 50 to prio 25
+	 */
+	param.sched_priority = curr_irq_prio;
+	if (param.sched_priority > 25)
+		curr_irq_prio = param.sched_priority - 1;
+
+	sys_sched_setscheduler(current->pid, SCHED_FIFO, &param);
+
+	while (!kthread_should_stop()) {
+		set_current_state(TASK_INTERRUPTIBLE);
+		do_hardirq(desc);
+		cond_resched_all();
+		__do_softirq();
+		local_irq_enable();
+#ifdef CONFIG_SMP
+		/*
+		 * Did IRQ affinities change?
+		 */
+		if (!cpu_isset(smp_processor_id(), irq_affinity[irq])) {
+			mask = cpumask_of_cpu(any_online_cpu(irq_affinity[irq]));
+			set_cpus_allowed(current, mask);
+		}
+#endif
+		schedule();
+	}
+	__set_current_state(TASK_RUNNING);
+	return 0;
+}
+
+static int ok_to_create_irq_threads;
+
+static int start_irq_thread(int irq, struct irq_desc *desc)
+{
+	if (desc->thread || !ok_to_create_irq_threads)
+		return 0;
+
+	desc->thread = kthread_create(do_irqd, desc, "IRQ %d", irq);
+	if (!desc->thread) {
+		printk(KERN_ERR "irqd: could not create IRQ thread %d!\n", irq);
+		return -ENOMEM;
+	}
+
+	/*
+	 * An interrupt may have come in before the thread pointer was
+	 * stored in desc->thread; make sure the thread gets woken up in
+	 * such a case:
+	 */
+	smp_mb();
+	wake_up_process(desc->thread);
+	
+	return 0;
+}
+
+void __init init_hardirqs(void)
+{	
+	int i;
+	ok_to_create_irq_threads = 1;
+
+	for (i = 0; i < NR_IRQS; i++) {
+		irq_desc_t *desc = irq_desc + i;
+
+		if (desc->action && !(desc->status & IRQ_NODELAY))
+			start_irq_thread(i, desc);
+	}
+}
+
+#else
+
+static int start_irq_thread(int irq, struct irq_desc *desc)
+{
+	return 0;
+}
+
+#endif
+
+void __init early_init_hardirqs(void)
+{	
+	int i;
+
+	for (i = 0; i < NR_IRQS; i++)
+		init_waitqueue_head(&irq_desc[i].wait_for_handler);
+}
+
 

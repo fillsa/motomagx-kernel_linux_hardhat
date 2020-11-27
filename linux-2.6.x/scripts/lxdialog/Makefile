@@ -1,9 +1,5 @@
 HOST_EXTRACFLAGS := -DLOCALE 
-ifeq ($(shell uname),SunOS)
-HOST_LOADLIBES   := -lcurses
-else
 HOST_LOADLIBES   := -lncurses
-endif
 
 ifeq (/usr/include/ncurses/ncurses.h, $(wildcard /usr/include/ncurses/ncurses.h))
         HOST_EXTRACFLAGS += -I/usr/include/ncurses -DCURSES_LOC="<ncurses.h>"
@@ -14,7 +10,12 @@ else
 ifeq (/usr/include/ncurses.h, $(wildcard /usr/include/ncurses.h))
         HOST_EXTRACFLAGS += -DCURSES_LOC="<ncurses.h>"
 else
+ifeq ($(shell mvl-common-whereami)/../include/ncurses.h, $(wildcard $(shell mvl-common-whereami)/../include/ncurses.h))
+	HOST_EXTRACFLAGS += -I`mvl-common-whereami`/../include -DCURSES_LOC="<ncurses.h>"
+	HOSTLDFLAGS += -L`mvl-common-whereami`/../lib
+else
 	HOST_EXTRACFLAGS += -DCURSES_LOC="<curses.h>"
+endif
 endif
 endif
 endif

@@ -20,11 +20,22 @@
    ALL LIABILITY, INCLUDING LIABILITY FOR INFRINGEMENT OF ANY PATENTS, 
    COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS 
    SOFTWARE IS DISCLAIMED.
+
+
+   Copyright (C) 2007 - Motorola
+
+   Date         Author           Comment
+   -----------  --------------   --------------------------------
+   02-FEB-2007  Motorola         ModKconfig Build System Change
+
 */
 
 /* Bluetooth kernel library. */
 
 #include <linux/config.h>
+#ifdef MODKCONFIG
+#include "modkconfig/config.h"
+#endif
 #include <linux/module.h>
 
 #include <linux/kernel.h>

@@ -59,7 +59,7 @@
 #define OSD_PRIORITY_MED            3
 #define OSD_PRIORITY_LO             4
 
-#define ACPI_NO_UNIT_LIMIT          ((u32) -1)
+#define ACPI_NO_UNIT_LIMIT          (INT_MAX/2)
 #define ACPI_MUTEX_SEM              1
 
 

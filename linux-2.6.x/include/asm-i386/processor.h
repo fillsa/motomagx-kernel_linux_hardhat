@@ -4,6 +4,7 @@
  * Copyright (C) 1994 Linus Torvalds
  */
 
+#ifdef __KERNEL__
 #ifndef __ASM_I386_PROCESSOR_H
 #define __ASM_I386_PROCESSOR_H
 
@@ -661,3 +662,4 @@ extern void select_idle_routine(const struct cpuinfo_x86 *c);
 extern unsigned long boot_option_idle_override;
 
 #endif /* __ASM_I386_PROCESSOR_H */
+#endif /* __KERNEL__ */

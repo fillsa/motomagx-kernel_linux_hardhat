@@ -64,8 +64,10 @@ void __init swarm_timer_setup(struct irqaction *irq)
          * interrupts through low-level (direct) meachanism.
          */
 
+#ifndef CONFIG_CPU_TIMER
         /* We only need to setup the generic timer */
         sb1250_time_init();
+#endif
 }
 
 int swarm_be_handler(struct pt_regs *regs, int is_fixup)
@@ -105,6 +107,13 @@ static int __init swarm_setup(void)
 		rtc_get_time = m41t81_get_time;
 		rtc_set_time = m41t81_set_time;
 	}
+
+#ifdef CONFIG_CPU_TIMER
+	/*
+	 * set the mips_hpt_frequency here
+	 */
+	mips_hpt_frequency = CONFIG_SIBYTE_SWARM_CPU_SPEED * 1000000;
+#endif
 
 	printk("This kernel optimized for "
 #ifdef CONFIG_SIMULATION

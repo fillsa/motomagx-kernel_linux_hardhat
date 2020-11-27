@@ -19,9 +19,9 @@ typedef Elf32_Addr	kernel_ulong_t;
 #else
 typedef Elf64_Addr	kernel_ulong_t;
 #endif
-#ifdef __sun__
+#if defined(__sun__)
 #include <inttypes.h>
-#else
+#elif !defined(__CYGWIN__)
 #include <stdint.h>
 #endif
 

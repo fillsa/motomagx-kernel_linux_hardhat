@@ -1,6 +1,9 @@
 /*
  * Copyright (C) 2002 Roman Zippel <zippel@linux-m68k.org>
+ * Copyright (C) 2006 Motorola
  * Released under the terms of the GNU GPL v2.0.
+ *
+ * Motorola  2006-Nov-16 - Add support for lock/endlock blocks.
  */
 
 #ifndef EXPR_H
@@ -141,6 +144,7 @@ struct menu {
 
 #define MENU_CHANGED		0x0001
 #define MENU_ROOT		0x0002
+#define MENU_LOCK		0x0004
 
 #ifndef SWIG
 

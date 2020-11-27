@@ -23,3 +23,6 @@
 #define CLOCK_TICK_RATE 3250000
 #endif
 #endif
+
+#include "pxa-regs.h"
+#define get_cycles()	(OSCR)

@@ -28,6 +28,16 @@
 #if !defined(__ASM_ARCH_OMAP_TIMEX_H)
 #define __ASM_ARCH_OMAP_TIMEX_H
 
-#define CLOCK_TICK_RATE		(HZ * 100000UL)
+#ifdef	ARCH_OMAP730
+#	define CLOCK_TICK_RATE	(13000000UL/2)
+#else
+#	define CLOCK_TICK_RATE	(12000000UL/2)
+#endif
+
+extern unsigned long omap_mpu_timer_read(int timer);
+static inline cycles_t get_cycles (void)
+{
+	return ~omap_mpu_timer_read(0);
+}
 
 #endif /* __ASM_ARCH_OMAP_TIMEX_H */

@@ -15,7 +15,7 @@
 #ifdef CONFIG_SMP
 
 struct percpu_counter {
-	spinlock_t lock;
+	raw_spinlock_t lock;
 	long count;
 	long *counters;
 };

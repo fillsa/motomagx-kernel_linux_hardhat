@@ -2,6 +2,9 @@
 #define _LINUX_SEM_H
 
 #include <linux/ipc.h>
+#ifdef __KERNEL__
+#include <linux/config.h>
+#endif /* __KERNEL__ */
 #include <asm/atomic.h>
 
 /* semop flags */
@@ -64,12 +67,19 @@ struct  seminfo {
 	int semaem;
 };
 
-#define SEMMNI  128             /* <= IPCMNI  max # of semaphore identifiers */
-#define SEMMSL  250             /* <= 8 000 max num of semaphores per id */
+/* Note that SMMNI*SMMSL must be less than or equal to SEMVMX.
+ * Use this with caution. */
+#define SEMMNI CONFIG_SYSVIPC_SEMMNI
+#define SEMMSL CONFIG_SYSVIPC_SEMMSL
+
 #define SEMMNS  (SEMMNI*SEMMSL) /* <= INT_MAX max # of semaphores in system */
 #define SEMOPM  32	        /* <= 1 000 max num of ops per semop call */
 #define SEMVMX  32767           /* <= 32767 semaphore maximum value */
 #define SEMAEM  SEMVMX          /* adjust on exit max value */
+
+#if SEMMNI * SEMMSL >= SEMVMX
+#error CONFIG_SYSVIPC_SEMMNI*CONFIG_SYSVIPC_SEMMSL must be < SEMVMX. Fix .config.
+#endif
 
 /* unused */
 #define SEMUME  SEMOPM          /* max num of undo entries per process */

@@ -20,11 +20,34 @@
    ALL LIABILITY, INCLUDING LIABILITY FOR INFRINGEMENT OF ANY PATENTS, 
    COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS 
    SOFTWARE IS DISCLAIMED.
+
+
+   Copyright (C) 2006-2007 - Motorola
+
+   Date         Author           Comment
+   -----------  --------------   --------------------------------
+   2006-Apr-06  Motorola         Update connection security settings
+                                 based on encryption mode returned 
+                                 in the connection complete event.
+   2006-Jul-17  Motorola         Added functionality to not support 
+                                 bluetooth connection to multiple devices.
+                                 Modified fucntion hci_conn_request_evt.
+   2007-Jan-25  Motorola         Added modkconfig header file.
+                                     
+*/
+
+/*
+   The Bluetooth word mark and logos are owned by Bluetooth SIG, Inc. and any use of such marks by Motorola
+   is under license. Other trademarks and trade names are those of their respective owners.
+                                     
 */
 
 /* Bluetooth HCI event handling. */
 
 #include <linux/config.h>
+#ifdef MODKCONFIG
+#include "modkconfig/config.h"
+#endif
 #include <linux/module.h>
 
 #include <linux/types.h>
@@ -535,10 +558,25 @@ static inline void hci_conn_request_evt(struct hci_dev *hdev, struct sk_buff *sk
 {
 	struct hci_ev_conn_request *ev = (struct hci_ev_conn_request *) skb->data;
 	int mask = hdev->link_mode;
+	unsigned int acl_num = 0;
 
 	BT_DBG("%s Connection request: %s type 0x%x", hdev->name,
 			batostr(&ev->bdaddr), ev->link_type);
 
+	/*To check is bluetooth connection exits to another device */
+	hci_dev_lock(hdev);
+	acl_num = (hdev->conn_hash).acl_num;
+	hci_dev_unlock(hdev);     
+	if (acl_num && ev->link_type == ACL_LINK) {
+		/* Connection rejected */
+		BT_ERR("Reject connection to more than one bluetooth device");
+		struct hci_cp_reject_conn_req cp;
+		bacpy(&cp.bdaddr, &ev->bdaddr);
+		cp.reason = 0x0f;
+		hci_send_cmd(hdev, OGF_LINK_CTL, OCF_REJECT_CONN_REQ, sizeof(cp), &cp);
+		return;
+	}
+ 
 	mask |= hci_proto_connect_ind(hdev, &ev->bdaddr, ev->link_type);
 
 	if (mask & HCI_LM_ACCEPT) {
@@ -597,11 +635,12 @@ static inline void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *s
 		conn->handle = __le16_to_cpu(ev->handle);
 		conn->state  = BT_CONNECTED;
 
-		if (test_bit(HCI_AUTH, &hdev->flags))
+		/* If the link is encrypted */
+		if (ev->encr_mode != 0x00) {
+			conn->link_mode |= (HCI_LM_AUTH | HCI_LM_ENCRYPT);
+		} else if (test_bit(HCI_AUTH, &hdev->flags)) {
 			conn->link_mode |= HCI_LM_AUTH;
-
-		if (test_bit(HCI_ENCRYPT, &hdev->flags))
-			conn->link_mode |= HCI_LM_ENCRYPT;
+		}
 
 		/* Set link policy */
 		if (conn->type == ACL_LINK && hdev->link_policy) {

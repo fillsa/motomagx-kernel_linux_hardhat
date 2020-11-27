@@ -27,6 +27,7 @@
 #include <asm/arch/dma.h>
 #include <asm/arch/mux.h>
 #include <asm/arch/irqs.h>
+#include <asm/arch/dsp_common.h>
 #include <asm/arch/mcbsp.h>
 
 #include <asm/hardware/clock.h>
@@ -60,7 +61,7 @@ struct omap_mcbsp {
 	struct completion            tx_dma_completion;
 	struct completion            rx_dma_completion;
 
-	spinlock_t                   lock;
+	raw_spinlock_t                   lock;
 };
 
 static struct omap_mcbsp mcbsp[OMAP_MAX_MCBSP_COUNT];
@@ -192,8 +193,7 @@ static int omap_mcbsp_check(unsigned int id)
 static void omap_mcbsp_dsp_request(void)
 {
 	if (cpu_is_omap1510() || cpu_is_omap1610() || cpu_is_omap1710()) {
-		omap_writew((omap_readw(ARM_RSTCT1) | (1 << 1) | (1 << 2)),
-			    ARM_RSTCT1);
+		omap_dsp_request_idle();
 		clk_enable(mcbsp_dsp_ck);
 		clk_enable(mcbsp_api_ck);
 
@@ -207,7 +207,13 @@ static void omap_mcbsp_dsp_request(void)
 
 static void omap_mcbsp_dsp_free(void)
 {
-	/* Useless for now */
+	if (cpu_is_omap1510() || cpu_is_omap16xx()) {
+		omap_writew((omap_readw(ARM_RSTCT1) & ~(1 << 1)),
+			    ARM_RSTCT1);
+
+		clk_unuse(mcbsp_dsp_ck);
+		clk_unuse(mcbsp_api_ck);
+	}
 }
 
 
@@ -349,6 +355,73 @@ void omap_mcbsp_stop(unsigned int id)
 	OMAP_MCBSP_WRITE(io_base, SPCR2, w & ~(1 << 6));
 }
 
+
+/* polled mcbsp i/o operations */
+int omap_mcbsp_pollwrite(unsigned int id, u16 buf)
+{
+	u32 base = mcbsp[id].io_base;
+	writew(buf, base + OMAP_MCBSP_REG_DXR1);
+	/* if frame sync error - clear the error */
+	if (readw(base + OMAP_MCBSP_REG_SPCR2) & XSYNC_ERR) {
+		/* clear error */
+		writew(readw(base + OMAP_MCBSP_REG_SPCR2) & (~XSYNC_ERR),
+		       base + OMAP_MCBSP_REG_SPCR2);
+		/* resend */
+		return -1;
+	} else {
+		/* wait for transmit confirmation */
+		int attemps = 0;
+		while (!(readw(base + OMAP_MCBSP_REG_SPCR2) & XRDY)) {
+			if (attemps++ > 1000) {
+				writew(readw(base + OMAP_MCBSP_REG_SPCR2) &
+				       (~XRST),
+				       base + OMAP_MCBSP_REG_SPCR2);
+				udelay(10);
+				writew(readw(base + OMAP_MCBSP_REG_SPCR2) |
+				       (XRST),
+				       base + OMAP_MCBSP_REG_SPCR2);
+				udelay(10);
+				printk(KERN_ERR
+				       " Could not write to McBSP Register\n");
+				return -2;
+			}
+		}
+	}
+	return 0;
+}
+
+int omap_mcbsp_pollread(unsigned int id, u16 * buf)
+{
+	u32 base = mcbsp[id].io_base;
+	/* if frame sync error - clear the error */
+	if (readw(base + OMAP_MCBSP_REG_SPCR1) & RSYNC_ERR) {
+		/* clear error */
+		writew(readw(base + OMAP_MCBSP_REG_SPCR1) & (~RSYNC_ERR),
+		       base + OMAP_MCBSP_REG_SPCR1);
+		/* resend */
+		return -1;
+	} else {
+		/* wait for recieve confirmation */
+		int attemps = 0;
+		while (!(readw(base + OMAP_MCBSP_REG_SPCR1) & RRDY)) {
+			if (attemps++ > 1000) {
+				writew(readw(base + OMAP_MCBSP_REG_SPCR1) &
+				       (~RRST),
+				       base + OMAP_MCBSP_REG_SPCR1);
+				udelay(10);
+				writew(readw(base + OMAP_MCBSP_REG_SPCR1) |
+				       (RRST),
+				       base + OMAP_MCBSP_REG_SPCR1);
+				udelay(10);
+				printk(KERN_ERR
+				       " Could not read from McBSP Register\n");
+				return -2;
+			}
+		}
+	}
+	*buf = readw(base + OMAP_MCBSP_REG_DRR1);
+	return 0;
+}
 
 /*
  * IRQ based word transmission.

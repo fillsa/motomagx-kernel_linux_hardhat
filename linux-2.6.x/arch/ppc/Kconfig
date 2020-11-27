@@ -97,6 +97,11 @@ config PTE_64BIT
 	depends on 44x
 	default y
 
+config PHYS_64BIT
+	bool
+	depends on 44x
+	default y
+
 config ALTIVEC
 	bool "AltiVec Support"
 	depends on 6xx || POWER4
@@ -500,8 +505,19 @@ config APUS
 	  More information is available at:
 	  <http://linux-apus.sourceforge.net/>.
 
+config KATANA
+	bool "Artesyn-Katana"
+	help
+	  Select KATANA if configuring an Artesyn KATANA 750i or 3750
+	  cPCI board.
+
 config WILLOW
 	bool "Cogent-Willow"
+
+config CPCI690
+	bool "Force-CPCI690"
+	help
+	  Select CPCI690 if configuring a Force CPCI690 cPCI board.
 
 config PCORE
 	bool "Force-PowerCore"
@@ -509,11 +525,20 @@ config PCORE
 config POWERPMC250
 	bool "Force-PowerPMC250"
 
-config EV64260
-	bool "Galileo-EV-64260-BP"
+config CHESTNUT
+	bool "IBM 750FX Eval board or 750GX Eval board"
+	help
+	  Select CHESTNUT if configuring an IBM 750FX Eval Board or a
+	  IBM 750GX Eval board.
 
 config SPRUCE
 	bool "IBM-Spruce"
+
+config EV64260
+	bool "Marvell-EV64260BP"
+	help
+	  Select EV64260 if configuring a Marvell (formerly Galileo)
+	  EV64260BP Evaluation platform.
 
 config LOPEC
 	bool "Motorola-LoPEC"
@@ -594,6 +619,12 @@ config TQM8260
 config ADS8272
 	bool "ADS8272"
 
+config PQ2FADS
+	bool "Freescale-PQ2FADS"
+	help
+	  Select PQ2FADS if you wish to configure for a Freescale
+	  PQ2FADS board (-VR or -ZU).
+
 config LITE5200
 	bool "Freescale LITE5200 / (IceCube)"
 	select PPC_MPC52xx
@@ -626,7 +657,7 @@ config PPC_MPC52xx
 config 8260
 	bool "CPM2 Support" if WILLOW
 	depends on 6xx
-	default y if TQM8260 || RPX8260 || EST8260 || SBS8260 || SBC82xx
+	default y if TQM8260 || RPX8260 || EST8260 || SBS8260 || SBC82xx || PQ2FADS
 	help
 	  The MPC8260 is a typical embedded CPU made by Motorola.  Selecting
 	  this option means that you wish to build a kernel for a machine with
@@ -643,7 +674,7 @@ config 8272
 
 config CPM2
 	bool
-	depends on 8260 || MPC8560
+	depends on 8260 || MPC8560 || MPC8555
 	default y
 	help
 	  The CPM2 (Communications Processor Module) is a coprocessor on
@@ -679,7 +710,8 @@ config PPC_OF
 config PPC_GEN550
 	bool
 	depends on SANDPOINT || MCPN765 || SPRUCE || PPLUS || PCORE || \
-		PRPMC750 || K2 || PRPMC800 || LOPEC
+		PRPMC750 || K2 || PRPMC800 || LOPEC || \
+		(EV64260 && !SERIAL_MPSC) || CHESTNUT
 	default y
 
 config FORCE
@@ -689,8 +721,52 @@ config FORCE
 
 config GT64260
 	bool
-	depends on EV64260
+	depends on EV64260 || CPCI690
 	default y
+
+config MV64360
+	bool
+	depends on KATANA
+	default y
+
+config MV64360
+	bool
+	depends on CHESTNUT
+  	default y
+
+config MV64X60
+	bool
+	depends on (GT64260 || MV64360)
+	default y
+
+menu "Set bridge options"
+	depends on MV64X60
+
+config NOT_COHERENT_CACHE
+	bool "Turn off Cache Coherency"
+	default n
+	help
+	  Some 64x60 bridges lock up when trying to enforce cache coherency.
+	  When this option is selected, cache coherency will be turned off.
+	  Note that this can cause other problems (e.g., stale data being
+	  speculatively loaded via a cached mapping).  Use at your own risk.
+
+config MV64X60_BASE
+	hex "Set bridge base used by firmware"
+	default "0xf1000000"
+	help
+	  A firmware can leave the base address of the bridge's registers at
+	  a non-standard location.  If so, set this value to reflect the
+	  address of that non-standard location.
+
+config MV64X60_NEW_BASE
+	hex "Set bridge base used by kernel"
+	default "0xf1000000"
+	help
+	  If the current base address of the bridge's registers is not where
+	  you want it, set this value to the address that you want it moved to.
+
+endmenu
 
 config NONMONARCH_SUPPORT
 	bool "Enable Non-Monarch Support"
@@ -794,6 +870,21 @@ config PREEMPT
 
 config HIGHMEM
 	bool "High memory support"
+
+config HIGH_RES_TIMERS
+	bool "Configure High-Resolution-Timers"
+	help
+	  POSIX timers are available by default.  This option enables
+	  high-resolution POSIX timers.  With this option the resolution
+	  is about 10 microsecond.  High resolution is not free.  If
+	  enabled this option will add a small overhead each time a
+	  timer expires that is not on a 1/HZ tick boundary.  If no such
+	  timers are used the overhead is nil.
+
+	  This option enables two additional POSIX CLOCKS,
+	  CLOCK_REALTIME_HR and CLOCK_MONOTONIC_HR.  Note that this
+	  option does not change the resolution of CLOCK_REALTIME or
+	  CLOCK_MONOTONIC which remain at 1/HZ resolution.
 
 source "fs/Kconfig.binfmt"
 
@@ -1208,6 +1299,8 @@ endmenu
 source "lib/Kconfig"
 
 source "arch/ppc/oprofile/Kconfig"
+
+source "ktools/Kconfig"
 
 source "arch/ppc/Kconfig.debug"
 

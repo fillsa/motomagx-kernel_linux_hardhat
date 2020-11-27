@@ -343,7 +343,7 @@ acpi_processor_idle (void)
 	unsigned int		sleep_ticks = 0;
 	u32			t1, t2 = 0;
 
-	pr = processors[smp_processor_id()];
+	pr = processors[_smp_processor_id()];
 	if (!pr)
 		return;
 
@@ -2534,7 +2534,7 @@ acpi_processor_remove (
 		 * (pm_idle), Wait for all processors to update cached/local
 		 * copies of pm_idle before proceeding.
 		 */
-		synchronize_kernel();
+		cpu_idle_wait();
 	}
 
 	status = acpi_remove_notify_handler(pr->handle, ACPI_DEVICE_NOTIFY, 

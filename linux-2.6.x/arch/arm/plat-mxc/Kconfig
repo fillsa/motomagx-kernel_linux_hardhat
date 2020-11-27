@@ -1,0 +1,50 @@
+if ARCH_MXC
+
+menu "Freescale MXC Implementations"
+
+choice
+	prompt "MXC/iMX System Type"
+	default ARCH_MXC91321
+
+config ARCH_MXC91331
+	bool "MXC91331-based"
+	select YAFFS_MXC_MODE
+	select MXC_DSP_BRINGUP
+
+config ARCH_MXC91321
+	bool "MXC91321-based"
+	select YAFFS_MXC_MODE
+	select MXC_DSP_BRINGUP
+
+config ARCH_MXC91231
+	bool "MXC91231-based"
+	select YAFFS_MXC_MODE
+	select MXC_DSP_BRINGUP
+
+config ARCH_MXC91131
+	bool "MXC91131-based"
+	select YAFFS_MXC_MODE
+	select MXC_DSP_BRINGUP
+
+config ARCH_MX3
+	bool "MX31-based"
+	select YAFFS_MXC_MODE
+	help
+	  This enables support for systems based on Freescale i.MX31
+
+endchoice
+
+source "arch/arm/mach-mx3/Kconfig"
+
+source "arch/arm/mach-mxc91321/Kconfig"
+
+source "arch/arm/mach-mxc91231/Kconfig"
+
+source "arch/arm/mach-mxc91131/Kconfig"
+
+endmenu
+
+config MXC_DSP_BRINGUP
+	bool
+
+endif

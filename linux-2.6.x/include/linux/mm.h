@@ -141,6 +141,7 @@ struct vm_area_struct {
 #define VM_DONTEXPAND	0x00040000	/* Cannot expand with mremap() */
 #define VM_RESERVED	0x00080000	/* Don't unmap it from swap_out */
 #define VM_ACCOUNT	0x00100000	/* Is a VM accounted object */
+#define VM_XIP		0x00200000	/* Execute In Place from ROM/flash */
 #define VM_HUGETLB	0x00400000	/* Huge TLB Page VM */
 #define VM_NONLINEAR	0x00800000	/* Is non-linear (remap_file_pages) */
 
@@ -178,7 +179,8 @@ struct vm_operations_struct {
 	struct page * (*nopage)(struct vm_area_struct * area, unsigned long address, int *type);
 	int (*populate)(struct vm_area_struct * area, unsigned long address, unsigned long len, pgprot_t prot, unsigned long pgoff, int nonblock);
 #ifdef CONFIG_NUMA
-	int (*set_policy)(struct vm_area_struct *vma, struct mempolicy *new);
+	int (*set_policy)(struct vm_area_struct *vma, struct mempolicy *new,
+			  unsigned long flags);
 	struct mempolicy *(*get_policy)(struct vm_area_struct *vma,
 					unsigned long addr);
 #endif
@@ -409,6 +411,10 @@ static inline void set_page_zone(struct page *page, unsigned long nodezone_num)
 extern struct page *mem_map;
 #endif
 
+/*
+ * Return true if this page is not located in any nodes listed
+ * in the given node list.
+ */
 static inline void *lowmem_page_address(struct page *page)
 {
 	return __va(page_to_pfn(page) << PAGE_SHIFT);
@@ -524,15 +530,10 @@ extern void show_free_areas(void);
 #ifdef CONFIG_SHMEM
 struct page *shmem_nopage(struct vm_area_struct *vma,
 			unsigned long address, int *type);
-int shmem_set_policy(struct vm_area_struct *vma, struct mempolicy *new);
-struct mempolicy *shmem_get_policy(struct vm_area_struct *vma,
-					unsigned long addr);
 int shmem_lock(struct file *file, int lock, struct user_struct *user);
 #else
 #define shmem_nopage filemap_nopage
 #define shmem_lock(a, b, c) 	({0;})	/* always in memory, no need to lock */
-#define shmem_set_policy(a, b)	(0)
-#define shmem_get_policy(a, b)	(NULL)
 #endif
 struct file *shmem_file_setup(char *name, loff_t size, unsigned long flags);
 
@@ -799,10 +800,14 @@ kernel_map_pages(struct page *page, int numpages, int enable)
 }
 #endif
 
-#ifndef CONFIG_ARCH_GATE_AREA
 extern struct vm_area_struct *get_gate_vma(struct task_struct *tsk);
+#ifdef	__HAVE_ARCH_GATE_AREA
+int in_gate_area_no_task(unsigned long addr);
 int in_gate_area(struct task_struct *task, unsigned long addr);
-#endif
+#else
+int in_gate_area_no_task(unsigned long addr);
+#define in_gate_area(task, addr) ({(void)task; in_gate_area_no_task(addr);})
+#endif	/* __HAVE_ARCH_GATE_AREA */
 
 #endif /* __KERNEL__ */
 #endif /* _LINUX_MM_H */

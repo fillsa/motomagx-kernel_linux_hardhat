@@ -16,6 +16,9 @@
 
 #include <asm/mman.h>
 #include <asm/glue.h>
+#include <asm/shmparam.h>
+
+#define CACHE_COLOUR(vaddr)	((vaddr & (SHMLBA - 1)) >> PAGE_SHIFT)
 
 /*
  *	Cache Model
@@ -237,23 +240,23 @@ extern void dmac_flush_range(unsigned long, unsigned long);
  * space" model to handle this.
  */
 #define copy_to_user_page(vma, page, vaddr, dst, src, len) \
-	do {					\
-		flush_cache_page(vma, vaddr);	\
-		memcpy(dst, src, len);		\
-		flush_dcache_page(page);	\
+	do {							\
+		flush_cache_page(vma, vaddr, page_to_pfn(page));\
+		memcpy(dst, src, len);				\
+		flush_dcache_page(page);			\
 	} while (0)
 
 #define copy_from_user_page(vma, page, vaddr, dst, src, len) \
-	do {					\
-		flush_cache_page(vma, vaddr);	\
-		memcpy(dst, src, len);		\
+	do {							\
+		flush_cache_page(vma, vaddr, page_to_pfn(page));\
+		memcpy(dst, src, len);				\
 	} while (0)
 
 /*
  * Convert calls to our calling convention.
  */
 #define flush_cache_all()		__cpuc_flush_kern_all()
-
+#ifndef CONFIG_CPU_CACHE_VIPT
 static inline void flush_cache_mm(struct mm_struct *mm)
 {
 	if (cpu_isset(smp_processor_id(), mm->cpu_vm_mask))
@@ -269,13 +272,18 @@ flush_cache_range(struct vm_area_struct *vma, unsigned long start, unsigned long
 }
 
 static inline void
-flush_cache_page(struct vm_area_struct *vma, unsigned long user_addr)
+flush_cache_page(struct vm_area_struct *vma, unsigned long user_addr, unsigned long pfn)
 {
 	if (cpu_isset(smp_processor_id(), vma->vm_mm->cpu_vm_mask)) {
 		unsigned long addr = user_addr & PAGE_MASK;
 		__cpuc_flush_user_range(addr, addr + PAGE_SIZE, vma->vm_flags);
 	}
 }
+#else
+extern void flush_cache_mm(struct mm_struct *mm);
+extern void flush_cache_range(struct vm_area_struct *vma, unsigned long start, unsigned long end);
+extern void flush_cache_page(struct vm_area_struct *vma, unsigned long user_addr, unsigned long pfn);
+#endif
 
 /*
  * flush_cache_user_range is used when we want to ensure that the
@@ -382,6 +390,16 @@ extern void flush_dcache_page(struct page *);
 		 __cacheid_vipt_aliasing(__val);			\
 	})
 
+#endif
+
+#ifndef CONFIG_CPU_CACHE_L210
+#define dmac_l2_inv_range(start, end)
+#define dmac_l2_clean_range(start, end)
+#define dmac_l2_flush_range(start, end)
+#else
+void dmac_l2_inv_range(dma_addr_t start, dma_addr_t end);
+void dmac_l2_clean_range(dma_addr_t start, dma_addr_t end);
+void dmac_l2_flush_range(dma_addr_t start, dma_addr_t end);
 #endif
 
 #endif

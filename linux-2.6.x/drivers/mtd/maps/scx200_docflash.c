@@ -2,7 +2,7 @@
 
    Copyright (c) 2001,2002 Christer Weinigel <wingel@nano-system.com>
 
-   $Id: scx200_docflash.c,v 1.9 2004/11/16 18:29:02 dwmw2 Exp $ 
+   $Id: scx200_docflash.c,v 1.10 2004/11/28 09:40:40 dwmw2 Exp $ 
 
    National Semiconductor SCx200 flash mapped with DOCCS
 */
@@ -26,22 +26,19 @@ MODULE_AUTHOR("Christer Weinigel <wingel@hack.org>");
 MODULE_DESCRIPTION("NatSemi SCx200 DOCCS Flash Driver");
 MODULE_LICENSE("GPL");
 
-/* Set this to one if you want to partition the flash */
-#define PARTITION 1
-
-MODULE_PARM(probe, "i");
-MODULE_PARM_DESC(probe, "Probe for a BIOS mapping");
-MODULE_PARM(size, "i");
-MODULE_PARM_DESC(size, "Size of the flash mapping");
-MODULE_PARM(width, "i");
-MODULE_PARM_DESC(width, "Data width of the flash mapping (8/16)");
-MODULE_PARM(flashtype, "s");
-MODULE_PARM_DESC(flashtype, "Type of MTD probe to do");
-
 static int probe = 0;		/* Don't autoprobe */
 static unsigned size = 0x1000000; /* 16 MiB the whole ISA address space */
 static unsigned width = 8;	/* Default to 8 bits wide */
 static char *flashtype = "cfi_probe";
+
+module_param(probe, int, 0);
+MODULE_PARM_DESC(probe, "Probe for a BIOS mapping");
+module_param(size, int, 0);
+MODULE_PARM_DESC(size, "Size of the flash mapping");
+module_param(width, int, 0);
+MODULE_PARM_DESC(width, "Data width of the flash mapping (8/16)");
+module_param(flashtype, charp, 0);
+MODULE_PARM_DESC(flashtype, "Type of MTD probe to do");
 
 static struct resource docmem = {
 	.flags = IORESOURCE_MEM,
@@ -50,7 +47,7 @@ static struct resource docmem = {
 
 static struct mtd_info *mymtd;
 
-#if PARTITION
+#ifdef CONFIG_MTD_PARTITIONS
 static struct mtd_partition partition_info[] = {
 	{ 
 		.name   = "DOCCS Boot kernel", 
@@ -95,17 +92,16 @@ static int __init init_scx200_docflash(void)
 				      PCI_DEVICE_ID_NS_SCx200_BRIDGE,
 				      NULL)) == NULL)
 		return -ENODEV;
-	
-	if (!scx200_cb_probe(SCx200_CB_BASE)) {
-		printk(KERN_WARNING NAME ": no configuration block found\n");
+
+	/* check that we have found the configuration block */
+	if (!scx200_cb_present())
 		return -ENODEV;
-	}
 
 	if (probe) {
 		/* Try to use the present flash mapping if any */
 		pci_read_config_dword(bridge, SCx200_DOCCS_BASE, &base);
 		pci_read_config_dword(bridge, SCx200_DOCCS_CTRL, &ctrl);
-		pmr = inl(SCx200_CB_BASE + SCx200_PMR);
+		pmr = inl(scx200_cb_base + SCx200_PMR);
 
 		if (base == 0
 		    || (ctrl & 0x07000000) != 0x07000000
@@ -158,14 +154,14 @@ static int __init init_scx200_docflash(void)
 		
 		pci_write_config_dword(bridge, SCx200_DOCCS_BASE, docmem.start);
 		pci_write_config_dword(bridge, SCx200_DOCCS_CTRL, ctrl);
-		pmr = inl(SCx200_CB_BASE + SCx200_PMR);
+		pmr = inl(scx200_cb_base + SCx200_PMR);
 		
 		if (width == 8) {
 			pmr &= ~(1<<6);
 		} else {
 			pmr |= (1<<6);
 		}
-		outl(pmr, SCx200_CB_BASE + SCx200_PMR);
+		outl(pmr, scx200_cb_base + SCx200_PMR);
 	}
 	
        	printk(KERN_INFO NAME ": DOCCS mapped at 0x%lx-0x%lx, width %d\n", 
@@ -200,7 +196,7 @@ static int __init init_scx200_docflash(void)
 
 	mymtd->owner = THIS_MODULE;
 
-#if PARTITION
+#ifdef CONFIG_MTD_PARTITIONS
 	partition_info[3].offset = mymtd->size-partition_info[3].size;
 	partition_info[2].size = partition_info[3].offset-partition_info[2].offset;
 	add_mtd_partitions(mymtd, partition_info, NUM_PARTITIONS);
@@ -213,7 +209,7 @@ static int __init init_scx200_docflash(void)
 static void __exit cleanup_scx200_docflash(void)
 {
 	if (mymtd) {
-#if PARTITION
+#ifdef CONFIG_MTD_PARTITIONS
 		del_mtd_partitions(mymtd);
 #else
 		del_mtd_device(mymtd);

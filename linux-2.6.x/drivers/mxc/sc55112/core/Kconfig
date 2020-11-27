@@ -1,0 +1,26 @@
+#
+# PMIC sc55112 device configuration
+#
+
+menu "SC55112 support"
+
+config MXC_PMIC_SC55112
+        tristate "sc55112 core support"
+        ---help---
+          This is the sc55112 protocol driver for the Freescale MXC application.
+          You must also use the 'MXC SPI support' option with this.
+config MXC_PMIC_SC55112_FIXARB
+        bool "Use Arbitration Bit Workaround"
+        depends on MXC_PMIC_SC55112
+        default n
+        ---help---
+            Enable this option to include the code that will automatically
+            toggle the sc55112 arbitration bits to allow register write
+            access to the secondary processor. Note that this also requires
+            a hardware modification to the RF Deck that connects the Sphinx
+            card (with the sc55112 PMIC) to the MXC91131 EVB.
+
+source "drivers/mxc/sc55112/module/Kconfig"
+
+endmenu
+

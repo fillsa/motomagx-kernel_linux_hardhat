@@ -1,0 +1,150 @@
+config FB_MXC
+	tristate "MXC Framebuffer support"
+	depends on FB && MXC_IPU
+	default y
+	help
+	  This is a framebuffer device for the MXC LCD Controller.
+	  See <http://www.linux-fbdev.org/> for information on framebuffer
+	  devices.
+
+	  If you plan to use the LCD display with your MXC system, say
+	  Y here.
+
+choice
+	prompt "Default Framebuffer Bit Depth"
+	depends on FB_MXC
+	default FB_MXC_24BPP
+
+config FB_MXC_16BPP
+	bool "16 BPP"
+
+config FB_MXC_24BPP
+	bool "24 BPP"
+
+config FB_MXC_32BPP
+	bool "32 BPP"
+
+endchoice
+
+config FB_MXC_SYNC_PANEL
+	depends on FB_MXC
+	bool "Synchronous Panels"
+	default y
+
+choice
+	prompt "Synchronous Panel Type"
+	depends on FB_MXC_SYNC_PANEL && FB_MXC
+	default FB_MXC_SHARP_QVGA_PANEL
+
+config FB_MXC_SANYO_QVGA_PANEL
+	bool "Sanyo QVGA Panel"
+
+config FB_MXC_SHARP_QVGA_PANEL
+	bool "Sharp QVGA Panel"
+
+config FB_MXC_VGA_PANEL
+	bool "VGA Panel"
+
+config FB_MXC_TVOUT
+	bool "TV Out Encoder"
+
+endchoice
+
+choice
+	prompt "TV-Out Video Standard"
+	depends on FB_MXC_TVOUT
+	default FB_MXC_TVOUT_VGA
+
+config FB_MXC_TVOUT_NTSC
+	bool "NTSC"
+
+config FB_MXC_TVOUT_PAL
+	bool "PAL"
+
+config FB_MXC_TVOUT_VGA
+	bool "VGA"
+
+endchoice
+
+config FB_MXC_OVERLAY
+	bool "Framebuffer Overlay Plane"
+	depends on FB_MXC_SYNC_PANEL
+	default n
+
+config FB_MXC_INTERNAL_MEM
+	bool "Framebuffer in Internal RAM"
+	depends on FB_MXC_SYNC_PANEL && !FB_MXC_VGA_PANEL && ARCH_MXC91231
+	depends on !FB_MXC_32BPP
+	default n
+
+config FB_MXC_ASYNC_PANEL
+	depends on FB_MXC
+	bool "Asynchronous Panels"
+	default n
+
+menu "Asynchronous Panel Type"
+	depends on FB_MXC_ASYNC_PANEL && FB_MXC
+
+config FB_MXC_EPSON_PANEL
+	depends on FB_MXC_ASYNC_PANEL
+	default n
+	bool "Epson 176x220 Panel"
+
+if MACH_I30030ADS
+config FB_MXC_EPSON_QVGA_PANEL
+	depends on FB_MXC_ASYNC_PANEL
+	default y
+	bool "Epson 240x320 Panel"
+endif
+
+if MACH_MXC30030ADS
+config FB_MXC_TOSHIBA_QVGA_PANEL
+	depends on FB_MXC_ASYNC_PANEL
+	bool "Toshiba 240x320 Panel"
+
+config FB_MXC_SHARP_128_PANEL
+	depends on FB_MXC_ASYNC_PANEL
+	bool "Sharp 128x128 Panel"
+endif
+
+endmenu
+
+choice
+	prompt "Async Panel Interface Type"
+	depends on FB_MXC_ASYNC_PANEL && FB_MXC
+	default FB_MXC_ASYNC_PANEL_IFC_16_BIT
+
+config FB_MXC_ASYNC_PANEL_IFC_8_BIT
+	bool "8-bit Parallel Bus Interface"
+
+config FB_MXC_ASYNC_PANEL_IFC_16_BIT
+	bool "16-bit Parallel Bus Interface"
+
+config FB_MXC_ASYNC_PANEL_IFC_SERIAL
+	bool "Serial Bus Interface"
+
+endchoice
+
+choice
+        prompt "Main-Display Type"
+        default FB_MXC_MAIN_TRANSMISSIVE_DISPLAY
+
+config FB_MXC_MAIN_TRANSMISSIVE_DISPLAY
+        bool "Transmissive Display"
+
+config FB_MXC_MAIN_TRANSFLECTIVE_DISPLAY
+        bool "Transflective Display"
+
+endchoice
+
+choice
+        prompt "CLI-Display Type"
+        default FB_MXC_CLI_TRANSFLECTIVE_DISPLAY
+
+config FB_MXC_CLI_TRANSMISSIVE_DISPLAY
+        bool "Transmissive Display"
+
+config FB_MXC_CLI_TRANSFLECTIVE_DISPLAY
+        bool "Transflective Display"
+
+endchoice

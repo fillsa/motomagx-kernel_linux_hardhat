@@ -37,6 +37,7 @@
 
 #include <linux/errno.h>
 #include <linux/types.h>
+#include <linux/wait.h>
 #include <linux/spinlock.h>
 
 #define __DQUOT_VERSION__	"dquot_6.5.1"

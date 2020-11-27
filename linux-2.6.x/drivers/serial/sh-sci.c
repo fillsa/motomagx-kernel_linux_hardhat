@@ -42,6 +42,7 @@
 #include <linux/delay.h>
 #include <linux/console.h>
 #include <linux/bitops.h>
+#include <linux/kgdb.h>
 
 #ifdef CONFIG_CPU_FREQ
 #include <linux/notifier.h>
@@ -65,14 +66,34 @@
 
 #include "sh-sci.h"
 
-#ifdef CONFIG_SH_KGDB
-#include <asm/kgdb.h>
+#ifdef CONFIG_KGDB_SH_SCI
+/* Speed of the UART. */
+#if defined(CONFIG_KGDB_9600BAUD)
+static int kgdbsci_baud = 9600;
+#elif defined(CONFIG_KGDB_19200BAUD)
+static int kgdbsci_baud = 19200;
+#elif defined(CONFIG_KGDB_38400BAUD)
+static int kgdbsci_baud = 38400;
+#elif defined(CONFIG_KGDB_57600BAUD)
+static int kgdbsci_baud = 57600;
+#else
+static int kgdbsci_baud = 115200;	/* Start with this if not given */
+#endif
 
-static int kgdb_get_char(struct sci_port *port);
-static void kgdb_put_char(struct sci_port *port, char c);
-static void kgdb_handle_error(struct sci_port *port);
-static struct sci_port *kgdb_sci_port;
-#endif /* CONFIG_SH_KGDB */
+/* Index of the UART, matches ttySX naming. */
+#if defined(CONFIG_KGDB_TTYS1)
+static int kgdbsci_ttyS = 1;
+#elif defined(CONFIG_KGDB_TTYS2)
+static int kgdbsci_ttyS = 2;
+#elif defined(CONFIG_KGDB_TTYS3)
+static int kgdbsci_ttyS = 3;
+#else
+static int kgdbsci_ttyS = 0;		/* Start with this if not given */
+#endif
+
+/* Make life easier on us. */
+#define KGDBPORT	sci_ports[kgdbsci_ttyS]
+#endif /* CONFIG_KGDB_SH_SCI */
 
 #ifdef CONFIG_SERIAL_SH_SCI_CONSOLE
 static struct sci_port *serial_console_port = 0;
@@ -85,18 +106,14 @@ static void sci_start_rx(struct uart_port *port, unsigned int tty_start);
 static void sci_stop_rx(struct uart_port *port);
 static int sci_request_irq(struct sci_port *port);
 static void sci_free_irq(struct sci_port *port);
+static void sci_set_termios(struct uart_port *port, struct termios *termios,
+			    struct termios *old);
 
 static struct sci_port sci_ports[SCI_NPORTS];
 static struct uart_driver sci_uart_driver;
 
-#if defined(CONFIG_SH_STANDARD_BIOS) || defined(CONFIG_SH_KGDB)
-
-static void handle_error(struct uart_port *port)
-{				/* Clear error flags */
-	sci_out(port, SCxSR, SCxSR_ERROR_CLEAR(port));
-}
-
-static int get_char(struct uart_port *port)
+#if defined(CONFIG_SH_STANDARD_BIOS) || defined(CONFIG_KGDB_SH_SCI)
+static int get_char_for_gdb(struct uart_port *port)
 {
 	unsigned long flags;
 	unsigned short status;
@@ -106,7 +123,8 @@ static int get_char(struct uart_port *port)
         do {
 		status = sci_in(port, SCxSR);
 		if (status & SCxSR_ERRORS(port)) {
-			handle_error(port);
+			/* Clear error flags. */
+			sci_out(port, SCxSR, SCxSR_ERROR_CLEAR(port));
 			continue;
 		}
 	} while (!(status & SCxSR_RDxF(port)));
@@ -117,21 +135,7 @@ static int get_char(struct uart_port *port)
 
 	return c;
 }
-
-/* Taken from sh-stub.c of GDB 4.18 */
-static const char hexchars[] = "0123456789abcdef";
-
-static __inline__ char highhex(int  x)
-{
-	return hexchars[(x >> 4) & 0xf];
-}
-
-static __inline__ char lowhex(int  x)
-{
-	return hexchars[x & 0xf];
-}
-
-#endif /* CONFIG_SH_STANDARD_BIOS || CONFIG_SH_KGDB */
+#endif /* CONFIG_SH_STANDARD_BIOS || CONFIG_KGDB_SH_SCI */
 
 /*
  * Send the packet in buffer.  The host gets one chance to read it.
@@ -163,21 +167,14 @@ static void put_string(struct sci_port *sci_port, const char *buffer, int count)
 	const unsigned char *p = buffer;
 	int i;
 
-#if defined(CONFIG_SH_STANDARD_BIOS) || defined(CONFIG_SH_KGDB)
-	int checksum;
-	int usegdb=0;
-
 #ifdef CONFIG_SH_STANDARD_BIOS
+	int checksum;
+	const char hexchars[] = "0123456789abcdef";
+
     	/* This call only does a trap the first time it is
 	 * called, and so is safe to do here unconditionally
 	 */
-	usegdb |= sh_bios_in_gdb_mode();
-#endif
-#ifdef CONFIG_SH_KGDB
-	usegdb |= (kgdb_in_gdb_mode && (port == kgdb_sci_port));
-#endif
-
-	if (usegdb) {
+	if (sh_bios_in_gdb_mode()) {
 	    /*  $<packet info>#<checksum>. */
 	    do {
 		unsigned char c;
@@ -189,18 +186,18 @@ static void put_string(struct sci_port *sci_port, const char *buffer, int count)
 			int h, l;
 
 			c = *p++;
-			h = highhex(c);
-			l = lowhex(c);
+			h = hexchars[c >> 4];
+			l = hexchars[c % 16];
 			put_char(port, h);
 			put_char(port, l);
 			checksum += h + l;
 		}
 		put_char(port, '#');
-		put_char(port, highhex(checksum));
-		put_char(port, lowhex(checksum));
+		put_char(port, hexchars[checksum >> 4]);
+		put_char(port, hexchars[checksum & 16]);
 	    } while  (get_char(port) != '+');
 	} else
-#endif /* CONFIG_SH_STANDARD_BIOS || CONFIG_SH_KGDB */
+#endif /* CONFIG_SH_STANDARD_BIOS */
 	for (i=0; i<count; i++) {
 		if (*p == 10)
 			put_char(port, '\r');
@@ -210,90 +207,155 @@ static void put_string(struct sci_port *sci_port, const char *buffer, int count)
 #endif /* CONFIG_SERIAL_SH_SCI_CONSOLE */
 
 
-#ifdef CONFIG_SH_KGDB
-
-/* Is the SCI ready, ie is there a char waiting? */
-static int kgdb_is_char_ready(struct sci_port *port)
+#ifdef CONFIG_KGDB_SH_SCI
+static int kgdbsci_read_char(void)
 {
-        unsigned short status = sci_in(port, SCxSR);
-
-        if (status & (SCxSR_ERRORS(port) | SCxSR_BRK(port)))
-                kgdb_handle_error(port);
-
-        return (status & SCxSR_RDxF(port));
-}
-
-/* Write a char */
-static void kgdb_put_char(struct sci_port *port, char c)
-{
-        unsigned short status;
-
-        do
-                status = sci_in(port, SCxSR);
-        while (!(status & SCxSR_TDxE(port)));
-
-        sci_out(port, SCxTDR, c);
-        sci_in(port, SCxSR);    /* Dummy read */
-        sci_out(port, SCxSR, SCxSR_TDxE_CLEAR(port));
-}
-
-/* Get a char if there is one, else ret -1 */
-static int kgdb_get_char(struct sci_port *port)
-{
-        int c;
-
-        if (kgdb_is_char_ready(port) == 0)
-                c = -1;
-        else {
-                c = sci_in(port, SCxRDR);
-                sci_in(port, SCxSR);    /* Dummy read */
-                sci_out(port, SCxSR, SCxSR_RDxF_CLEAR(port));
-        }
-
-        return c;
-}
-
-/* Called from kgdbstub.c to get a character, i.e. is blocking */
-static int kgdb_sci_getchar(void)
-{
-        volatile int c;
-
-        /* Keep trying to read a character, this could be neater */
-        while ((c = kgdb_get_char(kgdb_sci_port)) < 0);
-
-        return c;
+	return get_char_for_gdb(&KGDBPORT.port);
 }
 
 /* Called from kgdbstub.c to put a character, just a wrapper */
-static void kgdb_sci_putchar(int c)
+static void kgdbsci_write_char(int c)
 {
+	unsigned short status;
 
-        kgdb_put_char(kgdb_sci_port, c);
+	do
+		status = sci_in(&KGDBPORT.port, SCxSR);
+	while (!(status & SCxSR_TDxE(&KGDBPORT.port)));
+
+	sci_out(&KGDBPORT.port, SCxTDR, c);
+	sci_in(&KGDBPORT.port, SCxSR);	/* Dummy read */
+	sci_out(&KGDBPORT.port, SCxSR, SCxSR_TDxE_CLEAR(&KGDBPORT.port));
 }
 
-/* Clear any errors on the SCI */
-static void kgdb_handle_error(struct sci_port *port)
+#ifndef CONFIG_SERIAL_SH_SCI_CONSOLE
+/* If we don't have console, we never hookup IRQs.  But we need to
+ * hookup one so that we can interrupt the system.
+ */
+static irqreturn_t kgdbsci_rx_interrupt(int irq, void *ptr,
+		struct pt_regs *regs)
 {
-        sci_out(port, SCxSR, SCxSR_ERROR_CLEAR(port));  /* Clear error flags */
+	struct uart_port *port = ptr;
+
+	if (!(sci_in(port, SCxSR) & SCxSR_RDxF(port)))
+		return IRQ_NONE;
+
+	/* We've got an interrupt, so go ahead and call breakpoint() */
+	breakpoint();
+
+	sci_in(port, SCxSR); /* dummy read */
+	sci_out(port, SCxSR, SCxSR_RDxF_CLEAR(port));
+
+	return IRQ_HANDLED;
 }
 
-/* Breakpoint if there's a break sent on the serial port */
-static void kgdb_break_interrupt(int irq, void *ptr, struct pt_regs *regs)
+static irqreturn_t kgdbsci_mpxed_interrupt(int irq, void *ptr,
+		struct pt_regs *regs)
 {
-        struct sci_port *port = ptr;
-        unsigned short status = sci_in(port, SCxSR);
+        unsigned short ssr_status, scr_status;
+        struct uart_port *port = ptr;
 
-        if (status & SCxSR_BRK(port)) {
+        ssr_status = sci_in(port,SCxSR);
+        scr_status = sci_in(port,SCSCR);
 
-                /* Break into the debugger if a break is detected */
-                BREAKPOINT();
+	/* Rx Interrupt */
+        if ((ssr_status&0x0002) && (scr_status&0x0040))
+		kgdbsci_rx_interrupt(irq, ptr, regs);
 
-                /* Clear */
-                sci_out(port, SCxSR, SCxSR_BREAK_CLEAR(port));
-        }
+	return IRQ_HANDLED;
 }
 
-#endif /* CONFIG_SH_KGDB */
+static void __init kgdbsci_lateinit(void)
+{
+	if (KGDBPORT.irqs[0] == KGDBPORT.irqs[1]) {
+		if (!KGDBPORT.irqs[0]) {
+			printk(KERN_ERR "kgdbsci: Cannot allocate irq.\n");
+			return;
+		}
+		if (request_irq(KGDBPORT.irqs[0], kgdbsci_mpxed_interrupt,
+					SA_INTERRUPT, "kgdbsci",
+					&KGDBPORT.port)) {
+			printk(KERN_ERR "kgdbsci: Cannot allocate irq.\n");
+			return;
+		}
+	} else {
+		if (KGDBPORT.irqs[1])
+			request_irq(KGDBPORT.irqs[1],
+					kgdbsci_rx_interrupt, SA_INTERRUPT,
+					"kgdbsci", &KGDBPORT.port);
+	}
+}
+#endif
+
+/*
+ * We use the normal init routine to setup the port, so we can't be
+ * in here too early.
+ */
+static int kgdbsci_init(void)
+{
+	struct termios termios;
+
+	memset(&termios, 0, sizeof(struct termios));
+
+	termios.c_cflag = CREAD | HUPCL | CLOCAL | CS8;
+	switch (kgdbsci_baud) {
+	case 9600:
+		termios.c_cflag |= B9600;
+		break;
+	case 19200:
+		termios.c_cflag |= B19200;
+		break;
+	case 38400:
+		termios.c_cflag |= B38400;
+		break;
+	case 57600:
+		termios.c_cflag |= B57600;
+		break;
+	case 115200:
+		termios.c_cflag |= B115200;
+		break;
+	}
+	sci_set_termios(&KGDBPORT.port, &termios, NULL);
+
+	return 0;
+}
+
+struct kgdb_io kgdb_io_ops = {
+	.read_char = kgdbsci_read_char,
+	.write_char = kgdbsci_write_char,
+	.init = kgdbsci_init,
+#ifndef CONFIG_SERIAL_SH_SCI_CONSOLE
+	.late_init = kgdbsci_lateinit,
+#endif
+};
+
+/*
+ * Syntax for this cmdline option is "kgdbsci=ttyno,baudrate".
+ */
+static int __init
+kgdbsci_opt(char *str)
+{
+	/* We might have anywhere from 1 to 3 ports. */
+	if (*str < '0' || *str > SCI_NPORTS + '0')
+		 goto errout;
+	kgdbsci_ttyS = *str - '0';
+	str++;
+	if (*str != ',')
+		 goto errout;
+	str++;
+	kgdbsci_baud = simple_strtoul(str, &str, 10);
+	if (kgdbsci_baud != 9600 && kgdbsci_baud != 19200 &&
+	    kgdbsci_baud != 38400 && kgdbsci_baud != 57600 &&
+	    kgdbsci_baud != 115200)
+		 goto errout;
+
+	return 0;
+
+errout:
+	printk(KERN_ERR "Invalid syntax for option kgdbsci=\n");
+	return 1;
+}
+__setup("kgdbsci", kgdbsci_opt);
+#endif /* CONFIG_KGDB_SH_SCI */
 
 #if defined(__H8300S__)
 enum { sci_disable, sci_enable };
@@ -540,6 +602,16 @@ static inline void sci_receive_chars(struct uart_port *port,
 					count--; i--;
 					continue;
 				}
+
+#ifdef CONFIG_KGDB_SH_SCI
+				/* We assume that a ^C on the port KGDB
+				 * is using means that KGDB wants to
+				 * interrupt the running system.
+				 */
+				if (port->line == KGDBPORT.port.line &&
+						c == 3)
+					breakpoint();
+#endif
 
 				/* Store data and status */
 				tty->flip.char_buf_ptr[i] = c;
@@ -1552,6 +1624,7 @@ static int __init sci_console_init(void)
 console_initcall(sci_console_init);
 #endif /* CONFIG_SERIAL_SH_SCI_CONSOLE */
 
+#if 0
 #ifdef CONFIG_SH_KGDB
 /*
  * FIXME: Most of this can go away.. at the moment, we rely on
@@ -1597,30 +1670,9 @@ int __init kgdb_console_setup(struct console *co, char *options)
 	return uart_set_options(port, co, baud, parity, bits, flow);
 }
 #endif /* CONFIG_SH_KGDB */
+#endif /* 0 */
 
-#ifdef CONFIG_SH_KGDB_CONSOLE
-static struct console kgdb_console = {
-        .name		= "ttySC",
-        .write		= kgdb_console_write,
-        .setup		= kgdb_console_setup,
-        .flags		= CON_PRINTBUFFER | CON_ENABLED,
-        .index		= -1,
-	.data		= &sci_uart_driver,
-};
-
-/* Register the KGDB console so we get messages (d'oh!) */
-static int __init kgdb_console_init(void)
-{
-	register_console(&kgdb_console);
-	return 0;
-}
-
-console_initcall(kgdb_console_init);
-#endif /* CONFIG_SH_KGDB_CONSOLE */
-
-#if defined(CONFIG_SH_KGDB_CONSOLE)
-#define SCI_CONSOLE	&kgdb_console
-#elif defined(CONFIG_SERIAL_SH_SCI_CONSOLE)
+#ifdef CONFIG_SERIAL_SH_SCI_CONSOLE
 #define SCI_CONSOLE	&serial_console
 #else
 #define SCI_CONSOLE 	0
@@ -1689,4 +1741,3 @@ static void __exit sci_exit(void)
 
 module_init(sci_init);
 module_exit(sci_exit);
-

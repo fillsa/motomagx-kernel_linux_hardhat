@@ -34,7 +34,7 @@ extern unsigned long empty_zero_page[1024];
 extern pgd_t swapper_pg_dir[1024];
 extern kmem_cache_t *pgd_cache;
 extern kmem_cache_t *pmd_cache;
-extern spinlock_t pgd_lock;
+extern raw_spinlock_t pgd_lock;
 extern struct page *pgd_list;
 
 void pmd_ctor(void *, kmem_cache_t *, unsigned long);

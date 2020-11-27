@@ -36,15 +36,20 @@
  */
 
 #include <linux/pm.h>
+#include <linux/rtc.h>
 #include <linux/sched.h>
 #include <linux/proc_fs.h>
 #include <linux/pm.h>
+#include <linux/vst.h>
+#include <linux/interrupt.h>
 
 #include <asm/io.h>
 #include <asm/mach-types.h>
 #include <asm/arch/omap16xx.h>
 #include <asm/arch/pm.h>
 #include <asm/arch/mux.h>
+#include <asm/arch/gpio.h>
+#include <asm/irq.h>
 #include <asm/arch/tps65010.h>
 
 #include "clock.h"
@@ -79,8 +84,18 @@ void omap_pm_idle(void)
 		return;
 	}
 	mask32 = omap_readl(ARM_SYSST);
-	local_fiq_enable();
-	local_irq_enable();
+
+	if (vst_setup()) {
+		local_fiq_enable();
+		local_irq_enable();
+		return;
+	}
+
+#if defined(CONFIG_OMAP_32K_TIMER) && defined(CONFIG_NO_IDLE_HZ)
+	/* Override timer to use VST for the next cycle */
+	omap_32k_timer_next_vst_interrupt();
+#endif
+
 	if ((mask32 & DSP_IDLE) == 0) {
 		__asm__ volatile ("mcr	p15, 0, r0, c7, c0, 4");
 	} else {
@@ -95,7 +110,84 @@ void omap_pm_idle(void)
 
 		func_ptr();
 	}
+	local_fiq_enable();
+	local_irq_enable();
 }
+
+static int keypad_wakeup;
+
+void omap_pm_wakeup_enable_keypad(void)
+{
+	keypad_wakeup = 1;
+}
+
+static int waker_interrupt;
+
+int omap_pm_get_waker_interrupt(void)
+{
+	return waker_interrupt;
+}
+
+#ifdef CONFIG_OMAP_SERIAL_WAKE
+
+static int uart_wakeup;
+
+void omap_pm_wakeup_enable_uart(void)
+{
+	uart_wakeup = 1;
+}
+
+/*
+ * This function enables/disables wake up on UART1 TX events.
+ * It switches V14 pin from UART1_RX to GPIO37 and enables GPIO
+ * wakeup event generation.
+ *
+ */
+static void omap_serial_wakeup_trigger(int enable)
+{
+
+	static int gpio_configured = 0;
+	if (!cpu_is_omap1610() && !cpu_is_omap1710())
+		return ;
+
+	if (!gpio_configured)
+	{
+		gpio_configured = 1;
+
+		/* UART1 TX is multiplexed with GPIO37,so we set GPIO37
+		 * as input and enable events on both edges.
+		 * Note: GPIO3 module (base address 0xfffbb400) controls
+		 * GPIO37 pin
+		 */
+
+		omap_set_gpio_direction(37, 1);
+		omap_set_gpio_edge_ctrl(37, OMAP_GPIO_BOTH_EDGES);
+
+		/* Set smartilde mode and enable wakeup event generation
+		 * by writing to  GPIO_SYSCONFIG register. */
+
+		omap_writew(0x14,0xfffbb410);
+
+		/* Set bit correcponding to GPIO37 in GPIO_WAKEUPENABLE
+		 *  register (we write to GPIO_SET_WAKEUPENA)
+		 */
+		omap_writew((1<<(37%16)), 0xfffbb4e8);
+	}
+
+	if(uart_wakeup)
+	{
+		if(enable)
+		{
+			omap_cfg_reg(V14_1610_GPIO37);
+		}else
+		{
+			omap_cfg_reg(V14_1610_UART1_RX);
+		}
+	}
+}
+#else
+static void omap_serial_wakeup_trigger(int enable) {;}
+#endif
 
 /*
  * Configuration of the wakeup event is board specific. For the
@@ -122,18 +214,21 @@ static void omap_pm_wakeup_setup(void)
 	omap_writel(~IRQ_LEVEL2, OMAP_IH1_MIR);
 
 	if (cpu_is_omap1510()) {
-		omap_writel(~(IRQ_UART2 | IRQ_KEYBOARD),  OMAP_IH2_MIR);
+		omap_writel(~(IRQ_UART2 | (keypad_wakeup ? IRQ_KEYBOARD : 0)),
+			    OMAP_IH2_MIR);
 	}
 
 	if (cpu_is_omap16xx()) {
-		omap_writel(~(IRQ_UART2 | IRQ_KEYBOARD), OMAP_IH2_0_MIR);
+		omap_writel(~(IRQ_UART2 | (keypad_wakeup ? IRQ_KEYBOARD : 0)),
+			      OMAP_IH2_0_MIR);
 
-		omap_writel(~0x0, OMAP_IH2_1_MIR);
+		omap_writel(~IRQ_WAKE_UP_REQ, OMAP_IH2_1_MIR);
 		omap_writel(~0x0, OMAP_IH2_2_MIR);
 		omap_writel(~0x0, OMAP_IH2_3_MIR);
 	}
 
 	/*  New IRQ agreement */
+	omap_writel(1, OMAP_IH2_CONTROL);
  	omap_writel(1, OMAP_IH1_CONTROL);
 
 	/* external PULL to down, bit 22 = 0 */
@@ -146,8 +241,15 @@ void omap_pm_suspend(void)
 	unsigned long arg0 = 0, arg1 = 0;
 	int (*func_ptr)(unsigned short, unsigned short) = 0;
 	unsigned short save_dsp_idlect2;
-
+#ifdef CONFIG_OMAP_RTC
+	struct rtc_time rt;
+	long rtc_offset;
+	unsigned long mkt;
+	extern void get_rtc_time(struct rtc_time *);
+#endif
 	printk("PM: OMAP%x is entering deep sleep now ...\n", system_rev);
+
+	omap_serial_wakeup_trigger(1);
 
 	if (machine_is_omap_osk()) {
 		/* Stop LED1 (D9) blink */
@@ -161,6 +263,15 @@ void omap_pm_suspend(void)
 	local_irq_disable();
 	local_fiq_disable();
 
+#ifdef CONFIG_OMAP_RTC
+	/*
+	 * lets figure out the offset of the RTC to our system time.
+	 */
+	get_rtc_time(&rt);
+	mkt = mktime(rt.tm_year + 1900, rt.tm_mon + 1, rt.tm_mday, rt.tm_hour,
+		     rt.tm_min, rt.tm_sec);
+	rtc_offset = (long)(xtime.tv_sec - mkt);
+#endif
 	/*
 	 * Step 2: save registers
 	 *
@@ -217,9 +328,6 @@ void omap_pm_suspend(void)
 		omap_writew(omap_readw(ULPD_POWER_CTRL) |
 			    OMAP1610_ULPD_LOW_POWER_REQ, ULPD_POWER_CTRL);
 	}
-
-	/* configure LOW_PWR pin */
-	omap_cfg_reg(T20_1610_LOW_PWR);
 
 	/*
 	 * Step 4: OMAP DSP Shutdown
@@ -305,6 +413,33 @@ void omap_pm_suspend(void)
 	 * If we are here, processor is woken up!
 	 */
 
+	/*
+	 * Now only L2 interrupts serves as wake up sources.
+	 * So, we simply add 32 to L2 SIR to get right interrup number 
+	 */
+	if (cpu_is_omap16xx()) {
+		waker_interrupt = omap_readl(OMAP_IH2_0_SIR_IRQ) + 32;
+
+#ifdef CONFIG_OMAP_SERIAL_WAKE
+		/* Check if it was wakeup request */
+		if ((1<<waker_interrupt%32) == IRQ_WAKE_UP_REQ)
+		{
+			/* In our configuration the only possible source of
+			 *  WAKE_UP_REQ is GPIO3 module. It is obvious what
+			 *  wake up source is UART1 RX. Nevertheless we check it by
+			 *  reading GPIO3 GPIO_IRQSTATUS1 register.
+			 */
+			u16 irqstatus = omap_readw(0xfffbb418);
+			if (irqstatus&(1<<(37-32)))
+			{
+				/* The source of wake up is GPIO37
+				 * (but REAL source is UART1 RX).*/
+				waker_interrupt = INT_UART1;
+			}
+		}
+#endif
+	}
+
 	if (cpu_is_omap1510()) {
 		/* POWER_CTRL_REG = 0x0 (LOW_POWER is disabled) */
 		omap_writew(omap_readw(ULPD_POWER_CTRL) &
@@ -359,8 +494,17 @@ void omap_pm_suspend(void)
 	 * Reenable interrupts
 	 */
 
+#ifdef CONFIG_OMAP_RTC
+	get_rtc_time(&rt);
+	mkt = mktime(rt.tm_year + 1900, rt.tm_mon + 1, rt.tm_mday, rt.tm_hour,
+		     rt.tm_min, rt.tm_sec);
+	xtime.tv_sec = mkt + rtc_offset;
+#endif
+
 	local_irq_enable();
 	local_fiq_enable();
+
+	omap_serial_wakeup_trigger(0);
 
 	printk("PM: OMAP%x is re-starting from deep sleep...\n", system_rev);
 
@@ -508,7 +652,7 @@ static void omap_pm_init_proc(void)
  */
 //#include <asm/arch/hardware.h>
 
-static int omap_pm_prepare(u32 state)
+static int omap_pm_prepare(suspend_state_t state)
 {
 	int error = 0;
 
@@ -516,6 +660,10 @@ static int omap_pm_prepare(u32 state)
 	{
 	case PM_SUSPEND_STANDBY:
 	case PM_SUSPEND_MEM:
+		keypad_wakeup = 0;
+#ifdef CONFIG_OMAP_SERIAL_WAKE
+		uart_wakeup = 0;
+#endif
 		break;
 
 	case PM_SUSPEND_DISK:
@@ -535,7 +683,7 @@ static int omap_pm_prepare(u32 state)
  *
  */
 
-static int omap_pm_enter(u32 state)
+static int omap_pm_enter(suspend_state_t state)
 {
 	switch (state)
 	{
@@ -563,17 +711,29 @@ static int omap_pm_enter(u32 state)
  *	failed).
  */
 
-static int omap_pm_finish(u32 state)
+static int omap_pm_finish(suspend_state_t state)
 {
 	return 0;
 }
 
+
+/*
+ * Called after wakeup, prior to resuming devices or thawing processes.
+ * Custom wakeup actions that are to occur without resuming devices, or that
+ * affect device resume behavior, can occur here.
+ */
+
+static int omap_pm_wake(suspend_state_t state)
+{
+	return 0;
+}
 
 struct pm_ops omap_pm_ops ={
 	.pm_disk_mode = 0,
         .prepare        = omap_pm_prepare,
         .enter          = omap_pm_enter,
         .finish         = omap_pm_finish,
+	.wake		= omap_pm_wake,
 };
 
 static int __init omap_pm_init(void)
@@ -615,7 +775,9 @@ static int __init omap_pm_init(void)
 	omap_pm_init_proc();
 #endif
 
+	/* configure LOW_PWR pin */
+	omap_cfg_reg(T20_1610_LOW_PWR);
+
 	return 0;
 }
 __initcall(omap_pm_init);
-

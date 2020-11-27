@@ -48,10 +48,6 @@ extern void mips_time_init(void);
 extern void mips_timer_setup(struct irqaction *irq);
 extern unsigned long mips_rtc_get_time(void);
 
-#ifdef CONFIG_KGDB
-extern void kgdb_config(void);
-#endif
-
 struct resource standard_io_resources[] = {
 	{ "dma1", 0x00, 0x1f, IORESOURCE_BUSY },
 	{ "timer", 0x40, 0x5f, IORESOURCE_BUSY },
@@ -123,10 +119,6 @@ static int __init malta_setup(void)
 	 * Enable DMA channel 4 (cascade channel) in the PIIX4 south bridge.
 	 */
 	enable_dma(4);
-
-#ifdef CONFIG_KGDB
-	kgdb_config ();
-#endif
 
 	if ((mips_revision_corid == MIPS_REVISION_CORID_BONITO64) ||
 	    (mips_revision_corid == MIPS_REVISION_CORID_CORE_20K) ||

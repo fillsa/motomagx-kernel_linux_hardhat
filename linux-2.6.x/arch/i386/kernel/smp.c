@@ -23,6 +23,7 @@
 #include <asm/mtrr.h>
 #include <asm/tlbflush.h>
 #include <mach_apic.h>
+#include <linux/vst.h>
 
 /*
  *	Some notes on x86 processor bugs affecting SMP operation:
@@ -244,7 +245,7 @@ inline void send_IPI_mask_sequence(cpumask_t mask, int vector)
 static cpumask_t flush_cpumask;
 static struct mm_struct * flush_mm;
 static unsigned long flush_va;
-static spinlock_t tlbstate_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_RAW_SPINLOCK(tlbstate_lock);
 #define FLUSH_ALL	0xffffffff
 
 /*
@@ -335,6 +336,7 @@ fastcall void smp_invalidate_interrupt(struct pt_regs *regs)
 			leave_mm(cpu);
 	}
 	ack_APIC_irq();
+	vst_wakeup(regs, 0);
 	smp_mb__before_clear_bit();
 	cpu_clear(cpu, flush_cpumask);
 	smp_mb__after_clear_bit();
@@ -389,7 +391,7 @@ static void flush_tlb_others(cpumask_t cpumask, struct mm_struct *mm,
 
 	while (!cpus_empty(flush_cpumask))
 		/* nothing. lockup detection does not belong here */
-		mb();
+		cpu_relax();
 
 	flush_mm = NULL;
 	flush_va = 0;
@@ -478,10 +480,20 @@ void smp_send_reschedule(int cpu)
 }
 
 /*
+ * this function sends a 'reschedule' IPI to all other CPUs.
+ * This is used when RT tasks are starving and other CPUs
+ * might be able to run them:
+ */
+void smp_send_reschedule_allbutself(void)
+{
+	send_IPI_allbutself(RESCHEDULE_VECTOR);
+}
+
+/*
  * Structure and data for smp_call_function(). This is designed to minimise
  * static memory requirements. It also looks cleaner.
  */
-static spinlock_t call_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_RAW_SPINLOCK(call_lock);
 
 struct call_data_struct {
 	void (*func) (void *info);
@@ -579,8 +591,9 @@ void smp_send_stop(void)
  * all the work is done automatically when
  * we return from the interrupt.
  */
-fastcall void smp_reschedule_interrupt(struct pt_regs *regs)
+fastcall notrace void smp_reschedule_interrupt(struct pt_regs *regs)
 {
+	trace_special(regs->eip, 0, 0);
 	ack_APIC_irq();
 }
 
@@ -591,6 +604,7 @@ fastcall void smp_call_function_interrupt(struct pt_regs *regs)
 	int wait = call_data->wait;
 
 	ack_APIC_irq();
+	vst_wakeup(regs, 0);
 	/*
 	 * Notify initiating CPU that I've grabbed the data and am
 	 * about to execute the function

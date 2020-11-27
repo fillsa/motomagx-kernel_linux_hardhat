@@ -21,6 +21,7 @@
 #include <linux/vt_kern.h>		/* For unblank_screen() */
 #include <linux/highmem.h>
 #include <linux/module.h>
+#include <linux/ltt-events.h>
 
 #include <asm/system.h>
 #include <asm/uaccess.h>
@@ -38,6 +39,8 @@ void bust_spinlocks(int yes)
 	int loglevel_save = console_loglevel;
 
 	if (yes) {
+		stop_trace();
+		zap_rt_locks();
 		oops_in_progress = 1;
 		return;
 	}
@@ -213,7 +216,7 @@ fastcall void do_invalid_op(struct pt_regs *, unsigned long);
  *	bit 1 == 0 means read, 1 means write
  *	bit 2 == 0 means kernel, 1 means user-mode
  */
-fastcall void do_page_fault(struct pt_regs *regs, unsigned long error_code)
+fastcall notrace void do_page_fault(struct pt_regs *regs, unsigned long error_code)
 {
 	struct task_struct *tsk;
 	struct mm_struct *mm;
@@ -225,6 +228,7 @@ fastcall void do_page_fault(struct pt_regs *regs, unsigned long error_code)
 
 	/* get the address */
 	__asm__("movl %%cr2,%0":"=r" (address));
+	trace_special(regs->eip, error_code, address);
 
 	if (notify_die(DIE_PAGE_FAULT, "page fault", regs, error_code, 14,
 					SIGSEGV) == NOTIFY_STOP)
@@ -268,6 +272,8 @@ fastcall void do_page_fault(struct pt_regs *regs, unsigned long error_code)
 	 */
 	if (in_atomic() || !mm)
 		goto bad_area_nosemaphore;
+
+	ltt_ev_trap_entry(14, regs->eip);
 
 	/* When running in the kernel we expect faults to occur only to
 	 * addresses in user space.  All other faults represent errors in the
@@ -366,6 +372,7 @@ good_area:
 			tsk->thread.screen_bitmap |= 1 << bit;
 	}
 	up_read(&mm->mmap_sem);
+	ltt_ev_trap_exit();
 	return;
 
 /*
@@ -408,6 +415,7 @@ bad_area_nosemaphore:
 
 		if (nr == 6) {
 			do_invalid_op(regs, 0);
+			ltt_ev_trap_exit();
 			return;
 		}
 	}
@@ -415,16 +423,24 @@ bad_area_nosemaphore:
 
 no_context:
 	/* Are we prepared to handle this kernel fault?  */
-	if (fixup_exception(regs))
+	if (fixup_exception(regs)) {
+		ltt_ev_trap_exit();
 		return;
+	}
 
 	/* 
 	 * Valid to do another page fault here, because if this fault
 	 * had been triggered by is_prefetch fixup_exception would have 
 	 * handled it.
 	 */
- 	if (is_prefetch(regs, address, error_code))
+ 	if (is_prefetch(regs, address, error_code)) {
+		ltt_ev_trap_exit();
  		return;
+	}
+
+	if (notify_die(DIE_PAGE_FAULT, "no context", regs, error_code, 14,
+				SIGSEGV) == NOTIFY_STOP)
+		return;
 
 /*
  * Oops. The kernel tried to access some bad page. We'll have to
@@ -442,9 +458,9 @@ no_context:
 	}
 #endif
 	if (address < PAGE_SIZE)
-		printk(KERN_ALERT "Unable to handle kernel NULL pointer dereference");
+		printk(KERN_ALERT "BUG: Unable to handle kernel NULL pointer dereference");
 	else
-		printk(KERN_ALERT "Unable to handle kernel paging request");
+		printk(KERN_ALERT "BUG: Unable to handle kernel paging request");
 	printk(" at virtual address %08lx\n",address);
 	printk(KERN_ALERT " printing eip:\n");
 	printk("%08lx\n", regs->eip);
@@ -493,8 +509,10 @@ do_sigbus:
 		goto no_context;
 
 	/* User space => ok to do another page fault */
-	if (is_prefetch(regs, address, error_code))
+	if (is_prefetch(regs, address, error_code)) {
+		ltt_ev_trap_exit();
 		return;
+	}
 
 	tsk->thread.cr2 = address;
 	tsk->thread.error_code = error_code;
@@ -504,6 +522,7 @@ do_sigbus:
 	info.si_code = BUS_ADRERR;
 	info.si_addr = (void __user *)address;
 	force_sig_info(SIGBUS, &info, tsk);
+	ltt_ev_trap_exit();
 	return;
 
 vmalloc_fault:
@@ -542,6 +561,9 @@ vmalloc_fault:
 		pte_k = pte_offset_kernel(pmd_k, address);
 		if (!pte_present(*pte_k))
 			goto no_context;
+		ltt_ev_trap_entry(14, regs->eip);
+		ltt_ev_trap_exit();
 		return;
 	}
+	ltt_ev_trap_exit();
 }

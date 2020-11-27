@@ -4,6 +4,7 @@
  * Core registration and callback routines for MTD
  * drivers and users.
  *
+ * Copyright (C) 2006 Motorola, Inc.
  */
 
 #include <linux/config.h>
@@ -149,8 +150,8 @@ void register_mtd_user (struct mtd_notifier *new)
 }
 
 /**
- *	register_mtd_user - unregister a 'user' of MTD devices.
- *	@new: pointer to notifier info structure
+ *	unregister_mtd_user - unregister a 'user' of MTD devices.
+ *	@old: pointer to notifier info structure
  *
  *	Removes a callback function pair from the list of 'users' to be
  *	notified upon addition or removal of MTD devices. Causes the
@@ -316,10 +317,18 @@ static int mtd_pm_callback(struct pm_dev *dev, pm_request_t rqst, void *data)
 			if (mtd_table[i] && mtd_table[i]->suspend)
 				ret = mtd_table[i]->suspend(mtd_table[i]);
 		}
-	} else i = MAX_MTD_DEVICES-1;
-
-	if (rqst == PM_RESUME || ret) {
+#ifdef CONFIG_MOT_WFN443
+	} else i = MAX_MTD_DEVICES;
+#else
+    } else i = MAX_MTD_DEVICES-1;
+#endif /* CONFIG_MOT_WFN443 */
+	
+    if (rqst == PM_RESUME || ret) {
+#ifdef CONFIG_MOT_WFN443
+		for (i--; i >= 0; i--) {
+#else
 		for ( ; i >= 0; i--) {
+#endif /* CONFIG_MOT_WFN443 */
 			if (mtd_table[i] && mtd_table[i]->resume)
 				mtd_table[i]->resume(mtd_table[i]);
 		}

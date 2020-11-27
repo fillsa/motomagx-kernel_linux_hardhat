@@ -4433,6 +4433,7 @@
 11ab  Marvell Technology Group Ltd.
 	0146  GT-64010/64010A System Controller
 	1fa6  Marvell W8300 802.11 Adapter
+	4146  GT-64011/GT-64111 System Controller
 	4320  Yukon Gigabit Ethernet 10/100/1000Base-T Adapter
 	4611  GT-64115 System Controller
 	4620  GT-64120/64120A/64121A System Controller
@@ -6257,7 +6258,7 @@
 14d8  HOPF Elektronik GmBH
 # Formerly SiPackets, Inc., formerly API NetWorks, Inc., formerly Alpha Processor, Inc.
 14d9  Alliance Semiconductor Corporation
-	0010  AP1011/SP1011 HyperTransport-PCI Bridge [Sturgeon]
+	0010  AP1011 HyperTransport-PCI Bridge [Sturgeon]
 14da  National Aerospace Laboratories
 14db  AFAVLAB Technology Inc
 	2120  TK9902

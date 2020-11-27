@@ -1,6 +1,6 @@
 /*
  *  linux/arch/arm/kernel/module.c
- *
+ *  Copyright (C) 2007 Motorola, Inc.
  *  Copyright (C) 2002 Russell King.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -8,6 +8,13 @@
  * published by the Free Software Foundation.
  *
  * Module allocation method suggested by Andi Kleen.
+ *
+ * Revision History:
+ *
+ * Date         Author    Comment
+ * ----------   --------  --------------------
+ * 03/30/2007   Motorola  Applied GCOV 2.6.16 patch
+ *
  */
 #include <linux/config.h>
 #include <linux/module.h>
@@ -123,11 +130,16 @@ apply_relocate(Elf32_Shdr *sechdrs, const char *strtab, unsigned int symindex,
 		loc = dstsec->sh_addr + rel->r_offset;
 
 		switch (ELF32_R_TYPE(rel->r_info)) {
+#ifdef CONFIG_GCOV_PROFILE
+		case R_ARM_TARGET1:
+#endif
 		case R_ARM_ABS32:
 			*(u32 *)loc += sym->st_value;
 			break;
 
 		case R_ARM_PC24:
+		case R_ARM_CALL:
+		case R_ARM_JUMP24:
 			offset = (*(u32 *)loc & 0x00ffffff) << 2;
 			if (offset & 0x02000000)
 				offset -= 0x04000000;

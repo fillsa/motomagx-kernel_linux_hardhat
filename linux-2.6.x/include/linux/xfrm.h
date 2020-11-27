@@ -43,6 +43,19 @@ struct xfrm_selector
 	__u8	proto;
 	int	ifindex;
 	uid_t	user;
+	/*
+	 * XXX: ICMP values defined like a manner which setkey does:
+	 * XXX: ICMP-type is "sport" area and ICMP-code is stored "dport" area.
+	 * XXX: Should it be formed union like struct flowi? --nakam
+	 */
+#define xfrmsel_icmp_type	 sport
+#define xfrmsel_icmp_type_mask	 sport_mask
+#define xfrmsel_icmp_code	 dport
+#define xfrmsel_icmp_code_mask	 dport_mask
+#define xfrmsel_mh_type		 sport
+#define xfrmsel_mh_type_mask	 sport_mask
+#define xfrmsel_mh_bu_flags	 dport
+#define xfrmsel_mh_bu_flags_mask dport_mask	
 };
 
 #define XFRM_INF (~(__u64)0)
@@ -90,8 +103,12 @@ enum
 {
 	XFRM_POLICY_IN	= 0,
 	XFRM_POLICY_OUT	= 1,
+#ifdef CONFIG_USE_POLICY_FWD
 	XFRM_POLICY_FWD	= 2,
 	XFRM_POLICY_MAX	= 3
+#else
+	XFRM_POLICY_MAX = 2
+#endif
 };
 
 enum
@@ -140,8 +157,19 @@ enum {
 	XFRM_MSG_FLUSHPOLICY,
 #define XFRM_MSG_FLUSHPOLICY XFRM_MSG_FLUSHPOLICY
 
-	XFRM_MSG_MAX
+	XFRM_MSG_MUTATEADDR,
+#define XFRM_MSG_MUTATEADDR XFRM_MSG_MUTATEADDR
+
+#ifdef CONFIG_IPV6_MIP6
+	XFRM_MSG_MIP6NOTIFY,
+#define XFRM_MSG_MIP6NOTIFY XFRM_MSG_MIP6NOTIFY
+#endif
+
+	__XFRM_MSG_MAX
 };
+#define XFRM_MSG_MAX (__XFRM_MSG_MAX - 1)
+
+#define XFRM_NR_MSGTYPES (XFRM_MSG_MAX + 1 - XFRM_MSG_BASE)
 
 struct xfrm_user_tmpl {
 	struct xfrm_id		id;
@@ -171,6 +199,8 @@ enum xfrm_attr_type_t {
 	XFRMA_ALG_COMP,		/* struct xfrm_algo */
 	XFRMA_ENCAP,		/* struct xfrm_algo + struct xfrm_encap_tmpl */
 	XFRMA_TMPL,		/* 1 or more struct xfrm_user_tmpl */
+	XFRMA_POLICY,		/* 1 or more struct xfrm_userpolicy_id */
+	XFRMA_ADDR,		/* xfrm_address_t */
 	__XFRMA_MAX
 
 #define XFRMA_MAX (__XFRMA_MAX - 1)
@@ -191,6 +221,7 @@ struct xfrm_usersa_info {
 	__u8				flags;
 #define XFRM_STATE_NOECN	1
 #define XFRM_STATE_DECAP_DSCP	2
+#define XFRM_STATE_WILDRECV	2
 };
 
 struct xfrm_usersa_id {
@@ -198,6 +229,7 @@ struct xfrm_usersa_id {
 	__u32				spi;
 	__u16				family;
 	__u8				proto;
+	xfrm_address_t			saddr;
 };
 
 struct xfrm_userspi_info {
@@ -252,7 +284,39 @@ struct xfrm_usersa_flush {
 	__u8				proto;
 };
 
+/*
+ * Changing endpoint addresses.
+ *
+ * Finding SA without SPI and replace its addresses.
+ * The found SA will be removed if new_[ds]addr are unspecified.
+ * A template addresses can be also changed if specifying policy information
+ * as XFRMA_MSG_POLICY.
+ */
+struct xfrm_usersa_mutateaddress {
+	__u8		family;
+	__u8		proto;
+	__u8		mode;
+	__u32		reqid;
+	xfrm_address_t	old_daddr;
+	xfrm_address_t	old_saddr;
+	xfrm_address_t	new_daddr;
+	xfrm_address_t	new_saddr;
+};
+
+#ifdef CONFIG_IPV6_MIP6
+struct xfrm_user_mip6notify {
+	__u8		type;
+#define MIP6_BINDING_ERROR	0
+	__u8		status;
+	int 		rcv_ifindex;
+	xfrm_address_t	coaddr;  /* Care-of address of MN */
+	xfrm_address_t  hoaddr;  /* Home address of MN */   
+ 	xfrm_address_t  cnaddr;  /* Local address of CN */
+};
+#endif
+
 #define XFRMGRP_ACQUIRE		1
 #define XFRMGRP_EXPIRE		2
+#define XFRMGRP_NOTIFY		3
 
 #endif /* _LINUX_XFRM_H */

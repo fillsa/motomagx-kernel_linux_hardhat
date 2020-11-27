@@ -316,12 +316,12 @@ static void snd_mpu401_uart_input_trigger(snd_rawmidi_substream_t * substream, i
 		/* read data in advance */
 		/* prevent double enter via rawmidi->event callback */
 		if (atomic_dec_and_test(&mpu->rx_loop)) {
-			local_irq_save(flags);
+			local_irq_save_nort(flags);
 			if (spin_trylock(&mpu->input_lock)) {
 				snd_mpu401_uart_input_read(mpu);
 				spin_unlock(&mpu->input_lock);
 			}
-			local_irq_restore(flags);
+			local_irq_restore_nort(flags);
 		}
 		atomic_inc(&mpu->rx_loop);
 	} else {
@@ -407,12 +407,12 @@ static void snd_mpu401_uart_output_trigger(snd_rawmidi_substream_t * substream, 
 		/* output pending data */
 		/* prevent double enter via rawmidi->event callback */
 		if (atomic_dec_and_test(&mpu->tx_loop)) {
-			local_irq_save(flags);
+			local_irq_save_nort(flags);
 			if (spin_trylock(&mpu->output_lock)) {
 				snd_mpu401_uart_output_write(mpu);
 				spin_unlock(&mpu->output_lock);
 			}
-			local_irq_restore(flags);
+			local_irq_restore_nort(flags);
 		}
 		atomic_inc(&mpu->tx_loop);
 	} else {

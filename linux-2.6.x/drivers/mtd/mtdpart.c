@@ -1,14 +1,36 @@
 /*
  * Simple MTD partitioning layer
  *
+ * Copyright (C) 2005-2008 Motorola, Inc.
  * (C) 2000 Nicolas Pitre <nico@cam.org>
  *
  * This code is GPL
  *
- * $Id: mtdpart.c,v 1.51 2004/11/16 18:28:59 dwmw2 Exp $
+ * $Id: mtdpart.c,v 1.52 2005/01/12 22:34:33 gleixner Exp $
  *
  * 	02-21-2002	Thomas Gleixner <gleixner@autronix.de>
  *			added support for read_oob, write_oob
+ *
+ * 05-06-2005   feature CONFIG_MTD_NAND_BBM added by Motorola, Inc.
+ *		create the block reserve pool partition.
+ *		verify the size and start address of the reserve pool partition.
+ *
+ * 09-26-2005   feature CONFIG_MOT_FEAT_KPANIC added by Motorola, Inc.
+ *              Whenever the kernel panics, the printk ring buffer will be written
+ *              out to a dedicated flash partition.
+ *    
+ * 04-10-2006   feature CONFIG_MOT_FEAT_NAND_RDDIST added by Motorola, Inc.
+ *              the nand_base driver will work with nand_watchdog (user space daemon), 
+ *              while doing block read: automaticlly fix block if 1bit ECC error detected.
+ *              while block fixing requested by nand_watchdog: the block will be fixed
+ *              for read distrub recovery.
+ *
+ * 11-29-2006	feature CONFIG_MOT_FEAT_MEMDUMP added by Motorola, Inc.
+ *		dump the memory content to the mass storage partition on panic
+ *
+ * 04-15-2007   update part_read_distfix function with reason_code for CONFIG_MOT_FEAT_NAND_RDDIST
+ *		feature
+ * 01-03-2008	initialize rsvdblock_offset to avoid this variable being used without initialization. 
  */	
 
 #include <linux/module.h>
@@ -21,6 +43,36 @@
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/partitions.h>
 #include <linux/mtd/compatmac.h>
+#ifdef CONFIG_MOT_FEAT_KPANIC
+#include <linux/string.h>
+#endif /* CONFIG_MOT_FEAT_KPANIC */
+
+#if defined(CONFIG_MTD_NAND_BBM)
+/*
+ * reserved block offset 
+ * the last NAND partition will be used as reserved blocks 
+ */
+#if defined(CONFIG_MACH_PICO) || defined(CONFIG_MACH_MARCO) || defined(CONFIG_MACH_NEVIS)
+unsigned long rsvdblock_offset = 0x07ce0000;
+#else
+/* 
+ * ATTENTION: rsvdblock_offset should be initialized here.
+ * You can refer to the above initialization for Pico/Marco.
+ * Find the correct value in bootup kernel log.
+ */
+unsigned long rsvdblock_offset;
+#endif
+
+#endif /* CONFIG_MTD_NAND_BBM */
+
+#ifdef CONFIG_MOT_FEAT_KPANIC
+struct mtd_info *kpanic_partition = NULL;
+#endif /* CONFIG_MOT_FEAT_KPANIC */
+
+#ifdef CONFIG_MOT_FEAT_MEMDUMP
+struct mtd_info *memdump_partition = NULL;
+char dumppart_name[64];
+#endif /* CONFIG_MOT_FEAT_MEMDUMP */
 
 /* Our partition linked list */
 static LIST_HEAD(mtd_partitions);
@@ -108,6 +160,20 @@ static int part_read_oob (struct mtd_info *mtd, loff_t from, size_t len,
 					len, retlen, buf);
 }
 
+#ifdef CONFIG_MOT_FEAT_NAND_RDDIST
+static uint32_t part_get_offset (struct mtd_info *mtd)
+{
+	struct mtd_part *part = PART(mtd);
+	return part->offset;
+}
+static int part_read_distfix (struct mtd_info *mtd, int block, int reason_code)
+{
+	struct mtd_part *part = PART(mtd);
+	int fixblock = block + (int)(part->offset/part->master->erasesize);
+	return part->master->read_distfix (part->master, fixblock, reason_code);
+}
+#endif /*CONFIG_MOT_FEAT_NAND_RDDIST*/
+
 static int part_read_user_prot_reg (struct mtd_info *mtd, loff_t from, size_t len, 
 			size_t *retlen, u_char *buf)
 {
@@ -116,12 +182,26 @@ static int part_read_user_prot_reg (struct mtd_info *mtd, loff_t from, size_t le
 					len, retlen, buf);
 }
 
+static int part_get_user_prot_info (struct mtd_info *mtd,
+				    struct otp_info *buf, size_t len)
+{
+	struct mtd_part *part = PART(mtd);
+	return part->master->get_user_prot_info (part->master, buf, len);
+}
+
 static int part_read_fact_prot_reg (struct mtd_info *mtd, loff_t from, size_t len, 
 			size_t *retlen, u_char *buf)
 {
 	struct mtd_part *part = PART(mtd);
 	return part->master->read_fact_prot_reg (part->master, from, 
 					len, retlen, buf);
+}
+
+static int part_get_fact_prot_info (struct mtd_info *mtd,
+				    struct otp_info *buf, size_t len)
+{
+	struct mtd_part *part = PART(mtd);
+	return part->master->get_fact_prot_info (part->master, buf, len);
 }
 
 static int part_write (struct mtd_info *mtd, loff_t to, size_t len,
@@ -142,6 +222,14 @@ static int part_write (struct mtd_info *mtd, loff_t to, size_t len,
 					len, retlen, buf, NULL, &mtd->oobinfo);
 							
 }
+
+#ifdef CONFIG_MOT_FEAT_MTD_AUTO_BBM
+static int part_block_replace (struct mtd_info *mtd, loff_t ofs, int lock)
+{
+	struct mtd_part *part = PART(mtd);
+	return part->master->block_replace (part->master, ofs + part->offset, lock);
+}
+#endif
 
 static int part_write_ecc (struct mtd_info *mtd, loff_t to, size_t len,
 			size_t *retlen, const u_char *buf,
@@ -180,6 +268,12 @@ static int part_write_user_prot_reg (struct mtd_info *mtd, loff_t from, size_t l
 	struct mtd_part *part = PART(mtd);
 	return part->master->write_user_prot_reg (part->master, from, 
 					len, retlen, buf);
+}
+
+static int part_lock_user_prot_reg (struct mtd_info *mtd, loff_t from, size_t len) 
+{
+	struct mtd_part *part = PART(mtd);
+	return part->master->lock_user_prot_reg (part->master, from, len);
 }
 
 static int part_writev (struct mtd_info *mtd,  const struct kvec *vecs,
@@ -389,7 +483,10 @@ int add_mtd_partitions(struct mtd_info *master,
 
 		slave->mtd.read = part_read;
 		slave->mtd.write = part_write;
-
+#ifdef CONFIG_MOT_FEAT_MTD_AUTO_BBM
+		if (master->block_replace)
+			slave->mtd.block_replace = part_block_replace;
+#endif
 		if(master->point && master->unpoint){
 			slave->mtd.point = part_point;
 			slave->mtd.unpoint = part_unpoint;
@@ -401,6 +498,11 @@ int add_mtd_partitions(struct mtd_info *master,
 			slave->mtd.write_ecc = part_write_ecc;
 		if (master->read_oob)
 			slave->mtd.read_oob = part_read_oob;
+#ifdef CONFIG_MOT_FEAT_NAND_RDDIST
+		if (master->read_distfix)
+			slave->mtd.read_distfix = part_read_distfix;
+		slave->mtd.get_part_offset = part_get_offset;
+#endif /*CONFIG_MOT_FEAT_NAND_RDDIST*/
 		if (master->write_oob)
 			slave->mtd.write_oob = part_write_oob;
 		if(master->read_user_prot_reg)
@@ -409,6 +511,12 @@ int add_mtd_partitions(struct mtd_info *master,
 			slave->mtd.read_fact_prot_reg = part_read_fact_prot_reg;
 		if(master->write_user_prot_reg)
 			slave->mtd.write_user_prot_reg = part_write_user_prot_reg;
+		if(master->lock_user_prot_reg)
+			slave->mtd.lock_user_prot_reg = part_lock_user_prot_reg;
+		if(master->get_user_prot_info)
+			slave->mtd.get_user_prot_info = part_get_user_prot_info;
+		if(master->get_fact_prot_info)
+			slave->mtd.get_fact_prot_info = part_get_fact_prot_info;
 		if (master->sync)
 			slave->mtd.sync = part_sync;
 		if (!i && master->suspend && master->resume) {
@@ -515,6 +623,54 @@ int add_mtd_partitions(struct mtd_info *master,
 			add_mtd_device(&slave->mtd);
 			slave->registered = 1;
 		}
+
+#ifdef CONFIG_MOT_FEAT_KPANIC
+		/* save a pointer to mtd_info struct for the kpanic partition */
+		if (!strcmp(slave->mtd.name, "kpanic")) {
+			kpanic_partition = &slave->mtd;
+		}
+#ifdef CONFIG_MOT_FEAT_MEMDUMP
+		else if (!strcmp(slave->mtd.name, dumppart_name)) {
+			memdump_partition = &slave->mtd;
+		}
+#endif /* CONFIG_MOT_FEAT_MEMDUMP  */
+
+#endif /* CONFIG_MOT_FEAT_KPANIC */
+
+#if defined(CONFIG_MTD_NAND_BBM)
+		/* preset the reserved block offset */
+		if  (master->type == MTD_NANDFLASH && i == nbparts-1) {
+			int bbmblocks = 0;
+			int rsvdblocks = 0;
+			if (strcmp(slave->mtd.name, "rsv"))
+				panic("%s's \"rsv\" partition does not exist, NAND Bad Block cann't be handled!\n",
+					master->name);
+
+			if (rsvdblock_offset != slave->offset)
+				printk(KERN_ERR "BUG: rsvdblock_offset (0x%08x) will be re-initialized to 0x%08x\n", rsvdblock_offset, slave->offset);
+			rsvdblock_offset = slave->offset;
+			printk (KERN_INFO "%s's capacity:%dMB, reserved block offset:0x%08x\n",
+					master->name, (master->size/(1024*1024)), rsvdblock_offset);
+		
+			/*
+			* check the block number for the BBT/BBM reserved block pool...
+			* reserved block number for NAND flash should be 2% of the total blocks,
+			* plus: 
+			*	add extra 1 NFI, 2 BBT and 2 BBMs blocks.
+			* 
+			* how to calculate BBMs:
+			* 	- 2 bytes for each block, 
+			* 	- bbmblocks = ((totalblock*2)+(blocksize-1))/blocksize;
+			*/
+
+			bbmblocks = ((master->size/master->erasesize)*2+(master->erasesize-1))/master->erasesize;
+			rsvdblocks = ((master->size/master->erasesize)/100)*2+3+bbmblocks*2;
+
+			if (rsvdblock_offset != (master->size - rsvdblocks*master->erasesize))
+				panic("%s:0x%08x's rsv partition must start at offset:0x%08x\n", 
+					master->name, master->size, master->size-(rsvdblocks*master->erasesize));
+		}
+#endif
 	}
 
 	return 0;
@@ -523,7 +679,7 @@ int add_mtd_partitions(struct mtd_info *master,
 EXPORT_SYMBOL(add_mtd_partitions);
 EXPORT_SYMBOL(del_mtd_partitions);
 
-static spinlock_t part_parser_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(part_parser_lock);
 static LIST_HEAD(part_parsers);
 
 static struct mtd_part_parser *get_partition_parser(const char *name)

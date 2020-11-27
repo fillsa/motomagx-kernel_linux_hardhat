@@ -100,7 +100,7 @@ DECLARE_MUTEX (usb_bus_list_lock);	/* exported only for usbfs */
 EXPORT_SYMBOL_GPL (usb_bus_list_lock);
 
 /* used when updating hcd data */
-static spinlock_t hcd_data_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(hcd_data_lock);
 
 /* wait queue for synchronous unlinks */
 DECLARE_WAIT_QUEUE_HEAD(usb_kill_urb_queue);
@@ -312,7 +312,7 @@ static int rh_string (
  	// id 3 == vendor description
 	} else if (id == 3) {
                 sprintf (buf, "%s %s %s", UTS_SYSNAME, UTS_RELEASE,
-			hcd->description);
+			hcd->driver->description);
 
 	// unsupported IDs --> "protocol stall"
 	} else
@@ -333,7 +333,9 @@ static int rh_call_control (struct usb_hcd *hcd, struct urb *urb)
 	u8		*ubuf = urb->transfer_buffer;
 	int		len = 0;
 	int		patch_wakeup = 0;
+#ifndef CONFIG_PREEMPT_RT
 	unsigned long	flags;
+#endif
 
 	cmd = (struct usb_ctrlrequest *) urb->setup_packet;
 	typeReq  = (cmd->bRequestType << 8) | cmd->bRequest;
@@ -468,9 +470,13 @@ error:
 	}
 
 	/* any errors get returned through the urb completion */
+#ifndef CONFIG_PREEMPT_RT
 	local_irq_save (flags);
+#endif
 	usb_hcd_giveback_urb (hcd, urb, NULL);
+#ifndef CONFIG_PREEMPT_RT
 	local_irq_restore (flags);
+#endif
 	return 0;
 }
 
@@ -520,15 +526,13 @@ static void rh_report_status (unsigned long ptr)
 	unsigned long	flags;
 
 	urb = (struct urb *) ptr;
-	local_irq_save (flags);
-	spin_lock (&urb->lock);
+	spin_lock_irqsave (&urb->lock, flags);
 
 	/* do nothing if the urb's been unlinked */
 	if (!urb->dev
 			|| urb->status != -EINPROGRESS
 			|| (hcd = urb->dev->bus->hcpriv) == 0) {
-		spin_unlock (&urb->lock);
-		local_irq_restore (flags);
+		spin_unlock_irqrestore (&urb->lock, flags);
 		return;
 	}
 
@@ -546,12 +550,12 @@ static void rh_report_status (unsigned long ptr)
 			mod_timer (&hcd->rh_timer, jiffies + HZ/4);
 	}
 	spin_unlock (&hcd_data_lock);
-	spin_unlock (&urb->lock);
 
 	/* local irqs are always blocked in completions */
 	if (length > 0)
 		usb_hcd_giveback_urb (hcd, urb, NULL);
-	local_irq_restore (flags);
+
+	spin_unlock_irqrestore (&urb->lock, flags);
 }
 
 /*-------------------------------------------------------------------------*/
@@ -577,17 +581,23 @@ static int rh_urb_enqueue (struct usb_hcd *hcd, struct urb *urb)
 
 static int usb_rh_urb_dequeue (struct usb_hcd *hcd, struct urb *urb)
 {
+#ifndef CONFIG_PREEMPT_RT
 	unsigned long	flags;
+#endif
 
 	/* note:  always a synchronous unlink */
 	if ((unsigned long) urb == hcd->rh_timer.data) {
 		del_timer_sync (&hcd->rh_timer);
 		hcd->rh_timer.data = 0;
 
+#ifndef CONFIG_PREEMPT_RT
 		local_irq_save (flags);
+#endif
 		urb->hcpriv = NULL;
 		usb_hcd_giveback_urb (hcd, urb, NULL);
+#ifndef CONFIG_PREEMPT_RT
 		local_irq_restore (flags);
+#endif
 
 	} else if (usb_pipeendpoint(urb->pipe) == 0) {
 		spin_lock_irq(&urb->lock);	/* from usb_kill_urb */
@@ -676,6 +686,8 @@ void usb_bus_init (struct usb_bus *bus)
 	bus->bandwidth_isoc_reqs = 0;
 
 	INIT_LIST_HEAD (&bus->bus_list);
+
+	class_device_initialize(&bus->class_dev);
 }
 EXPORT_SYMBOL (usb_bus_init);
 
@@ -734,7 +746,7 @@ int usb_register_bus(struct usb_bus *bus)
 	snprintf(bus->class_dev.class_id, BUS_ID_SIZE, "usb%d", busnum);
 	bus->class_dev.class = &usb_host_class;
 	bus->class_dev.dev = bus->controller;
-	retval = class_device_register(&bus->class_dev);
+	retval = class_device_add(&bus->class_dev);
 	if (retval) {
 		clear_bit(busnum, busmap.busmap);
 		up(&usb_bus_list_lock);
@@ -1333,8 +1345,6 @@ static void hcd_endpoint_disable (struct usb_device *udev, int endpoint)
 
 	WARN_ON (!HCD_IS_RUNNING (hcd->state) && hcd->state != USB_STATE_HALT);
 
-	local_irq_disable ();
-
 rescan:
 	/* (re)block new requests, as best we can */
 	if (endpoint & USB_DIR_IN)
@@ -1343,7 +1353,7 @@ rescan:
 		udev->epmaxpacketout [epnum] = 0;
 
 	/* then kill any current requests */
-	spin_lock (&hcd_data_lock);
+	spin_lock_irq (&hcd_data_lock);
 	list_for_each_entry (urb, &dev->urb_list, urb_list) {
 		int	tmp = urb->pipe;
 
@@ -1362,13 +1372,13 @@ rescan:
 		if (urb->status != -EINPROGRESS)
 			continue;
 		usb_get_urb (urb);
-		spin_unlock (&hcd_data_lock);
+		spin_unlock_irq (&hcd_data_lock);
 
-		spin_lock (&urb->lock);
+		spin_lock_irq (&urb->lock);
 		tmp = urb->status;
 		if (tmp == -EINPROGRESS)
 			urb->status = -ESHUTDOWN;
-		spin_unlock (&urb->lock);
+		spin_unlock_irq (&urb->lock);
 
 		/* kick hcd unless it's already returning this */
 		if (tmp == -EINPROGRESS) {
@@ -1391,8 +1401,7 @@ rescan:
 		/* list contents may have changed */
 		goto rescan;
 	}
-	spin_unlock (&hcd_data_lock);
-	local_irq_enable ();
+	spin_unlock_irq (&hcd_data_lock);
 
 	/* synchronize with the hardware, so old configuration state
 	 * clears out immediately (and will be freed).
@@ -1425,45 +1434,6 @@ static int hcd_hub_resume (struct usb_bus *bus)
 		return hcd->driver->hub_resume (hcd);
 	return 0;
 }
-
-#endif
-
-/*-------------------------------------------------------------------------*/
-
-#ifdef	CONFIG_USB_OTG
-
-/**
- * usb_bus_start_enum - start immediate enumeration (for OTG)
- * @bus: the bus (must use hcd framework)
- * @port: 1-based number of port; usually bus->otg_port
- * Context: in_interrupt()
- *
- * Starts enumeration, with an immediate reset followed later by
- * khubd identifying and possibly configuring the device.
- * This is needed by OTG controller drivers, where it helps meet
- * HNP protocol timing requirements for starting a port reset.
- */
-int usb_bus_start_enum(struct usb_bus *bus, unsigned port_num)
-{
-	struct usb_hcd		*hcd;
-	int			status = -EOPNOTSUPP;
-
-	/* NOTE: since HNP can't start by grabbing the bus's address0_sem,
-	 * boards with root hubs hooked up to internal devices (instead of
-	 * just the OTG port) may need more attention to resetting...
-	 */
-	hcd = container_of (bus, struct usb_hcd, self);
-	if (port_num && hcd->driver->start_port_reset)
-		status = hcd->driver->start_port_reset(hcd, port_num);
-
-	/* run khubd shortly after (first) root port reset finishes;
-	 * it may issue others, until at least 50 msecs have passed.
-	 */
-	if (status == 0)
-		mod_timer(&hcd->rh_timer, jiffies + msecs_to_jiffies(10));
-	return status;
-}
-EXPORT_SYMBOL (usb_bus_start_enum);
 
 #endif
 
@@ -1509,12 +1479,8 @@ static int hcd_free_dev (struct usb_device *udev)
 
 /*
  * usb_hcd_operations - adapts usb_bus framework to HCD framework (bus glue)
- *
- * When registering a USB bus through the HCD framework code, use this
- * usb_operations vector.  The PCI glue layer does so automatically; only
- * bus glue for non-PCI system busses will need to use this.
  */
-struct usb_operations usb_hcd_operations = {
+static struct usb_operations usb_hcd_operations = {
 	.allocate =		hcd_alloc_dev,
 	.get_frame_number =	hcd_get_frame_number,
 	.submit_urb =		hcd_submit_urb,
@@ -1630,11 +1596,51 @@ EXPORT_SYMBOL (usb_hc_died);
 
 /*-------------------------------------------------------------------------*/
 
-void usb_hcd_release(struct usb_bus *bus)
+static void hcd_release (struct usb_bus *bus)
 {
 	struct usb_hcd *hcd;
 
-	hcd = container_of (bus, struct usb_hcd, self);
+	hcd = container_of(bus, struct usb_hcd, self);
 	kfree(hcd);
 }
-EXPORT_SYMBOL (usb_hcd_release);
+
+/**
+ * usb_create_hcd - create and initialize an HCD structure
+ * @driver: HC driver that will use this hcd
+ * Context: !in_interrupt()
+ *
+ * Allocate a struct usb_hcd, with extra space at the end for the
+ * HC driver's private data.  Initialize the generic members of the
+ * hcd structure.
+ *
+ * If memory is unavailable, returns NULL.
+ */
+struct usb_hcd *usb_create_hcd (const struct hc_driver *driver)
+{
+	struct usb_hcd *hcd;
+
+	hcd = kcalloc(1, sizeof(*hcd) + driver->hcd_priv_size, GFP_KERNEL);
+	if (!hcd)
+		return NULL;
+
+	usb_bus_init(&hcd->self);
+	hcd->self.op = &usb_hcd_operations;
+	hcd->self.hcpriv = hcd;
+	hcd->self.release = &hcd_release;
+
+	init_timer(&hcd->rh_timer);
+
+	hcd->driver = driver;
+	hcd->product_desc = (driver->product_desc) ? driver->product_desc :
+			"USB Host Controller";
+	hcd->state = USB_STATE_HALT;
+
+	return hcd;
+}
+EXPORT_SYMBOL (usb_create_hcd);
+
+void usb_put_hcd (struct usb_hcd *hcd)
+{
+	usb_bus_put(&hcd->self);
+}
+EXPORT_SYMBOL (usb_put_hcd);

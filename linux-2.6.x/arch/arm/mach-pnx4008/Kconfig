@@ -1,0 +1,20 @@
+
+if ARCH_PNX4008
+
+menu "PNX4008 Options"
+
+comment "PNX4008 features"
+
+config PNX4008_GPIO_COMPAT
+	bool "Compatibility interface with Philips GPIO"
+	depends on ARCH_PNX4008
+    	help
+	   Compatibility interface with Philips GPIO. Say y here to enable
+	   if you want to use precompiled (binary) modules from Philips 
+	   Semiconductors since they expect this GPIO API.
+	   Say y if unsure.
+
+endmenu
+
+endif
+

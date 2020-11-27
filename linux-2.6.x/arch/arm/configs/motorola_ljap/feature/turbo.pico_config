@@ -1,0 +1,8 @@
+#
+# arch/arm/configs/motorola_ljap/feature/turbo.pico_config
+#
+# Debug to turn BT LED on if AP runs out of TURBO mode.
+#
+
+CONFIG_MOT_TURBO_INDICATOR=y
+

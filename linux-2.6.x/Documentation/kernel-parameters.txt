@@ -1072,6 +1072,9 @@ running once the system is up.
 
 	root=		[KNL] Root filesystem
 
+	rootdelay=	[KNL] Delay (in seconds) to pause before attempting to
+			mount the root filesystem
+
 	rootflags=	[KNL] Set root filesystem mount option string
 
 	rootfstype=	[KNL] Set root filesystem type
@@ -1318,6 +1321,8 @@ running once the system is up.
 
 	thash_entries=	[KNL,NET]
 			Set number of hash buckets for TCP connection
+
+	time            Show timing data prefixed to each printk message line
 
 	tipar=		[HW]
 			See header of drivers/char/tipar.c.

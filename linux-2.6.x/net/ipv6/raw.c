@@ -14,6 +14,9 @@
  *	YOSHIFUJI,H.@USAGI	:	raw checksum (RFC2292(bis) compliance) 
  *	Kazunori MIYAZAWA @USAGI:	change process style to use ip6_append_data
  *
+ *	Changes:
+ *      Kazunori MIYAZAWA @USAGI:	change datagram transmit routine to ip6_append_data
+ *
  *	This program is free software; you can redistribute it and/or
  *      modify it under the terms of the GNU General Public License
  *      as published by the Free Software Foundation; either version
@@ -48,6 +51,9 @@
 #include <net/transp_v6.h>
 #include <net/udp.h>
 #include <net/inet_common.h>
+#ifdef CONFIG_IPV6_MIP6
+#include <net/mip6.h>
+#endif
 
 #include <net/rawv6.h>
 #include <net/xfrm.h>
@@ -56,7 +62,7 @@
 #include <linux/seq_file.h>
 
 struct hlist_head raw_v6_htable[RAWV6_HTABLE_SIZE];
-rwlock_t raw_v6_lock = RW_LOCK_UNLOCKED;
+DEFINE_RWLOCK(raw_v6_lock);
 
 static void raw_v6_hash(struct sock *sk)
 {
@@ -162,7 +168,30 @@ void ipv6_raw_deliver(struct sk_buff *skb, int nexthdr)
 	sk = __raw_v6_lookup(sk, nexthdr, daddr, saddr);
 
 	while (sk) {
-		if (nexthdr != IPPROTO_ICMPV6 || !icmpv6_filter(sk, skb)) {
+		int filtered;
+
+		switch (nexthdr) {
+		case IPPROTO_ICMPV6:
+			filtered = icmpv6_filter(sk, skb);
+			break;
+#ifdef CONFIG_IPV6_MIP6
+		case IPPROTO_MH:
+			/* XXX: MH validation: To validate only once, this is
+			 * placed here. It should be after checking xfrm
+			 * policy, however, it doesn't. The checking xfrm
+			 * policy is placed in rawv6_rcv() because it is
+			 * required for each socket. Fix it.
+			 */
+			filtered = mip6_mh_filter(sk, skb);
+			break;
+#endif
+		default:
+			filtered = 0;
+		}
+
+		if (filtered < 0)
+			break;
+		if (filtered == 0) {
 			struct sk_buff *clone = skb_clone(skb, GFP_ATOMIC);
 
 			/* Not releasing hash table! */
@@ -197,6 +226,10 @@ static int rawv6_bind(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 
 	err = -EINVAL;
 	if (sk->sk_state != TCP_CLOSE)
+		goto out;
+
+	if (addr->sin6_port &&
+	    ntohs(addr->sin6_port) != inet->num)
 		goto out;
 
 	/* Check if the address belongs to the host. */
@@ -407,8 +440,11 @@ static int rawv6_recvmsg(struct kiocb *iocb, struct sock *sk,
 
 	/* Copy the address. */
 	if (sin6) {
+		struct inet_opt *inet = inet_sk(sk);
+
 		sin6->sin6_family = AF_INET6;
 		ipv6_addr_copy(&sin6->sin6_addr, &skb->nh.ipv6h->saddr);
+		sin6->sin6_port = htons(inet->num);
 		sin6->sin6_flowinfo = 0;
 		sin6->sin6_scope_id = 0;
 		if (ipv6_addr_type(&sin6->sin6_addr) & IPV6_ADDR_LINKLOCAL)
@@ -508,6 +544,9 @@ static int rawv6_send_hdrinc(struct sock *sk, void *from, int length,
 	struct inet_opt *inet = inet_sk(sk);
 	struct ipv6hdr *iph;
 	struct sk_buff *skb;
+#ifdef CONFIG_IPV6_STATISTICS
+	struct inet6_dev *idev = NULL;
+#endif
 	unsigned int hh_len;
 	int err;
 
@@ -538,7 +577,12 @@ static int rawv6_send_hdrinc(struct sock *sk, void *from, int length,
 	if (err)
 		goto error_fault;
 
+#ifdef CONFIG_IPV6_STATISTICS
+	idev = rt->rt6i_idev;
+	IP6_INC_STATS(idev, IPSTATS_MIB_OUTREQUESTS);
+#else
 	IP6_INC_STATS(IPSTATS_MIB_OUTREQUESTS);		
+#endif
 	err = NF_HOOK(PF_INET6, NF_IP6_LOCAL_OUT, skb, NULL, rt->u.dst.dev,
 		      dst_output);
 	if (err > 0)
@@ -552,7 +596,11 @@ error_fault:
 	err = -EFAULT;
 	kfree_skb(skb);
 error:
+#ifdef CONFIG_IPV6_STATISTICS
+	IP6_INC_STATS(idev, IPSTATS_MIB_OUTDISCARDS);
+#else
 	IP6_INC_STATS(IPSTATS_MIB_OUTDISCARDS);
+#endif
 	return err; 
 }
 
@@ -561,6 +609,9 @@ static void rawv6_probe_proto_opt(struct flowi *fl, struct msghdr *msg)
 	struct iovec *iov;
 	u8 __user *type = NULL;
 	u8 __user *code = NULL;
+#ifdef CONFIG_IPV6_MIP6
+	u8 len = 0;
+#endif
 	int probed = 0;
 	int i;
 
@@ -592,6 +643,20 @@ static void rawv6_probe_proto_opt(struct flowi *fl, struct msghdr *msg)
 				probed = 1;
 			}
 			break;
+#ifdef CONFIG_IPV6_MIP6
+		case IPPROTO_MH:
+			if (iov->iov_base && iov->iov_len < 1)
+				break;
+			/* check if type field is readable or not. */
+			if (iov->iov_len > 2 - len) {
+				type = iov->iov_base + 2 - len;
+				get_user(fl->fl_mh_type, type);
+				probed = 1;
+			} else
+				len += iov->iov_len;
+
+			break;
+#endif
 		default:
 			probed = 1;
 			break;
@@ -737,13 +802,23 @@ static int rawv6_sendmsg(struct kiocb *iocb, struct sock *sk,
 	if (!fl.oif && ipv6_addr_is_multicast(&fl.fl6_dst))
 		fl.oif = np->mcast_oif;
 
-	err = ip6_dst_lookup(sk, &dst, &fl);
+#if 0
+	/*  not sure about this - changes original object even with src rt */
+
+	flp->iif = loopback_dev.ifindex;
+#endif
+
+	if (msg->msg_flags & MSG_DONTROUTE)
+		err = ip6_dontroute_dst_alloc(&dst, &fl);
+	else
+		err = ip6_dst_lookup(sk, &dst, &fl);
 	if (err)
 		goto out;
 	if (final_p)
 		ipv6_addr_copy(&fl.fl6_dst, final_p);
 
 	if ((err = xfrm_lookup(&dst, &fl, sk, 0)) < 0) {
+		err = -ENETUNREACH;
 		dst_release(dst);
 		goto out;
 	}
@@ -755,6 +830,8 @@ static int rawv6_sendmsg(struct kiocb *iocb, struct sock *sk,
 			hlimit = np->hop_limit;
 		if (hlimit < 0)
 			hlimit = dst_metric(dst, RTAX_HOPLIMIT);
+		if (hlimit < 0)
+			hlimit = ipv6_get_hoplimit(dst->dev);
 	}
 
 	if (msg->msg_flags&MSG_CONFIRM)
@@ -774,9 +851,15 @@ back_from_confirm:
 			err = rawv6_push_pending_frames(sk, &fl, raw_opt, len);
 	}
 done:
-	ip6_dst_store(sk, dst,
-		      ipv6_addr_equal(&fl.fl6_dst, &np->daddr) ?
-		      &np->daddr : NULL);
+	if (msg->msg_flags & MSG_DONTROUTE)
+		dst_release(dst);
+	else
+		ip6_dst_store(sk, dst,
+			      ipv6_addr_equal(&fl.fl6_dst, &np->daddr) ?
+			      &np->daddr : NULL,
+			      ipv6_addr_equal(&fl.fl6_src, &np->saddr) ?
+			      &np->saddr : NULL);
+
 	if (err > 0)
 		err = np->recverr ? net_xmit_errno(err) : 0;
 

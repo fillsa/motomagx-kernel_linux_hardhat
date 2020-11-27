@@ -65,7 +65,7 @@ static struct sysfs_ops driver_sysfs_ops = {
 static void driver_release(struct kobject * kobj)
 {
 	struct device_driver * drv = to_driver(kobj);
-	up(&drv->unload_sem);
+	complete(&drv->unload_done);
 }
 
 static struct kobj_type ktype_driver = {
@@ -210,6 +210,49 @@ int bus_for_each_dev(struct bus_type * bus, struct device * start,
 	ret = __bus_for_each_dev(bus, start, data, fn);
 	up_read(&bus->subsys.rwsem);
 	return ret;
+}
+/**
+ * bus_find_device - device iterator for locating a particular device.
+ * @bus: bus type
+ * @start: Device to begin with
+ * @data: Data to pass to match function
+ * @match: Callback function to check device
+ *
+ * This is similar to the bus_for_each_dev() function above, but it
+ * returns a reference to a device that is 'found' for later use, as
+ * determined by the @match callback.
+ *
+ * The callback should return 0 if the device doesn't match and non-zero
+ * if it does.  If the callback returns non-zero, this function will
+ * return to the caller and not iterate over any more devices.
+ */
+struct device * bus_find_device(struct bus_type *bus,
+				struct device *start, void *data,
+				int (*match)(struct device *, void *))
+{
+	struct list_head *head;
+	struct device *dev;
+	struct device *found_dev = NULL;
+
+	if (!(bus && (bus = get_bus(bus))))
+		return NULL;
+
+	down_read(&bus->subsys.rwsem);
+
+	head = &bus->devices.list;
+	dev = list_prepare_entry(start, head, bus_list);
+	list_for_each_entry_continue(dev, head, bus_list) {
+		get_device(dev);
+		if (match(dev, data)) {
+			found_dev = dev;
+			break;
+		}
+		put_device(dev);
+	}
+	put_bus(bus);
+
+	up_read(&bus->subsys.rwsem);
+	return found_dev;
 }
 
 /**
@@ -747,6 +790,7 @@ int __init buses_init(void)
 
 
 EXPORT_SYMBOL_GPL(bus_for_each_dev);
+EXPORT_SYMBOL_GPL(bus_find_device);
 EXPORT_SYMBOL_GPL(bus_for_each_drv);
 
 EXPORT_SYMBOL_GPL(driver_probe_device);

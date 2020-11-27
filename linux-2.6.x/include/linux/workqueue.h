@@ -54,6 +54,8 @@ extern struct workqueue_struct *__create_workqueue(const char *name,
 						    int singlethread);
 #define create_workqueue(name) __create_workqueue((name), 0)
 #define create_singlethread_workqueue(name) __create_workqueue((name), 1)
+extern void set_workqueue_prio(struct workqueue_struct *wq, int policy,
+				int rt_priority, int nice);
 
 extern void destroy_workqueue(struct workqueue_struct *wq);
 

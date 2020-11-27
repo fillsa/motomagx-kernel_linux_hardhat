@@ -25,6 +25,7 @@
 #include <linux/security.h>
 #include <linux/sched.h>
 #include <linux/syscalls.h>
+#include <linux/ltt-events.h>
 #include <asm/current.h>
 #include <asm/uaccess.h>
 #include "util.h"
@@ -161,6 +162,11 @@ static void expunge_all(struct msg_queue* msq, int res)
 	tmp = msq->q_receivers.next;
 	while (tmp != &msq->q_receivers) {
 		struct msg_receiver* msr;
+		/*
+		 * Make sure that the wakeup doesnt preempt
+		 * _this_ CPU prematurely. (on PREEMPT_RT)
+		 */
+		preempt_disable();
 		
 		msr = list_entry(tmp,struct msg_receiver,r_list);
 		tmp = tmp->next;
@@ -168,6 +174,8 @@ static void expunge_all(struct msg_queue* msq, int res)
 		wake_up_process(msr->r_tsk);
 		smp_mb();
 		msr->r_msg = ERR_PTR(res);
+
+		preempt_enable();
 	}
 }
 /* 
@@ -229,6 +237,7 @@ asmlinkage long sys_msgget (key_t key, int msgflg)
 		msg_unlock(msq);
 	}
 	up(&msg_ids.sem);
+	ltt_ev_ipc(LTT_EV_IPC_MSG_CREATE, ret, msgflg);
 	return ret;
 }
 
@@ -527,7 +536,13 @@ static inline int pipelined_send(struct msg_queue* msq, struct msg_msg* msg)
 		if(testmsg(msg,msr->r_msgtype,msr->r_mode) &&
 		   !security_msg_queue_msgrcv(msq, msg, msr->r_tsk, msr->r_msgtype, msr->r_mode)) {
 			list_del(&msr->r_list);
+			/*
+			 * Make sure that the wakeup doesnt preempt
+			 * _this_ CPU prematurely. (on PREEMPT_RT)
+			 */
+			preempt_disable();
 			if(msr->r_maxsize < msg->m_ts) {
+
 				msr->r_msg = NULL;
 				wake_up_process(msr->r_tsk);
 				smp_mb();
@@ -539,8 +554,10 @@ static inline int pipelined_send(struct msg_queue* msq, struct msg_msg* msg)
 				wake_up_process(msr->r_tsk);
 				smp_mb();
 				msr->r_msg = msg;
+				preempt_enable();
 				return 1;
 			}
+			preempt_enable();
 		}
 	}
 	return 0;

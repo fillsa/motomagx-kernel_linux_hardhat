@@ -175,7 +175,7 @@ static int system_bus_speed;	/* holds what we think is VESA/PCI bus speed */
 static int initializing;	/* set while initializing built-in drivers */
 
 DECLARE_MUTEX(ide_cfg_sem);
-spinlock_t ide_lock __cacheline_aligned_in_smp = SPIN_LOCK_UNLOCKED;
+ __cacheline_aligned_in_smp DEFINE_SPINLOCK(ide_lock);
 
 #ifdef CONFIG_BLK_DEV_IDEPCI
 static int ide_scan_direction; /* THIS was formerly 2.2.x pci=reverse */
@@ -225,7 +225,7 @@ static void init_hwif_data(ide_hwif_t *hwif, unsigned int index)
 	hwif->mwdma_mask = 0x80;	/* disable all mwdma */
 	hwif->swdma_mask = 0x80;	/* disable all swdma */
 
-	sema_init(&hwif->gendev_rel_sem, 0);
+	init_completion(&hwif->gendev_rel_sem);
 
 	default_hwif_iops(hwif);
 	default_hwif_transport(hwif);
@@ -245,11 +245,10 @@ static void init_hwif_data(ide_hwif_t *hwif, unsigned int index)
 		drive->name[2]			= 'a' + (index * MAX_DRIVES) + unit;
 		drive->max_failures		= IDE_DEFAULT_MAX_FAILURES;
 		drive->using_dma		= 0;
-		drive->is_flash			= 0;
 		drive->driver			= &idedefault_driver;
 		drive->vdma			= 0;
 		INIT_LIST_HEAD(&drive->list);
-		sema_init(&drive->gendev_rel_sem, 0);
+		init_completion(&drive->gendev_rel_sem);
 	}
 }
 
@@ -499,8 +498,8 @@ static int ide_open (struct inode * inode, struct file * filp)
  *	list of drivers.  Currently nobody takes both at once.
  */
 
-static spinlock_t drives_lock = SPIN_LOCK_UNLOCKED;
-static spinlock_t drivers_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(drives_lock);
+static DEFINE_SPINLOCK(drivers_lock);
 static LIST_HEAD(drivers);
 
 /* Iterator for the driver list. */
@@ -862,7 +861,7 @@ void ide_unregister(unsigned int index)
 		spin_unlock_irq(&ide_lock);
 		blk_cleanup_queue(drive->queue);
 		device_unregister(&drive->gendev);
-		down(&drive->gendev_rel_sem);
+		wait_for_completion(&drive->gendev_rel_sem);
 		spin_lock_irq(&ide_lock);
 		drive->queue = NULL;
 	}
@@ -892,7 +891,7 @@ void ide_unregister(unsigned int index)
 	/* More messed up locking ... */
 	spin_unlock_irq(&ide_lock);
 	device_unregister(&hwif->gendev);
-	down(&hwif->gendev_rel_sem);
+	wait_for_completion(&hwif->gendev_rel_sem);
 
 	/*
 	 * Remove us from the kernel's knowledge
@@ -2145,6 +2144,12 @@ static void __init probe_for_hwifs (void)
 		q40ide_init();
 	}
 #endif /* CONFIG_BLK_DEV_Q40IDE */
+#ifdef CONFIG_BLK_DEV_IDE_SWARM
+	{
+		extern void swarm_ide_probe(void);
+		swarm_ide_probe();
+	}
+#endif /* CONFIG_BLK_IDE_SWARM */
 #ifdef CONFIG_BLK_DEV_BUDDHA
 	{
 		extern void buddha_init(void);

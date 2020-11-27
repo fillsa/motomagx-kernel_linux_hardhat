@@ -5,7 +5,7 @@
  *
  * This code is GPLed
  *
- * $Id: sbc8240.c,v 1.4 2004/07/12 22:38:29 dwmw2 Exp $
+ * $Id: sbc8240.c,v 1.3 2004/07/12 21:59:45 dwmw2 Exp $
  *
  */
 

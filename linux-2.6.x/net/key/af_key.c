@@ -26,6 +26,7 @@
 #include <linux/in6.h>
 #include <linux/proc_fs.h>
 #include <linux/init.h>
+#include <linux/kernel.h>
 #include <net/xfrm.h>
 
 #include <net/sock.h>
@@ -33,11 +34,20 @@
 #define _X2KEY(x) ((x) == XFRM_INF ? 0 : (x))
 #define _KEY2X(x) ((x) == 0 ? XFRM_INF : (x))
 
-
+#ifdef CONFIG_NET_KEY_MIGRATE
+#ifdef MIGRATE_DEBUG
+static void dump_buffer(u_char *buf, int size);
+#endif
+static int decode_ipsecrequest(struct sadb_x_policy *pol,
+			       struct xfrm_usersa_mutateaddress *ma);
+static int pfkey_migrate(struct sock *sk, struct sk_buff *skb,
+			 struct sadb_msg *hdr, void **ext_hdrs);
+#endif
+ 
 /* List of all pfkey sockets. */
 HLIST_HEAD(pfkey_table);
 static DECLARE_WAIT_QUEUE_HEAD(pfkey_table_wait);
-static rwlock_t pfkey_table_lock = RW_LOCK_UNLOCKED;
+static DEFINE_RWLOCK(pfkey_table_lock);
 static atomic_t pfkey_table_users = ATOMIC_INIT(0);
 
 static atomic_t pfkey_socks_nr = ATOMIC_INIT(0);
@@ -665,18 +675,18 @@ static struct sk_buff * pfkey_xfrm_state2msg(struct xfrm_state *x, int add_keys,
 		sa->sadb_sa_state = SADB_SASTATE_DEAD;
 	sa->sadb_sa_auth = 0;
 	if (x->aalg) {
-		struct xfrm_algo_desc *a = xfrm_aalg_get_byname(x->aalg->alg_name);
+		struct xfrm_algo_desc *a = xfrm_aalg_get_byname(x->aalg->alg_name, 0);
 		sa->sadb_sa_auth = a ? a->desc.sadb_alg_id : 0;
 	}
 	sa->sadb_sa_encrypt = 0;
 	BUG_ON(x->ealg && x->calg);
 	if (x->ealg) {
-		struct xfrm_algo_desc *a = xfrm_ealg_get_byname(x->ealg->alg_name);
+		struct xfrm_algo_desc *a = xfrm_ealg_get_byname(x->ealg->alg_name, 0);
 		sa->sadb_sa_encrypt = a ? a->desc.sadb_alg_id : 0;
 	}
 	/* KAME compatible: sadb_sa_encrypt is overloaded with calg id */
 	if (x->calg) {
-		struct xfrm_algo_desc *a = xfrm_calg_get_byname(x->calg->alg_name);
+		struct xfrm_algo_desc *a = xfrm_calg_get_byname(x->calg->alg_name, 0);
 		sa->sadb_sa_encrypt = a ? a->desc.sadb_alg_id : 0;
 	}
 
@@ -1713,7 +1723,7 @@ static void pfkey_xfrm_policy2msg(struct sk_buff *skb, struct xfrm_policy *xp, i
 		sin6->sin6_flowinfo = 0;
 		memcpy(&sin6->sin6_addr, xp->selector.saddr.a6,
 		       sizeof(struct in6_addr));
-		sin6->sin6_scope_id = 0;
+		sin6->sin6_scope_id = xp->selector.ifindex;
 	}
 #endif
 	else
@@ -1744,7 +1754,7 @@ static void pfkey_xfrm_policy2msg(struct sk_buff *skb, struct xfrm_policy *xp, i
 		sin6->sin6_flowinfo = 0;
 		memcpy(&sin6->sin6_addr, xp->selector.daddr.a6,
 		       sizeof(struct in6_addr));
-		sin6->sin6_scope_id = 0;
+		sin6->sin6_scope_id = xp->selector.ifindex;
 	}
 #endif
 	else
@@ -1900,8 +1910,12 @@ static int pfkey_spdadd(struct sock *sk, struct sk_buff *skb, struct sadb_msg *h
 	xp->selector.sport = ((struct sockaddr_in *)(sa+1))->sin_port;
 	if (xp->selector.sport)
 		xp->selector.sport_mask = ~0;
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+	if (xp->family == AF_INET6)
+		xp->selector.ifindex = ((struct sockaddr_in6 *)(sa+1))->sin6_scope_id;
+#endif
 
-	sa = ext_hdrs[SADB_EXT_ADDRESS_DST-1], 
+ 	sa = ext_hdrs[SADB_EXT_ADDRESS_DST-1], 
 	pfkey_sadb_addr2xfrm_addr(sa, &xp->selector.daddr);
 	xp->selector.prefixlen_d = sa->sadb_address_prefixlen;
 
@@ -1913,7 +1927,12 @@ static int pfkey_spdadd(struct sock *sk, struct sk_buff *skb, struct sadb_msg *h
 	xp->selector.dport = ((struct sockaddr_in *)(sa+1))->sin_port;
 	if (xp->selector.dport)
 		xp->selector.dport_mask = ~0;
-
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+	/* XXX: assuming set ifindex twice */
+	if (xp->family == AF_INET6)
+		xp->selector.ifindex = ((struct sockaddr_in6 *)(sa+1))->sin6_scope_id;
+#endif
+ 
 	xp->lft.soft_byte_limit = XFRM_INF;
 	xp->lft.hard_byte_limit = XFRM_INF;
 	xp->lft.soft_packet_limit = XFRM_INF;
@@ -1995,7 +2014,11 @@ static int pfkey_spddelete(struct sock *sk, struct sk_buff *skb, struct sadb_msg
 	sel.sport = ((struct sockaddr_in *)(sa+1))->sin_port;
 	if (sel.sport)
 		sel.sport_mask = ~0;
-
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+	if (sel.family == AF_INET6)
+		sel.ifindex = ((struct sockaddr_in6 *)(sa+1))->sin6_scope_id;
+#endif
+ 
 	sa = ext_hdrs[SADB_EXT_ADDRESS_DST-1], 
 	pfkey_sadb_addr2xfrm_addr(sa, &sel.daddr);
 	sel.prefixlen_d = sa->sadb_address_prefixlen;
@@ -2003,7 +2026,11 @@ static int pfkey_spddelete(struct sock *sk, struct sk_buff *skb, struct sadb_msg
 	sel.dport = ((struct sockaddr_in *)(sa+1))->sin_port;
 	if (sel.dport)
 		sel.dport_mask = ~0;
-
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+	if (sel.family == AF_INET6)
+		sel.ifindex = ((struct sockaddr_in6 *)(sa+1))->sin6_scope_id;
+#endif
+ 
 	xp = xfrm_policy_bysel(pol->sadb_x_policy_dir-1, &sel, 1);
 	if (xp == NULL)
 		return -ENOENT;
@@ -2031,6 +2058,222 @@ out:
 	xfrm_pol_put(xp);
 	return err;
 }
+
+#ifdef CONFIG_NET_KEY_MIGRATE
+/*
+ *   Decode ISRs
+ *
+ *   Take two pairs of sockaddr from ipseqrequests and store them
+ *   into xfrm_usersa_mutate_address{}
+ */
+static int decode_ipsecrequest(struct sadb_x_policy *pol,
+			       struct xfrm_usersa_mutateaddress *ma)
+{
+	struct sadb_x_ipsecrequest *req;
+	struct sockaddr *sa_old, *sa_new;
+	struct sockaddr_in *sin;
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+	struct sockaddr_in6 *sin6;
+#endif	
+	if (pol == NULL || ma == NULL)
+		return -1;
+	
+	req = (struct sadb_x_ipsecrequest *)(pol + 1);
+	sa_old = (struct sockaddr *)(req + 1);
+	req = (void*)((u8*)req + req->sadb_x_ipsecrequest_len);
+	sa_new = (struct sockaddr *)(req + 1);
+
+	if (((u8*)req + req->sadb_x_ipsecrequest_len) !=
+	    ((u8*)pol + (pol->sadb_x_policy_len << 3)))
+		return -EINVAL;
+
+	/* store old isr */
+	switch (sa_old->sa_family) {
+	case AF_INET:
+		sin = (struct sockaddr_in *)sa_old;
+		if ((sin+1)->sin_family != AF_INET)
+			return -EINVAL;
+		memcpy(&ma->old_saddr.a4, &sin->sin_addr,
+		       sizeof(struct in_addr));
+		memcpy(&ma->old_daddr.a4, &((sin+1)->sin_addr),
+		       sizeof(struct in_addr));
+		break;
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+	case AF_INET6:
+		sin6 = (struct sockaddr_in6 *)sa_old;
+		if ((sin6+1)->sin6_family != AF_INET6)
+			return -EINVAL;
+		memcpy(&ma->old_saddr.a6, &sin6->sin6_addr,
+		       sizeof(struct in6_addr));
+		memcpy(&ma->old_daddr.a6, &((sin6+1)->sin6_addr),
+		       sizeof(struct in6_addr));
+		break;
+#endif
+	default:
+		return -EINVAL;
+	}
+
+	/* store new isr */
+	switch (sa_new->sa_family) {
+	case AF_INET:
+		sin = (struct sockaddr_in *)sa_new;
+		memcpy(&ma->new_saddr.a4, &sin->sin_addr,
+		       sizeof(struct in_addr));
+		memcpy(&ma->new_daddr.a4, &((sin+1)->sin_addr),
+		       sizeof(struct in_addr));
+		break;
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+	case AF_INET6:
+		sin6 = (struct sockaddr_in6 *)sa_new;
+		memcpy(&ma->new_saddr.a6, &sin6->sin6_addr,
+		       sizeof(struct in6_addr));
+		memcpy(&ma->new_daddr.a6, &((sin6+1)->sin6_addr),
+		       sizeof(struct in6_addr));
+		break;
+#endif
+	default:
+		return -EINVAL;
+	}
+
+	ma->family = sa_new->sa_family;
+	ma->proto = req->sadb_x_ipsecrequest_proto;
+	ma->mode = req->sadb_x_ipsecrequest_mode - 1;
+	ma->reqid = req->sadb_x_ipsecrequest_reqid;
+
+	return 0;
+}
+
+#ifdef MIGRATE_DEBUG
+static void dump_buffer(u_char *buf, int size)
+{
+	register int i = 0;
+
+	for (i=0; i<size; i++) {
+		if (i == 0)
+			printk("\t");
+		if (i != 0 && i % 8 == 0)
+			printk("\n\t");
+		else if (i != 0 && i % 4 == 0)
+			printk("  ");
+		
+		printk("%02x", *((u_char *)buf + i));
+	}
+	printk("\n");
+	return;
+}
+#endif
+
+/*
+ *   Process PF_KEY MIGRATE message
+ *
+ *   NOTE:
+ *   - Migrate IP address stored in SPD and SADB
+ */
+static int pfkey_migrate(struct sock *sk, struct sk_buff *skb, struct sadb_msg *hdr, void **ext_hdrs)
+{
+	int err = -EINVAL;
+	struct sadb_address *sa;
+	struct sadb_x_policy *pol;
+	struct xfrm_selector sel;
+	struct xfrm_policy *xp;
+	struct xfrm_usersa_mutateaddress maddr;
+	struct xfrm_userpolicy_id polid;
+
+	if (!present_and_same_family(ext_hdrs[SADB_EXT_ADDRESS_SRC - 1],
+				     ext_hdrs[SADB_EXT_ADDRESS_DST - 1]) ||
+	    !ext_hdrs[SADB_X_EXT_POLICY - 1]) {
+		err = -EINVAL;
+		goto out;
+	}
+	
+	pol = ext_hdrs[SADB_X_EXT_POLICY - 1];
+	if (pol->sadb_x_policy_dir >= IPSEC_DIR_MAX) {
+		printk("pfkey_migrate: invalid policy dir (%d).\n",
+			pol->sadb_x_policy_dir);
+		err = -EINVAL;
+		goto out;
+	}
+#if MIGRATE_DEBUG
+	printk("sadb_msg_len = %d\n", hdr->sadb_msg_len << 3);
+	dump_buffer((u_char *)(hdr + 1), hdr->sadb_msg_len << 3);
+#endif
+	memset(&sel, 0, sizeof(sel));
+
+	/* set source address info of selector */
+	sa = ext_hdrs[SADB_EXT_ADDRESS_SRC - 1];
+	sel.family = pfkey_sadb_addr2xfrm_addr(sa, &sel.saddr);
+	sel.prefixlen_s = sa->sadb_address_prefixlen;
+	sel.proto = pfkey_proto_to_xfrm(sa->sadb_address_proto);
+	sel.sport = ((struct sockaddr_in *)(sa+1))->sin_port;
+	if (sel.sport)
+		sel.sport_mask = ~0;
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+	if (sel.family == AF_INET6)
+		sel.ifindex = ((struct sockaddr_in6 *)(sa+1))->sin6_scope_id;
+#endif
+
+	/* set destination address info of selector */
+	sa = ext_hdrs[SADB_EXT_ADDRESS_DST - 1],
+	pfkey_sadb_addr2xfrm_addr(sa, &sel.daddr);
+	sel.prefixlen_d = sa->sadb_address_prefixlen;
+	sel.proto = pfkey_proto_to_xfrm(sa->sadb_address_proto);
+	sel.dport = ((struct sockaddr_in *)(sa+1))->sin_port;
+	if (sel.dport)
+		sel.dport_mask = ~0;
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+	if (sel.family == AF_INET6)
+		sel.ifindex = ((struct sockaddr_in6 *)(sa+1))->sin6_scope_id;
+#endif
+
+	/* check if there is such policy in SPD */
+	xp = xfrm_policy_bysel(pol->sadb_x_policy_dir-1, &sel, 0);
+	if (xp == NULL) {
+		printk("pfkey_migrate: no SP entry found.\n");
+		goto out;
+	}
+	xfrm_pol_put(xp);
+
+	/* decode ISRs */
+	if ((err = decode_ipsecrequest(pol, &maddr)) < 0) {
+		printk("pfkey_migrate: decode ISR failed\n");
+		err = -EINVAL;
+		goto out;
+	}
+
+#if MIGRATE_DEBUG
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+	if (maddr.family == AF_INET6) {
+		printk("pfkey_migrate:\n");
+		printk("\tosrc = [%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x]\n",
+		       NIP6(*((struct in6_addr *)&maddr.old_saddr.a6)));
+		printk("\todst = [%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x]\n",
+		       NIP6(*((struct in6_addr *)&maddr.old_daddr.a6)));
+		printk("\tnsrc = [%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x]\n",
+		       NIP6(*((struct in6_addr *)&maddr.new_saddr.a6)));
+		printk("\tndst = [%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x]\n",
+		       NIP6(*((struct in6_addr *)&maddr.new_daddr.a6)));
+	}
+#endif
+#endif
+
+	memset(&polid, 0, sizeof(polid));
+	memcpy(&polid.sel, &sel, sizeof(sel));
+	polid.dir = pol->sadb_x_policy_dir-1;
+	
+	/* migrate SPD and SADB */
+	xfrm_migrate_address(&maddr, &polid);
+
+	/* Broadcast migrate message to sockets */
+	pfkey_broadcast(skb_clone(skb, GFP_KERNEL), GFP_KERNEL,
+			BROADCAST_ALL, NULL);
+	err = 0;
+ out:
+#if MIGRATE_DEBUG
+	printk("\tpfkey_migrate: err = %d\n", err);
+#endif
+	return err;
+}
+#endif /* CONFIG_NET_KEY_MIGRATE */
 
 static int pfkey_spdget(struct sock *sk, struct sk_buff *skb, struct sadb_msg *hdr, void **ext_hdrs)
 {
@@ -2147,6 +2390,10 @@ static pfkey_handler pfkey_funcs[SADB_MAX + 1] = {
 	[SADB_X_SPDFLUSH]	= pfkey_spdflush,
 	[SADB_X_SPDSETIDX]	= pfkey_spdadd,
 	[SADB_X_SPDDELETE2]	= pfkey_spdget,
+#ifdef CONFIG_NET_KEY_MIGRATE
+	[SADB_X_NAT_T_NEW_MAPPING] = NULL,
+	[SADB_X_MIGRATE]	= pfkey_migrate,
+#endif /* CONFIG_NET_KEY_MIGRATE */
 };
 
 static int pfkey_process(struct sock *sk, struct sk_buff *skb, struct sadb_msg *hdr)
@@ -2344,7 +2591,7 @@ static u32 get_acqseq(void)
 {
 	u32 res;
 	static u32 acqseq;
-	static spinlock_t acqseq_lock = SPIN_LOCK_UNLOCKED;
+	static DEFINE_SPINLOCK(acqseq_lock);
 
 	spin_lock_bh(&acqseq_lock);
 	res = (++acqseq ? : ++acqseq);
@@ -2421,7 +2668,7 @@ static int pfkey_send_acquire(struct xfrm_state *x, struct xfrm_tmpl *t, struct 
 		sin6->sin6_flowinfo = 0;
 		memcpy(&sin6->sin6_addr,
 		       x->props.saddr.a6, sizeof(struct in6_addr));
-		sin6->sin6_scope_id = 0;
+		sin6->sin6_scope_id = xp->selector.ifindex;
 	}
 #endif
 	else
@@ -2455,7 +2702,7 @@ static int pfkey_send_acquire(struct xfrm_state *x, struct xfrm_tmpl *t, struct 
 		sin6->sin6_flowinfo = 0;
 		memcpy(&sin6->sin6_addr,
 		       x->id.daddr.a6, sizeof(struct in6_addr));
-		sin6->sin6_scope_id = 0;
+		sin6->sin6_scope_id = xp->selector.ifindex;
 	}
 #endif
 	else

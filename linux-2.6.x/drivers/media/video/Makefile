@@ -7,6 +7,7 @@ bttv-objs	:=	bttv-driver.o bttv-cards.o bttv-if.o \
 zoran-objs      :=	zr36120.o zr36120_i2c.o zr36120_mem.o
 zr36067-objs	:=	zoran_procfs.o zoran_device.o \
 			zoran_driver.o zoran_card.o
+mstone-objs     :=      mainstone.o adcm2650.o 
 
 obj-$(CONFIG_VIDEO_DEV) += videodev.o v4l2-common.o v4l1-compat.o
 
@@ -31,6 +32,10 @@ obj-$(CONFIG_VIDEO_PMS) += pms.o
 obj-$(CONFIG_VIDEO_PLANB) += planb.o
 obj-$(CONFIG_VIDEO_VINO) += vino.o
 obj-$(CONFIG_VIDEO_STRADIS) += stradis.o
+obj-$(CONFIG_VIDEO_MXC_CAMERA) += mxc/capture/
+obj-$(CONFIG_VIDEO_MXC_OUTPUT) += mxc/output/
+obj-$(CONFIG_VIDEO_MXC_NON_COMMON) += mxc_v4l1.o
+obj-$(CONFIG_VIDEO_MXC_COMMON_DRIVER) += mxc_camera.o
 obj-$(CONFIG_VIDEO_CPIA) += cpia.o
 obj-$(CONFIG_VIDEO_CPIA_PP) += cpia_pp.o
 obj-$(CONFIG_VIDEO_CPIA_USB) += cpia_usb.o
@@ -49,6 +54,12 @@ obj-$(CONFIG_VIDEO_BUF)   += video-buf.o
 obj-$(CONFIG_VIDEO_BUF_DVB) += video-buf-dvb.o
 obj-$(CONFIG_VIDEO_BTCX)  += btcx-risc.o
 
+obj-$(CONFIG_VIDEO_SWARM_7114H) += swarm_saa7114h.o
+obj-$(CONFIG_TUNER_3036) += tuner-3036.o
+
 obj-$(CONFIG_VIDEO_M32R_AR_M64278) += arv.o
+obj-$(CONFIG_VIDEO_OMAP_CAMERA) += omap/
+
+obj-$(CONFIG_VIDEO_MAINSTONE_CAMERA) += mstone.o
 
 EXTRA_CFLAGS += -I$(srctree)/drivers/media/dvb/dvb-core

@@ -1,6 +1,9 @@
 /*
  * Copyright (C) 2002 Roman Zippel <zippel@linux-m68k.org>
+ * Copyright (C) 2006 Motorola
  * Released under the terms of the GNU GPL v2.0.
+ *
+ * Motorola  2006-Nov-16 - Add support for lock/endlock blocks.
  */
 
 #include <stdlib.h>
@@ -51,6 +54,9 @@ void menu_add_entry(struct symbol *sym)
 	menu->parent = current_menu;
 	menu->file = current_file;
 	menu->lineno = zconf_lineno();
+
+	if (current_lock > 0)
+		menu->flags |= MENU_LOCK;
 
 	*last_entry_ptr = menu;
 	last_entry_ptr = &menu->next;
@@ -342,7 +348,7 @@ bool menu_is_visible(struct menu *menu)
 	struct symbol *sym;
 	tristate visible;
 
-	if (!menu->prompt)
+	if (!menu->prompt || menu->flags & MENU_LOCK)
 		return false;
 	sym = menu->sym;
 	if (sym) {

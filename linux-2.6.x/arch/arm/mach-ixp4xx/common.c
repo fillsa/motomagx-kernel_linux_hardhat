@@ -33,6 +33,7 @@
 #include <asm/pgtable.h>
 #include <asm/page.h>
 #include <asm/irq.h>
+#include <asm/hrtime.h>
 
 #include <asm/mach/map.h>
 #include <asm/mach/irq.h>
@@ -145,7 +146,10 @@ void __init ixp4xx_map_io(void)
  **************************************************************************/
 static void ixp4xx_irq_mask(unsigned int irq)
 {
-	*IXP4XX_ICMR &= ~(1 << irq);
+	if (cpu_is_ixp46x() && irq >= 32)
+		*IXP4XX_ICMR2 &= ~(1 << (irq - 32));
+	else
+		*IXP4XX_ICMR &= ~(1 << irq);
 }
 
 static void ixp4xx_irq_mask_ack(unsigned int irq)
@@ -155,13 +159,13 @@ static void ixp4xx_irq_mask_ack(unsigned int irq)
 
 static void ixp4xx_irq_unmask(unsigned int irq)
 {
-	static int irq2gpio[NR_IRQS] = {
+	static int irq2gpio[32] = {
 		-1, -1, -1, -1, -1, -1,  0,  1,
 		-1, -1, -1, -1, -1, -1, -1, -1,
 		-1, -1, -1,  2,  3,  4,  5,  6,
 		 7,  8,  9, 10, 11, 12, -1, -1,
 	};
-	int line = irq2gpio[irq];
+	int line = (irq < 32) ? irq2gpio[irq] : -1;
 
 	/*
 	 * This only works for LEVEL gpio IRQs as per the IXP4xx developer's
@@ -171,7 +175,10 @@ static void ixp4xx_irq_unmask(unsigned int irq)
 	if (line >= 0)
 		gpio_line_isr_clear(line);
 
-	*IXP4XX_ICMR |= (1 << irq);
+	if (cpu_is_ixp46x() && irq >= 32)
+		*IXP4XX_ICMR2 |= (1 << (irq - 32));
+	else
+		*IXP4XX_ICMR |= (1 << irq);
 }
 
 static struct irqchip ixp4xx_irq_chip = {
@@ -190,6 +197,14 @@ void __init ixp4xx_init_irq(void)
 	/* Disable all interrupt */
 	*IXP4XX_ICMR = 0x0; 
 
+	if (cpu_is_ixp46x()) {
+		/* Route upper 32 sources to IRQ instead of FIQ */
+		*IXP4XX_ICLR2 = 0x00;
+
+		/* Disable upper 32 interrupts */
+		*IXP4XX_ICMR2 = 0x00;
+	}
+
 	for(i = 0; i < NR_IRQS; i++)
 	{
 		set_irq_chip(i, &ixp4xx_irq_chip);
@@ -205,7 +220,7 @@ void __init ixp4xx_init_irq(void)
  * counter as a source of real clock ticks to account for missed jiffies.
  *************************************************************************/
 
-static unsigned volatile last_jiffy_time;
+unsigned volatile last_jiffy_time;
 
 #define CLOCK_TICKS_PER_USEC	((CLOCK_TICK_RATE + USEC_PER_SEC/2) / USEC_PER_SEC)
 
@@ -216,7 +231,11 @@ static unsigned long ixp4xx_gettimeoffset(void)
 
 	elapsed = *IXP4XX_OSTS - last_jiffy_time;
 
+#ifndef CONFIG_HIGH_RES_TIMERS
 	return elapsed / CLOCK_TICKS_PER_USEC;
+#else
+	return arch_cycle_to_nsec(elapsed) / 1000;
+#endif
 }
 
 static irqreturn_t ixp4xx_timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
@@ -259,9 +278,60 @@ static void __init ixp4xx_timer_init(void)
 
 	/* Connect the interrupt handler and enable the interrupt */
 	setup_irq(IRQ_IXP4XX_TIMER1, &ixp4xx_timer_irq);
+
+	/*
+	 * Start PMU for preempt-timing purposes
+	 */
+	do {					
+		unsigned int pmnc = 3; /* PMU_ENABLE | PMU_RESET */
+		__asm__ __volatile__("mcr    p14, 0, %0, c0, c1, 0"
+			: : "r" (pmnc)); 
+	} while (0);
+
+	/*
+	 * Initialize High Resolution Timer
+	 */
+	hr_time_init();
 }
 
 struct sys_timer ixp4xx_timer = {
 	.init		= ixp4xx_timer_init,
 	.offset		= ixp4xx_gettimeoffset,
 };
+
+static struct resource ixp46x_i2c_resources[] = {
+	[0] = {
+		.start 	= 0xc8011000,
+		.end	= 0xc801101c,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start 	= IRQ_IXP4XX_I2C,
+		.end	= IRQ_IXP4XX_I2C,
+		.flags	= IORESOURCE_IRQ
+	}
+};
+
+/*
+ * I2C controller. The IXP46x uses the same block as the IOP3xx, so
+ * we just use the same device name.
+ */
+static struct platform_device ixp46x_i2c_controller = {
+	.name		= "IOP3xx-I2C",
+	.id		= 0,
+	.num_resources	= 2,
+	.resource	= &ixp46x_i2c_resources
+};
+
+static struct platform_device *ixp46x_devices[] __initdata = {
+	&ixp46x_i2c_controller
+};
+
+void __init ixp4xx_sys_init(void)
+{
+	if (cpu_is_ixp46x()) {
+		platform_add_devices(ixp46x_devices,
+				ARRAY_SIZE(ixp46x_devices));
+	}
+}
+

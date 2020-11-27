@@ -287,9 +287,11 @@ static int edid_is_monitor_block(unsigned char *block)
 
 static void calc_mode_timings(int xres, int yres, int refresh, struct fb_videomode *mode)
 {
-	struct fb_var_screeninfo var;
-	struct fb_info info;
-	
+	static struct fb_var_screeninfo var;
+	static struct fb_info info;
+	static DECLARE_MUTEX(fb_lock);
+
+	down(&fb_lock);
 	var.xres = xres;
 	var.yres = yres;
 	fb_get_mode(FB_VSYNCTIMINGS | FB_IGNOREMON, 
@@ -306,6 +308,7 @@ static void calc_mode_timings(int xres, int yres, int refresh, struct fb_videomo
 	mode->vsync_len = var.vsync_len;
 	mode->vmode = 0;
 	mode->sync = 0;
+	up(&fb_lock);
 }
 
 static int get_est_timing(unsigned char *block, struct fb_videomode *mode)

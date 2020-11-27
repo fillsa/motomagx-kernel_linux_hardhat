@@ -38,6 +38,7 @@
 #include <asm/system.h>
 #include <asm/hardware.h>
 #include <asm/mach-types.h>
+#include <asm/kgdb.h>
 
 #include <asm/mach/pci.h>
 #include <asm/mach/map.h>
@@ -175,6 +176,11 @@ static void __init ixdp2x01_map_io(void)
 
 	early_serial_setup(&ixdp2x01_serial_ports[0]);
 	early_serial_setup(&ixdp2x01_serial_ports[1]);
+
+#ifdef CONFIG_KGDB_8250
+	kgdb8250_add_port(0, &ixdp2x01_serial_ports[0]);
+	kgdb8250_add_port(1, &ixdp2x01_serial_ports[1]);
+#endif
 }
 
 

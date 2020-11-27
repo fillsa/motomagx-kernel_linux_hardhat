@@ -184,14 +184,23 @@ symbol_valid(struct sym_entry *s)
 		if ((s->addr < _stext || s->addr > _etext)
 		    && (s->addr < _sinittext || s->addr > _einittext))
 			return 0;
+		/* Corner case.  Discard any symbols with the same value as
+		 * _etext or _einittext, they can move between pass 1 and 2
+		 * when the kallsyms data is added.  If these symbols move then
+		 * they may get dropped in pass 2, which breaks the kallsyms
+		 * rules.
+		 */
+		if ((s->addr == _etext && strcmp((char*)s->sym + 1, "_etext")) ||
+		    (s->addr == _einittext && strcmp((char*)s->sym + 1, "_einittext")))
+			return 0;
 	}
 
 	/* Exclude symbols which vary between passes. */
-	if (strstr(s->sym + 1, "_compiled."))
+	if (strstr((char*)s->sym + 1, "_compiled."))
 		return 0;
 
 	for (i = 0; special_symbols[i]; i++)
-		if( strcmp(s->sym + 1, special_symbols[i]) == 0 )
+		if( strcmp((char*)s->sym + 1, special_symbols[i]) == 0 )
 			return 0;
 
 	return 1;

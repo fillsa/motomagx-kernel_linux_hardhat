@@ -1,0 +1,34 @@
+#
+# This file is derived from the Linux kernel's scripts/Makefile.modinst file.
+#
+# Copyright 2006 Motorola
+#
+# Motorola  2006-Nov-13 - Adapted for clearmake-compliant build of external
+#                         modules.
+
+# ==========================================================================
+# Installing modules
+# ==========================================================================
+
+.PHONY: __modinst
+__modinst:
+
+include $(CKBUILD_SRC)/scripts/Makefile.lib
+
+#
+
+__modules := $(sort $(shell grep -h '\.ko' /dev/null $(wildcard $(MODVERDIR)/*.mod)))
+modules := $(patsubst %.o,%.ko,$(wildcard $(__modules:.ko=.o)))
+
+.PHONY: $(modules)
+__modinst: $(modules)
+	@:
+
+# Modules built outside the kernel source tree go into extra by default
+INSTALL_MOD_DIR ?= extra
+
+modinst_dir = $(MODLIB)/$(shell $(cmif) "$(filter ../% /%,$@)" "$(INSTALL_MOD_DIR)/" "kernel/$(@D)")
+
+$(modules):
+	mkdir -p $(modinst_dir)
+	cp $@ $(modinst_dir)

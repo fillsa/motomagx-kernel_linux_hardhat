@@ -114,19 +114,18 @@ extern void __cpu_copy_user_page(void *to, const void *from,
 				 unsigned long user);
 #endif
 
-#define clear_user_page(addr,vaddr,pg)			\
-	do {						\
-		preempt_disable();			\
-		__cpu_clear_user_page(addr, vaddr);	\
-		preempt_enable();			\
-	} while (0)
+#define clear_user_page(addr,vaddr,pg)	 __cpu_clear_user_page(addr, vaddr)
 
-#define copy_user_page(to,from,vaddr,pg)		\
-	do {						\
+#ifdef CONFIG_CPU_MINICACHE
+#define copy_user_page(to,from,vaddr,pg)                \
+        do {                                            \
 		preempt_disable();			\
-		__cpu_copy_user_page(to, from, vaddr);	\
+                __cpu_copy_user_page(to, from, vaddr);  \
 		preempt_enable();			\
-	} while (0)
+        } while (0)
+#else
+#define copy_user_page(to,from,vaddr,pg) __cpu_copy_user_page(to, from, vaddr)
+#endif
 
 #define clear_page(page)	memzero((void *)(page), PAGE_SIZE)
 extern void copy_page(void *to, const void *from);
@@ -171,6 +170,9 @@ typedef unsigned long pgprot_t;
 
 #endif /* STRICT_MM_TYPECHECKS */
 
+/* the upper-most page table pointer */
+extern pmd_t *top_pmd;
+
 /* Pure 2^n version of get_order */
 static inline int get_order(unsigned long size)
 {
@@ -191,6 +193,14 @@ static inline int get_order(unsigned long size)
 
 #define VM_DATA_DEFAULT_FLAGS	(VM_READ | VM_WRITE | VM_EXEC | \
 				 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
+
+/*
+ * With EABI on ARMv5 and above we must have 64-bit aligned slab pointers.
+ */
+#if defined(CONFIG_AEABI) && (__LINUX_ARM_ARCH__ >= 5) \
+    && !defined(CONFIG_DEBUG_SLAB) /* slab debugging forces ARMv4 code gen */
+#define ARCH_SLAB_MINALIGN 8
+#endif
 
 #endif /* __KERNEL__ */
 

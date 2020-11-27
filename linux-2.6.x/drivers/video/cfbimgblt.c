@@ -2,6 +2,7 @@
  *  Generic BitBLT function for frame buffer with packed pixels of any depth.
  *
  *      Copyright (C)  June 1999 James Simmons
+ *      Copyright (C)  2008 Motorola Inc. 
  *
  *  This file is subject to the terms and conditions of the GNU General Public
  *  License.  See the file COPYING in the main directory of this archive for
@@ -29,6 +30,12 @@
  *  Also need to add code to deal with cards endians that are different than
  *  the native cpu endians. I also need to deal with MSB position in the word.
  */
+
+/* ChangeLog:
+ * (mm-dd-yyyy) Author    Comment
+ * 07-15-2008   Motorola  Added APP coredump display support
+ */
+
 #include <linux/config.h>
 #include <linux/module.h>
 #include <linux/string.h>
@@ -277,8 +284,10 @@ void cfb_imageblit(struct fb_info *p, const struct fb_image *image)
 	int x2, y2, vxres, vyres;
 	u8 __iomem *dst1;
 
+#if !defined(CONFIG_MOT_FEAT_APP_COREDUMP_DISPLAY)
 	if (p->state != FBINFO_STATE_RUNNING)
 		return;
+#endif /* !defined(CONFIG_MOT_FEAT_APP_COREDUMP_DISPLAY) */
 
 	vxres = p->var.xres_virtual;
 	vyres = p->var.yres_virtual;

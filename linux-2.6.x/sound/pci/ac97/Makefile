@@ -12,7 +12,7 @@ endif
 snd-ak4531-codec-objs := ak4531_codec.o
 
 # Toplevel Module Dependency
-obj-$(CONFIG_SND_AC97_CODEC) += snd-ac97-codec.o
+obj-$(CONFIG_SND_AC97_CODEC) += snd-ac97-codec.o ac97_bus.o
 obj-$(CONFIG_SND_ENS1370) += snd-ak4531-codec.o
 
 obj-m := $(sort $(obj-m))

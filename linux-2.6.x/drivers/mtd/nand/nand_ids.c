@@ -1,14 +1,22 @@
 /*
  *  drivers/mtd/nandids.c
  *
+ *  Copyright (C) 2006 Motorola, Inc.
  *  Copyright (C) 2002 Thomas Gleixner (tglx@linutronix.de)
-  *
- * $Id: nand_ids.c,v 1.10 2004/05/26 13:40:12 gleixner Exp $
+ *
+ * $Id: nand_ids.c,v 1.13 2005/05/27 08:31:34 gleixner Exp $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  *
+ * ChangeLog:
+ * (mm-dd-yyyy) Author    Comment
+ * 04-10-2006	Motorola  nand_manuf_ids[] table updated by Motorola, Inc. 
+ *			  added {NAND_MFR_MICRON, "Micron"} to nand_manuf_ids[].
+ *
+ * 06-07-2006	Motorola  WFN407 bugix added by Motorola, Inc.
+ *	  		  nand_ids.c file contains duplicated NAND device IDs.
  */
 #include <linux/module.h>
 #include <linux/mtd/nand.h>
@@ -34,12 +42,13 @@ struct nand_flash_dev nand_flash_ids[] = {
 	{"NAND 4MiB 3,3V 8-bit", 	0xe3, 512, 4, 0x2000, 0},
 	{"NAND 4MiB 3,3V 8-bit", 	0xe5, 512, 4, 0x2000, 0},
 	{"NAND 8MiB 3,3V 8-bit", 	0xd6, 512, 8, 0x2000, 0},
-	
+
+#ifndef CONFIG_MOT_WFN407
 	{"NAND 8MiB 1,8V 8-bit", 	0x39, 512, 8, 0x2000, 0},
 	{"NAND 8MiB 3,3V 8-bit", 	0xe6, 512, 8, 0x2000, 0},
 	{"NAND 8MiB 1,8V 16-bit", 	0x49, 512, 8, 0x2000, NAND_BUSWIDTH_16},
 	{"NAND 8MiB 3,3V 16-bit", 	0x59, 512, 8, 0x2000, NAND_BUSWIDTH_16},
-	
+#endif
 	{"NAND 16MiB 1,8V 8-bit", 	0x33, 512, 16, 0x4000, 0},
 	{"NAND 16MiB 3,3V 8-bit", 	0x73, 512, 16, 0x4000, 0},
 	{"NAND 16MiB 1,8V 16-bit", 	0x43, 512, 16, 0x4000, NAND_BUSWIDTH_16},
@@ -56,17 +65,24 @@ struct nand_flash_dev nand_flash_ids[] = {
 	{"NAND 64MiB 3,3V 16-bit", 	0x56, 512, 64, 0x4000, NAND_BUSWIDTH_16},
 	
 	{"NAND 128MiB 1,8V 8-bit", 	0x78, 512, 128, 0x4000, 0},
+	{"NAND 128MiB 1,8V 8-bit", 	0x39, 512, 128, 0x4000, 0},
 	{"NAND 128MiB 3,3V 8-bit", 	0x79, 512, 128, 0x4000, 0},
 	{"NAND 128MiB 1,8V 16-bit", 	0x72, 512, 128, 0x4000, NAND_BUSWIDTH_16},
+	{"NAND 128MiB 1,8V 16-bit", 	0x49, 512, 128, 0x4000, NAND_BUSWIDTH_16},
 	{"NAND 128MiB 3,3V 16-bit", 	0x74, 512, 128, 0x4000, NAND_BUSWIDTH_16},
+	{"NAND 128MiB 3,3V 16-bit", 	0x59, 512, 128, 0x4000, NAND_BUSWIDTH_16},
 	
 	{"NAND 256MiB 3,3V 8-bit", 	0x71, 512, 256, 0x4000, 0},
 
-	{"NAND 512MiB 3,3V 8-bit", 	0xDC, 512, 512, 0x4000, 0},
-	
 	/* These are the new chips with large page size. The pagesize
 	* and the erasesize is determined from the extended id bytes
 	*/
+	/*512 Megabit */
+	{"NAND 64MiB 1,8V 8-bit", 	0xA2, 0,  64, 0, NAND_SAMSUNG_LP_OPTIONS | NAND_NO_AUTOINCR},
+	{"NAND 64MiB 3,3V 8-bit", 	0xF2, 0,  64, 0, NAND_SAMSUNG_LP_OPTIONS | NAND_NO_AUTOINCR},
+	{"NAND 64MiB 1,8V 16-bit", 	0xB2, 0,  64, 0, NAND_SAMSUNG_LP_OPTIONS | NAND_BUSWIDTH_16 | NAND_NO_AUTOINCR},
+	{"NAND 64MiB 3,3V 16-bit", 	0xC2, 0,  64, 0, NAND_SAMSUNG_LP_OPTIONS | NAND_BUSWIDTH_16 | NAND_NO_AUTOINCR},
+	
 	/* 1 Gigabit */
 	{"NAND 128MiB 1,8V 8-bit", 	0xA1, 0, 128, 0, NAND_SAMSUNG_LP_OPTIONS | NAND_NO_AUTOINCR},
 	{"NAND 128MiB 3,3V 8-bit", 	0xF1, 0, 128, 0, NAND_SAMSUNG_LP_OPTIONS | NAND_NO_AUTOINCR},
@@ -103,7 +119,7 @@ struct nand_flash_dev nand_flash_ids[] = {
 	 * Anyway JFFS2 would increase the eraseblock size so we chose a combined one which can be erased in one go
 	 * There are more speed improvements for reads and writes possible, but not implemented now 
 	 */
-	{"AND 128MiB 3,3V 8-bit",	0x01, 2048, 128, 0x4000, NAND_IS_AND | NAND_NO_AUTOINCR | NAND_4PAGE_ARRAY},
+	{"AND 128MiB 3,3V 8-bit",	0x01, 2048, 128, 0x4000, NAND_IS_AND | NAND_NO_AUTOINCR | NAND_4PAGE_ARRAY | BBT_AUTO_REFRESH},
 
 	{NULL,}
 };
@@ -118,6 +134,8 @@ struct nand_manufacturers nand_manuf_ids[] = {
 	{NAND_MFR_NATIONAL, "National"},
 	{NAND_MFR_RENESAS, "Renesas"},
 	{NAND_MFR_STMICRO, "ST Micro"},
+	{NAND_MFR_MICRON, "Micron"},
+        {NAND_MFR_HYNIX, "Hynix"},
 	{0x0, "Unknown"}
 };
 

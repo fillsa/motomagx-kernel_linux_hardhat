@@ -9,6 +9,8 @@ FONTMAPFILE = cp437.uni
 
 obj-y	 += mem.o random.o tty_io.o n_tty.o tty_ioctl.o
 
+
+obj-$(CONFIG_INOTIFY)           += inotify.o
 obj-$(CONFIG_LEGACY_PTYS)	+= pty.o
 obj-$(CONFIG_UNIX98_PTYS)	+= pty.o
 obj-y				+= misc.o
@@ -21,6 +23,7 @@ obj-$(CONFIG_MVME147_SCC)	+= generic_serial.o vme_scc.o
 obj-$(CONFIG_MVME162_SCC)	+= generic_serial.o vme_scc.o
 obj-$(CONFIG_BVME6000_SCC)	+= generic_serial.o vme_scc.o
 obj-$(CONFIG_SERIAL_TX3912)	+= generic_serial.o serial_tx3912.o
+obj-$(CONFIG_SERIAL_TXX9)	+= generic_serial.o serial_txx9.o
 obj-$(CONFIG_ROCKETPORT)	+= rocket.o
 obj-$(CONFIG_SERIAL167)		+= serial167.o
 obj-$(CONFIG_CYCLADES)		+= cyclades.o
@@ -33,6 +36,11 @@ obj-$(CONFIG_MOXA_INTELLIO)	+= moxa.o
 obj-$(CONFIG_A2232)		+= ser_a2232.o generic_serial.o
 obj-$(CONFIG_ATARI_DSP56K)	+= dsp56k.o
 obj-$(CONFIG_MOXA_SMARTIO)	+= mxser.o
+obj-$(CONFIG_SIBYTE_SB1250_DUART) += sb1250_duart.o
+obj-$(CONFIG_MXC_MU)		+= mxc_mu.o
+obj-$(CONFIG_MXC_IPC)		+= mxc_ipc.o
+obj-$(CONFIG_MXC_SDMA_TTY)	+= mxc_sdma_tty.o
+obj-$(CONFIG_MOT_KEYPAD)        += mot_keyb.o
 obj-$(CONFIG_COMPUTONE)		+= ip2.o ip2main.o
 obj-$(CONFIG_RISCOM8)		+= riscom8.o
 obj-$(CONFIG_ISI)		+= isicom.o
@@ -46,7 +54,8 @@ obj-$(CONFIG_HVC_CONSOLE)	+= hvc_console.o hvsi.o
 obj-$(CONFIG_RAW_DRIVER)	+= raw.o
 obj-$(CONFIG_SGI_SNSC)		+= snsc.o
 obj-$(CONFIG_MMTIMER)		+= mmtimer.o
-obj-$(CONFIG_VIOCONS) += viocons.o
+obj-$(CONFIG_ARGON_UART)	+= mx2uart.o
+obj-$(CONFIG_VIOCONS)		+= viocons.o
 obj-$(CONFIG_VIOTAPE)		+= viotape.o
 obj-$(CONFIG_HVCS)		+= hvcs.o
 
@@ -58,13 +67,17 @@ obj-$(CONFIG_R3964) += n_r3964.o
 obj-$(CONFIG_APPLICOM) += applicom.o
 obj-$(CONFIG_SONYPI) += sonypi.o
 obj-$(CONFIG_RTC) += rtc.o
+obj-$(CONFIG_BLOCKER) += blocker.o
 obj-$(CONFIG_HPET) += hpet.o
 obj-$(CONFIG_GEN_RTC) += genrtc.o
 obj-$(CONFIG_EFI_RTC) += efirtc.o
+obj-$(CONFIG_SA1100_RTC) += sa1100-rtc.o
 obj-$(CONFIG_SGI_DS1286) += ds1286.o
 obj-$(CONFIG_SGI_IP27_RTC) += ip27-rtc.o
 obj-$(CONFIG_DS1302) += ds1302.o
 obj-$(CONFIG_S3C2410_RTC) += s3c2410-rtc.o
+obj-$(CONFIG_OMAP_RTC)+= omap-rtc.o
+obj-$(CONFIG_MXC_RTC)+= mxc_rtc.o
 ifeq ($(CONFIG_GENERIC_NVRAM),y)
   obj-$(CONFIG_NVRAM) += generic_nvram.o
 else
@@ -77,6 +90,10 @@ obj-$(CONFIG_HW_RANDOM) += hw_random.o
 obj-$(CONFIG_QIC02_TAPE) += tpqic02.o
 obj-$(CONFIG_FTAPE) += ftape/
 obj-$(CONFIG_COBALT_LCD) += lcd.o
+obj-$(CONFIG_ITE_GPIO) += ite_gpio.o
+obj-$(CONFIG_AU1000_GPIO) += au1000_gpio.o
+obj-$(CONFIG_AU1000_USB_TTY) += au1000_usbtty.o
+obj-$(CONFIG_AU1000_USB_RAW) += au1000_usbraw.o
 obj-$(CONFIG_PPDEV) += ppdev.o
 obj-$(CONFIG_NWBUTTON) += nwbutton.o
 obj-$(CONFIG_NWFLASH) += nwflash.o
@@ -89,10 +106,12 @@ obj-$(CONFIG_DRM) += drm/
 obj-$(CONFIG_PCMCIA) += pcmcia/
 obj-$(CONFIG_IPMI_HANDLER) += ipmi/
 
+obj-$(CONFIG_FUSION_DEVICE) += fusion/
+
 obj-$(CONFIG_HANGCHECK_TIMER) += hangcheck-timer.o
 
 # Files generated that shall be removed upon make clean
-clean-files := consolemap_deftbl.c defkeymap.c qtronixmap.c
+clean-files := consolemap_deftbl.c defkeymap.c qtronixmap.c ibm_workpad_keymap.c
 
 quiet_cmd_conmk = CONMK   $@
       cmd_conmk = scripts/conmakehash $< > $@
@@ -104,6 +123,8 @@ $(obj)/defkeymap.o:  $(obj)/defkeymap.c
 
 $(obj)/qtronixmap.o: $(obj)/qtronixmap.c
 
+$(obj)/ibm_workpad_keymap.o: $(obj)/ibm_workpad_keymap.c
+
 # Uncomment if you're changing the keymap and have an appropriate
 # loadkeys version for the map. By default, we'll use the shipped
 # versions.
@@ -111,7 +132,8 @@ $(obj)/qtronixmap.o: $(obj)/qtronixmap.c
 
 ifdef GENERATE_KEYMAP
 
-$(obj)/defkeymap.c $(obj)/qtronixmap.c: $(obj)/%.c: $(src)/%.map
+$(obj)/defkeymap.c $(obj)/qtronixmap.c $(obj)/ibm_workpad_keymap.c: \
+		$(obj)/%.c: $(src)/%.map
 	loadkeys --mktable $< > $@.tmp
 	sed -e 's/^static *//' $@.tmp > $@
 	rm $@.tmp

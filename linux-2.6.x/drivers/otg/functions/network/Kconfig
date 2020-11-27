@@ -1,0 +1,346 @@
+# @(#) balden@seth2.belcarratech.com|otg/functions/network/Kconfig|20051116204958|46977
+#
+# Copyright 2005-2006 Motorola, Inc.
+#
+# Changelog:
+# Date               Author           Comment
+# -----------------------------------------------------------------------------
+# 12/12/2005         Motorola         Initial distribution
+# 10/18/2006         Motorola         Add Open Src Software language
+# 12/11/2006         Motorola         Changes for Open src compliance.
+#
+# This Program is distributed in the hope that it will
+# be useful, but WITHOUT ANY WARRANTY;
+# without even the implied warranty of
+# MERCHANTIBILITY or FITNESS FOR A
+# PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+
+# This program is free software; you can redistribute it
+# and/or modify it under the terms of the GNU General
+# Public License as published by the Free Software
+# Foundation; either version 2 of the License, or (at
+# your option) any later version.  You should have
+# received a copy of the GNU General Public License
+# along with this program; if not, write to the Free
+# Software Foundation, Inc., 675 Mass Ave,
+# Cambridge, MA 02139, USA
+
+menu "OTG Network Function"
+	depends on OTG
+
+config OTG_NETWORK
+
+        tristate "  Network Function Driver"
+        depends on OTG
+
+        menu "OTG Network Function options"
+                depends on OTG_NETWORK
+
+        config OTG_NETWORK_VENDORID
+                hex "VendorID (hex value)"
+                depends on OTG && OTG_NETWORK
+                default "0x15ec"
+
+        config OTG_NETWORK_PRODUCTID
+                hex "ProductID (hex value)"
+                depends on OTG && OTG_NETWORK
+                default "0xf001"
+
+        config OTG_NETWORK_BCDDEVICE
+                hex "bcdDevice (binary-coded decimal)"
+                depends on OTG && OTG_NETWORK
+                default "0x0100"
+
+        config OTG_NETWORK_MANUFACTURER
+                string "iManufacturer (string)"
+                depends on OTG && OTG_NETWORK
+                default "Belcarra"
+                ---help---
+                This will be used as the iManufacturer string descriptor.
+
+        config OTG_NETWORK_PRODUCT_NAME
+                string "iProduct (string)"
+                depends on OTG && OTG_NETWORK
+                default "Belcarra Network Device"
+                ---help---
+                This will be used as the iProduct string descriptor.
+
+        comment --
+
+
+        config OTG_NETWORK_BLAN
+                bool 'Enable MDLM-BLAN networking'
+                ---help---
+                BLAN supports non-infrastructure devices in virtual
+                bridged network environment.
+
+        menu "BLAN Network Function options"
+                depends on OTG_NETWORK_BLAN
+
+                config OTG_NETWORK_BLAN_DESC
+                        string "    iConfiguration (string)"
+                        depends on OTG && OTG_NETWORK_BLAN
+                        default "BLAN Net Cfg"
+                        ---help---
+                        This will be used as the Configuration string descriptor
+                        for the BLAN configuration.
+
+                #config OTG_NETWORK_BLAN_INTF
+                #        string "    iInterface (string)"
+                #        depends on OTG && OTG_NETWORK_BLAN
+                #        default "Comm/Data Intf"
+                #        ---help---
+                #        This will be used as the Interface string descriptor
+                #        for the BLAN configuration.
+
+
+                config OTG_NETWORK_BLAN_CRC
+                        bool "        append 32bit CRC"
+                        depends on OTG && OTG_NETWORK_BLAN
+                        default TRUE
+                        ---help---
+                        Setting this allows the host and device to verify that
+                        all network frames have been successfully transferred.
+
+                config OTG_NETWORK_BLAN_AUTO_CONFIG
+                        bool "        Automatically configure the network interface"
+                        depends on OTG && OTG_NETWORK_BLAN
+                        default TRUE
+                        ---help---
+                        The driver will automatically configure the network interface
+                        based on the IPADDR sent from the host to the device during
+                        enumeration. This eliminates the need for hotplug.
+
+
+                #config OTG_NETWORK_BLAN_PADAFTER
+                #        bool "        Pad after"
+                #        depends on OTG && OTG_NETWORK_CRC
+                #        default FALSE
+                #        ---help---
+                #        This is used get around some buggy hardware, it
+                #        is generally not used. Say No.
+
+                #config OTG_NETWORK_BLAN_PADBEFORE
+                #        bool "        Pad before"
+                #        depends on OTG && OTG_NETWORK_AFTER
+                #        default FALSE
+                #        ---help---
+                #        This is used get around some buggy hardware, it
+                #        is generally not used. Say No.
+
+                #config OTG_NETWORK_BLAN_PADBYTES
+                #        int "        Pad bytes"
+                #        depends on OTG && OTG_NETWORK_CRC
+                #        default "8"
+                #        ---help---
+                #        This is used get around some buggy hardware, it
+                #        is generally not used. Leave at default.
+
+                #config OTG_NETWORK_BLAN_FERMAT
+                #        bool "        Fermat"
+                #        depends on OTG && OTG_NETWORK_CRC
+                #        default FALSE
+                #        ---help---
+                #        This is used get around some buggy hardware, it
+                #        is generally not used. Say No.
+
+                config OTG_NETWORK_BLAN_NONBRIDGED
+                        bool "        Non-Bridged"
+                        depends on OTG && OTG_NETWORK_BLAN
+                        default FALSE
+                        ---help---
+                        Tell host to not to enable bridge.
+
+                #config OTG_NETWORK_BLAN_IPADDR
+                #        bool "        Set iProduct from IPADDR"
+                #        depends on OTG && OTG_NETWORK_BLAN
+                #        default FALSE
+                #        ---help---
+                #        Used for debugging.
+
+        endmenu
+
+        config OTG_NETWORK_SAFE
+                bool 'Enable MDLM-SAFE networking'
+                ---help---
+                SAFE supports infrastructure devices but does not
+                require support for SET INTERFACE or interrupt endpoints
+
+        menu "SAFE Network Function options"
+                depends on OTG_NETWORK_SAFE
+
+                config OTG_NETWORK_SAFE_DESC
+                        string "    SAFE Data Interface iConfiguration (string)"
+                        depends on OTG && OTG_NETWORK_SAFE
+                        default "SAFE Net Cfg"
+                        ---help---
+                        This will be used as the Configuration string descriptor
+                        for the SAFE configuration.
+
+                #config OTG_NETWORK_SAFE_INTF
+                #        string "    SAFE Data Interface iInterface (string)"
+                #        depends on OTG && OTG_NETWORK_SAFE
+                #        default "Data Intf"
+                #        ---help---
+                #        This will be used as the Interface string descriptor
+                #        for the SAFE configuration.
+
+                config OTG_NETWORK_SAFE_CRC
+                        bool "        append 32bit CRC"
+                        depends on OTG && OTG_NETWORK_SAFE
+                        default TRUE
+                        ---help---
+                        Setting this allows the host and device to verify that
+                        all network frames have been successfully transferred.
+
+                config OTG_NETWORK_SAFE_PADBEFORE
+                        bool "        Pad before"
+                        depends on OTG && OTG_NETWORK_SAFE
+                        default FALSE
+                        ---help---
+                        This is used get around some buggy hardware, it
+                        is generally not used. Say No.
+
+                config OTG_NETWORK_SAFE_BRIDGED
+                        bool "        Bridged"
+                        depends on OTG && OTG_NETWORK_SAFE
+                        default FALSE
+                        ---help---
+                        Tell host to enable bridge.
+
+        endmenu
+
+        config OTG_NETWORK_CDC
+                bool 'Enable CDC networking'
+                ---help---
+                CDC implements the USB CDC Class Specification
+                to support infra-structure devices
+
+        menu "CDC Network Function options"
+                depends on OTG_NETWORK_CDC
+
+
+                config OTG_NETWORK_CDC_DESC
+                        string "    CDC iConfiguration (string)"
+                        depends on OTG && OTG_NETWORK_CDC
+                        default "SAFE Net Cfg"
+                        ---help---
+                        This will be used as the Configuration string descriptor
+                        for the CDC configuration.
+
+                #config OTG_NETWORK_CDC_COMM_INTF
+                #        string "    CDC Comm Interface iInterface (string)"
+                #        depends on OTG && OTG_NETWORK_CDC
+                #        default "Comm Intf"
+                #        ---help---
+                #        This will be used as the Interface string descriptor
+                #        for the CDC configuration.
+
+                #config OTG_NETWORK_CDC_NODATA_INTF
+                #        string "    CDC Data (diabled) iInterface (string)"
+                #        depends on OTG && OTG_NETWORK_CDC
+                #        default "Data (Disabled) Intf"
+                #        ---help---
+                #        This will be used as the Interface string descriptor
+                #        for the CDC no DATA interface.
+
+                #config OTG_NETWORK_CDC_DATA_INTF
+                #        string "    CDC Data Interface iInterface (string)"
+                #        depends on OTG && OTG_NETWORK_CDC
+                #        default "Data Intf"
+                #        ---help---
+                #        This will be used as the Interface string descriptor
+                #        for the CDC Data Interface.
+
+        endmenu
+
+        config OTG_NETWORK_BASIC
+                bool 'Enable Basic network'
+                ---help---
+                Implement a very simple network configuration
+                with a single data interface.
+
+        menu "BASIC Network Function options"
+                depends on OTG_NETWORK_BASIC
+
+                config OTG_NETWORK_BASIC_DESC
+                        string "    BASIC Data Interface iConfiguration (string)"
+                        depends on OTG && OTG_NETWORK_BASIC
+                        default "BASIC Net Cfg"
+                        ---help---
+                        This will be used as the Configuration string descriptor
+                        for the BLAN configuration.
+
+                #config OTG_NETWORK_BASIC_INTF
+                #        string "    BASIC Data Interface iInterface (string)"
+                #        depends on OTG && OTG_NETWORK_BASIC
+                #        default "Data Intf"
+                #        ---help---
+                #        This will be used as the Interface string descriptor
+                #        for the BLAN data interface.
+
+        endmenu
+
+        config OTG_NETWORK_BASIC2
+                bool 'Enable Basic2 network'
+                ---help---
+                Implement a very simple network configuration with
+                two interfaces.
+
+        menu "BASIC2 Network Function options"
+                depends on OTG_NETWORK_BASIC2
+
+                config OTG_NETWORK_BASIC2_DESC
+                        string "    BASIC2 Data Interface iConfiguration (string)"
+                        depends on OTG && OTG_NETWORK_BASIC2
+                        default "BASIC Net Cfg"
+                        ---help---
+                        This will be used as the Configuration string descriptor
+                        for the BASIC2 configuration.
+
+                #config OTG_NETWORK_BASIC2_COMM_INTF
+                #        string "    BASIC2 Comm Interface iInterface (string)"
+                #        depends on OTG && OTG_NETWORK_BASIC2
+                #        default "Comm Intf"
+                #        ---help---
+                #        This will be used as the Interface string descriptor
+                #        for the BASIC2 configuration.
+
+                #config OTG_NETWORK_BASIC2_DATA_INTF
+                #        string "    BASIC2 Data Interface iInterface (string)"
+                #        depends on OTG && OTG_NETWORK_BASIC2
+                #        default "Data Intf"
+                #        ---help---
+                #        This will be used as the Interface string descriptor
+                #        for the BASIC2 configuration.
+        endmenu
+
+        #config OTG_NETWORK_EEM
+        #        bool 'Enable EEM'
+        #        ---help---
+        #        Implement Ethernet Emulation Module support.
+
+        #config OTG_NETWORK_START_SINGLE
+        #        bool " Start Single Urb Test"
+        #        depends on OTG && OTG_NETWORK
+        #        default n
+        #        ---help---
+        #        Used for testing, will not allow multiple receive urbs
+        #        to be queued. This will generally slow transfer speeds
+        #        and is used to test bus interface drivers operate properly
+        #        when there is no receive urb queued.
+
+        #config OTG_NETWORK_EP0TEST
+        #        bool " EP0 Test"
+        #        depends on OTG && OTG_NETWORK
+        #        default n
+        #        ---help---
+        #        Used for testing, this will change the product string to
+        #        a string that is a multiple of the ep0 packetsize. This
+        #        can be used to verify that the bus interface driver
+        #        properly sends a ZLP after a string.
+
+
+        endmenu
+endmenu

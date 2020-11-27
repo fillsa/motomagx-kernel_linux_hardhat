@@ -224,6 +224,7 @@ static int check_tty_count(struct tty_struct *tty, const char *routine)
 		printk(KERN_WARNING "Warning: dev (%s) tty->count(%d) "
 				    "!= #fd's(%d) in %s\n",
 		       tty->name, tty->count, count, routine);
+		dump_stack();
 		return count;
        }	
 #endif
@@ -249,7 +250,7 @@ static void tty_set_termios_ldisc(struct tty_struct *tty, int num)
  *	callers who will do ldisc lookups and cannot sleep.
  */
  
-static spinlock_t tty_ldisc_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(tty_ldisc_lock);
 static DECLARE_WAIT_QUEUE_HEAD(tty_ldisc_wait);
 static struct tty_ldisc tty_ldiscs[NR_LDISCS];	/* line disc dispatch table	*/
 
@@ -690,7 +691,7 @@ static struct file_operations hung_up_tty_fops = {
 	.release	= tty_release,
 };
 
-static spinlock_t redirect_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(redirect_lock);
 static struct file *redirect;
 
 /**
@@ -827,8 +828,8 @@ void do_tty_hangup(void *data)
 				p->signal->tty = NULL;
 			if (!p->signal->leader)
 				continue;
-			send_group_sig_info(SIGHUP, SEND_SIG_PRIV, p);
-			send_group_sig_info(SIGCONT, SEND_SIG_PRIV, p);
+			group_send_sig_info(SIGHUP, SEND_SIG_PRIV, p);
+			group_send_sig_info(SIGCONT, SEND_SIG_PRIV, p);
 			if (tty->pgrp > 0)
 				p->signal->tty_old_pgrp = tty->pgrp;
 		} while_each_task_pid(tty->session, PIDTYPE_SID, p);

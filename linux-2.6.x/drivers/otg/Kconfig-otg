@@ -1,0 +1,158 @@
+#
+# @(#) balden@seth2.belcarratech.com|otg/Kconfig-otg|20051116203406|51575
+# Copyright (c) 2005 Belcarra
+#
+#                      Copyright (c) 2006 Motorola, Inc. 
+#
+# Changelog:
+# Date               Author           Comment
+# -----------------------------------------------------------------------------
+# 08/09/2006         Motorola         Initial distribution
+# 10/18/2006         Motorola         Add Open Src Software language
+# 12/12/2006         Motorola         Changes for Open Src compliance.
+#
+# This Program is distributed in the hope that it will
+# be useful, but WITHOUT ANY WARRANTY;
+# without even the implied warranty of
+# MERCHANTIBILITY or FITNESS FOR A
+# PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+
+# This program is free software; you can redistribute it
+# and/or modify it under the terms of the GNU General
+# Public License as published by the Free Software
+# Foundation; either version 2 of the License, or (at
+# your option) any later version.  You should have
+# received a copy of the GNU General Public License
+# along with this program; if not, write to the Free
+# Software Foundation, Inc., 675 Mass Ave,
+# Cambridge, MA 02139, USA
+
+#
+#
+# The platform configuration must define the following capability flags to
+# allow this common selection to work. 
+
+# This implements selection of the appropriate role that the software should
+# implement:
+# 
+
+# Platform Capabilities
+#                               Supports Acting as a:
+#   OTG_PLATFORM_USBD           standard USB peripheral
+#   OTG_PLATFORM_USB            standard USB host
+#   OTG_PLATFORM_OTG            OTG Device
+#   OTG_HIGH_SPEED              High Speed Capable Device
+#
+
+# Role Configuration
+#                               Implements:
+#   OTG_USB_PERIPHERAL          USB peripheral
+#   OTG_USB_HOST                USB host
+#   OTG_USB_PERIPHERAL_OR_HOST  USB peripheral or USB host
+#   OTG_BDEVICE_WITH_SRP        OTG SRP capable B-Device
+#   OTG_DEVICE                  OTG Device
+#
+#
+
+    comment ""
+
+    menu "On-The-Go Options"
+
+        depends on OTG_PLATFORM_OTG|| OTG_PLATFORM_USBD
+
+        choice
+            prompt "On-The-Go or USB Device Configuration"
+            config OTG_USB_PERIPHERAL
+                bool "USB Peripheral (only)"
+                depends on OTG_PLATFORM_USBD
+                ---help---
+                Implement a standard USB Peripheral only. 
+        
+            #config OTG_USB_HOST
+            #    bool "USB Host (only)"
+            #    depends on OTG_PLATFORM_USB
+            #    ---help---
+            #    Implement a standard USB Host only. 
+        
+            config OTG_USB_PERIPHERAL_OR_HOST
+                bool "USB Peripheral or Host"
+                depends on OTG_PLATFORM_USB && OTG_PLATFORM_USBD
+                ---help---
+                Implement a standard USB Peripheral and Host. 
+                Support for this is platform-dependent.
+        
+            #config OTG_BDEVICE_WITH_SRP
+            #    bool "SRP Capable B-Device (Only)"
+            #    depends on OTG_PLATFORM_OTG
+            #    ---help---
+            #    Implement an On-The-Go Peripheral-Only SRP-capable device. This
+            #    is similar to a Traditional USB Peripheral but enables
+            #    On-The-Go features such as Service Request Protocol (SRP).
+        
+            config OTG_DEVICE
+                bool "OTG Device - can act as A or B Device"
+                depends on OTG_PLATFORM_OTG
+                ---help---
+                Implement full On-The-Go Device support for a platform that
+                supports implementation of A and B Devices that implement
+                Service Request Protocol (SRP) and Host Negotiation Protocol
+                (HNP).
+        
+        endchoice
+
+        config OTG_TR_AUTO 
+                bool 'Enable Auto-Start' 
+                bool 
+                depends OTG_USB_PERIPHERAL || OTG_USB_PERIPHERAL_OR_HOST || OTG_USB_HOST
+                ---help---
+                Automatically start and enable standard USB Device or USB
+                Host.  If disabled, a USBOTG management application will need
+                to enable the OTG software before the device can be used.
+
+        comment ""
+        comment "OTG Support In Linux USB Core"
+
+        config USB_OTG
+                boolean "USB Host - OTG Support"
+                default OTG_DEVICE 
+                ---help---
+                   This option adds OTG options in the standard Linux
+                   USB Core to support implmentation of On-The-Go Devices.
+                   This should be enabled if implementing an OTG Device.
+
+        comment ""
+        comment "Language"
+
+        config OTG_LANGID
+                hex "Language ID)"
+                depends on OTG 
+                default "0x0904"
+                ---help---
+                   This option sets the default language ID. Typical
+                   values are 0x0904 for US English, or 0x0903 for English.
+
+
+        comment "Testing and Portability"
+
+        config OTG_TRACE
+            bool 'OTG Fast Tracing'
+            depends on OTG!=n
+            ---help---
+            This option implements register trace to support 
+            driver debugging; do not enable in production devices.
+        
+        config OTG_NOC99
+                bool 'Disable C99 initializers'
+                ---help---
+                Enable this if your compiler does not allow a structure to
+                be initialized as .element_name=value 
+
+        # Force for testing...
+        #
+        #config OTG_HIGH_SPEED
+        #        bool
+        #        default OTG
+
+    endmenu
+

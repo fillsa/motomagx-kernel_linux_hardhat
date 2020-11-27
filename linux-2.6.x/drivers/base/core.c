@@ -215,6 +215,7 @@ void device_initialize(struct device *dev)
 	INIT_LIST_HEAD(&dev->driver_list);
 	INIT_LIST_HEAD(&dev->bus_list);
 	INIT_LIST_HEAD(&dev->dma_pools);
+	device_init_wakeup(dev, 0);
 }
 
 /**
@@ -256,6 +257,8 @@ int device_add(struct device *dev)
 	if (parent)
 		list_add_tail(&dev->node, &parent->children);
 	up_write(&devices_subsys.rwsem);
+
+	assert_constraints(dev->constraints);
 
 	/* notify platform of device entry */
 	if (platform_notify)
@@ -342,6 +345,8 @@ void device_del(struct device * dev)
 		list_del_init(&dev->node);
 	up_write(&devices_subsys.rwsem);
 
+	deassert_constraints(dev->constraints);
+
 	/* Notify the platform of the removal, in case they
 	 * need to do anything...
 	 */
@@ -412,10 +417,20 @@ int device_for_each_child(struct device * dev, void * data,
  */
 struct device *device_find(const char *name, struct bus_type *bus)
 {
-	struct kobject *k = kset_find_obj(&bus->devices, name);
-	if (k)
-		return to_dev(k);
-	return NULL;
+       struct list_head * entry;
+       struct device* ret = NULL;
+
+       down_read(&bus->subsys.rwsem);
+       list_for_each(entry,&bus->devices.list) {
+               struct device *k = container_of((entry), struct device, bus_list);
+
+               if (name && !strcmp(k->bus_id,name)) {
+                       ret = k;
+                       break;
+               }
+       }
+       up_read(&bus->subsys.rwsem);
+       return ret;
 }
 
 int __init devices_init(void)

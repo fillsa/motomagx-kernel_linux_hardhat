@@ -65,7 +65,7 @@ EXPORT_SYMBOL(__debugger_fault_handler);
  * Trap & Exception support
  */
 
-static spinlock_t die_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(die_lock);
 
 int die(const char *str, struct pt_regs *regs, long err)
 {

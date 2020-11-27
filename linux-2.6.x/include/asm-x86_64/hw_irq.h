@@ -55,6 +55,7 @@ struct hw_interrupt_type;
 #define TASK_MIGRATION_VECTOR	0xfb
 #define CALL_FUNCTION_VECTOR	0xfa
 #define KDB_VECTOR	0xf9
+#define KGDB_VECTOR	0xf8
 
 #define THERMAL_APIC_VECTOR	0xf0
 

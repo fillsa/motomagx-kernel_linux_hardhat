@@ -1032,7 +1032,9 @@ static void ide_do_request (ide_hwgroup_t *hwgroup, int masked_irq)
 	ide_get_lock(ide_intr, hwgroup);
 
 	/* caller must own ide_lock */
+#ifndef CONFIG_PREEMPT_RT
 	BUG_ON(!irqs_disabled());
+#endif
 
 	while (!hwgroup->busy) {
 		hwgroup->busy = 1;
@@ -1212,7 +1214,7 @@ static ide_startstop_t ide_dma_timeout_retry(ide_drive_t *drive, int error)
 	rq->sector = rq->bio->bi_sector;
 	rq->current_nr_sectors = bio_iovec(rq->bio)->bv_len >> 9;
 	rq->hard_cur_sectors = rq->current_nr_sectors;
-	rq->buffer = NULL;
+	rq->buffer = bio_data(rq->bio);
 out:
 	return ret;
 }
@@ -1290,7 +1292,7 @@ void ide_timer_expiry (unsigned long data)
 #endif /* DISABLE_IRQ_NOSYNC */
 			/* local CPU only,
 			 * as if we were handling an interrupt */
-			local_irq_disable();
+			local_irq_disable_nort();
 			if (hwgroup->poll_timeout != 0) {
 				startstop = handler(drive);
 			} else if (drive_is_ready(drive)) {

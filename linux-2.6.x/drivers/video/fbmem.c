@@ -2,6 +2,7 @@
  *  linux/drivers/video/fbmem.c
  *
  *  Copyright (C) 1994 Martin Schaller
+ *  Copyright 2006 Motorola, Inc.
  *
  *	2001 - Documented with DocBook
  *	- Brad Douglas <brad@neruo.com>
@@ -9,6 +10,9 @@
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file COPYING in the main directory of this archive
  * for more details.
+ *
+ * Date     Author    Comment
+ * 10/2006  Motorola  Added panic text support through the framebuffer console.
  */
 
 #include <linux/config.h>
@@ -757,6 +761,36 @@ fb_blank(struct fb_info *info, int blank)
 	return err;
 }
 
+
+#if defined(CONFIG_MOT_FEAT_FB_PANIC_TEXT)
+
+#include <linux/motfb.h>  /* FBIOPANICTEXT ioctl definition */
+
+extern int fb_draw_panic_text(struct fb_info * info, const char * panic_text,
+	        long panic_len, int do_timer);
+/*!
+ * Display panic text on the LCD 
+ * 
+ * @param  fbi     	Framebuffer information pointer
+ * @param  panic_text   String text to display
+ * @param  panic_len   	Length of text string
+ * @param  do_timer   	True:  display text on an infinite timer, 
+ *			False: display text only once
+ *
+ * @return      Negative error code on failure or 0 on success
+ */
+int fb_panic_text(struct fb_info * fbi, const char * panic_text, 
+	long panic_len, int do_timer)
+{
+        if (panic_len > PANIC_MAX_STR_LEN) {
+		return -EINVAL;
+        }
+
+	return fb_draw_panic_text(fbi, panic_text, panic_len, do_timer);
+}
+#endif /* defined(CONFIG_MOT_FEAT_FB_PANIC_TEXT) */
+
+
 static int 
 fb_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 	 unsigned long arg)
@@ -849,6 +883,36 @@ fb_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 		i = fb_blank(info, arg);
 		release_console_sem();
 		return i;
+#if defined(CONFIG_MOT_FEAT_FB_PANIC_TEXT)
+	case FBIOPANICTEXT:
+	{
+		char * panic_buffer = NULL;
+		long panic_len;
+		long str_len;
+		int retval;
+		const char __user *str = (const char __user *)arg;
+
+		str_len = strnlen_user(str, PANIC_MAX_STR_LEN);  
+		if (str_len == 0 || str_len > PANIC_MAX_STR_LEN) {
+			return -EINVAL;
+		}
+		if (!(panic_buffer = kmalloc(str_len, GFP_KERNEL))) {
+			return -ENOMEM;
+		}
+		    
+		panic_len = strncpy_from_user(panic_buffer, str, str_len);
+
+		if (panic_len > 0) {
+			retval = fb_panic_text(info, panic_buffer, panic_len, true);
+		} else {
+			retval = -EINVAL;
+		}
+
+		kfree(panic_buffer);
+		return retval;
+	}
+#endif /* defined(CONFIG_MOT_FEAT_FB_PANIC_TEXT) */
+
 	default:
 		if (fb->fb_ioctl == NULL)
 			return -EINVAL;
@@ -1067,6 +1131,7 @@ register_framebuffer(struct fb_info *fb_info)
 	event.info = fb_info;
 	notifier_call_chain(&fb_notifier_list,
 			    FB_EVENT_FB_REGISTERED, &event);
+
 	return 0;
 }
 
@@ -1097,6 +1162,7 @@ unregister_framebuffer(struct fb_info *fb_info)
 	registered_fb[i]=NULL;
 	num_registered_fb--;
 	class_simple_device_remove(MKDEV(FB_MAJOR, i));
+
 	return 0;
 }
 

@@ -69,6 +69,8 @@
 
 #define NR_IXP2000_IRQS                 42
 
+#define	ARCH_TIMER_IRQ			4
+
 #define	IXP2000_BOARD_IRQ(x)		(NR_IXP2000_IRQS + (x))
 
 #define	IXP2000_BOARD_IRQ_MASK(irq)	(1 << (irq - NR_IXP2000_IRQS))	

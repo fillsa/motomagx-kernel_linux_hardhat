@@ -11,6 +11,7 @@
 #include <linux/config.h>
 #include <linux/threads.h>
 #include <linux/linkage.h>
+#include <asm/kgdb.h>
 #include <asm/segment.h>
 #include <asm/page.h>
 #include <asm/pgtable.h>
@@ -330,7 +331,9 @@ is386:	movl $2,%ecx		# set MP
 L6:
 	jmp L6			# main should never return here, but
 				# just in case, we know what happens.
-
+	/* This dwarf code tells gdb that this is the end of the unwind */
+	/* This uses the CFA set up for pc=1 located in entry.S */
+	CFI_END_FRAME(is386)
 /*
  * We depend on ET to be correct. This checks for 287/387.
  */

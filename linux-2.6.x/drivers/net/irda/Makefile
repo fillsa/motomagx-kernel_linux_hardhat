@@ -13,11 +13,13 @@ obj-$(CONFIG_SIGMATEL_FIR)	+= stir4200.o
 obj-$(CONFIG_NSC_FIR)		+= nsc-ircc.o
 obj-$(CONFIG_WINBOND_FIR)	+= w83977af_ir.o
 obj-$(CONFIG_SA1100_FIR)	+= sa1100_ir.o
+obj-$(CONFIG_MXC_FIR)		+= mxc_ir.o
 obj-$(CONFIG_TOSHIBA_FIR)	+= donauboe.o
 obj-$(CONFIG_SMC_IRCC_FIR)	+= smsc-ircc2.o
 obj-$(CONFIG_ALI_FIR)		+= ali-ircc.o
 obj-$(CONFIG_VLSI_FIR)		+= vlsi_ir.o
 obj-$(CONFIG_VIA_FIR)		+= via-ircc.o
+obj-$(CONFIG_PXA_FICP)	        += pxaficp_ir.o
 # Old dongle drivers for old SIR drivers
 obj-$(CONFIG_ESI_DONGLE_OLD)		+= esi.o
 obj-$(CONFIG_TEKRAM_DONGLE_OLD)	+= tekram.o
@@ -42,6 +44,8 @@ obj-$(CONFIG_OLD_BELKIN_DONGLE)	+= old_belkin-sir.o
 obj-$(CONFIG_MCP2120_DONGLE)	+= mcp2120-sir.o
 obj-$(CONFIG_ACT200L_DONGLE)	+= act200l-sir.o
 obj-$(CONFIG_MA600_DONGLE)	+= ma600-sir.o
+obj-$(CONFIG_OMAP1610_IR)       += omap1610-ir.o
+
 
 # The SIR helper module
 sir-dev-objs := sir_core.o sir_dev.o sir_dongle.o sir_kthread.o

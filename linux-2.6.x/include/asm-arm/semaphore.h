@@ -1,6 +1,14 @@
 /*
  * linux/include/asm-arm/semaphore.h
  */
+
+/* Copyright 2006 Motorola, Inc.
+ *
+ * Date         Author          Comment
+ * 10/2006      Motorola        Added down_interruptible_timeout semaphore 
+ * 				operations
+ */
+
 #ifndef __ASM_ARM_SEMAPHORE_H
 #define __ASM_ARM_SEMAPHORE_H
 
@@ -9,87 +17,101 @@
 #include <linux/wait.h>
 #include <linux/rwsem.h>
 
+/*
+ * On !PREEMPT_RT all semaphores are compat:
+ */
+#ifndef CONFIG_PREEMPT_RT
+# define compat_semaphore semaphore
+#endif
+
 #include <asm/atomic.h>
 #include <asm/locks.h>
 
-struct semaphore {
+struct compat_semaphore {
 	atomic_t count;
 	int sleepers;
 	wait_queue_head_t wait;
 };
 
-#define __SEMAPHORE_INIT(name, cnt)				\
+#define __COMPAT_SEMAPHORE_INIT(name, cnt)				\
 {								\
 	.count	= ATOMIC_INIT(cnt),				\
 	.wait	= __WAIT_QUEUE_HEAD_INITIALIZER((name).wait),	\
 }
 
-#define __MUTEX_INITIALIZER(name) __SEMAPHORE_INIT(name,1)
+#define __COMPAT_MUTEX_INITIALIZER(name) __COMPAT_SEMAPHORE_INIT(name,1)
 
-#define __DECLARE_SEMAPHORE_GENERIC(name,count)	\
-	struct semaphore name = __SEMAPHORE_INIT(name,count)
+#define __COMPAT_DECLARE_SEMAPHORE_GENERIC(name,count)	\
+	struct compat_semaphore name = __COMPAT_SEMAPHORE_INIT(name,count)
 
-#define DECLARE_MUTEX(name)		__DECLARE_SEMAPHORE_GENERIC(name,1)
-#define DECLARE_MUTEX_LOCKED(name)	__DECLARE_SEMAPHORE_GENERIC(name,0)
+#define COMPAT_DECLARE_MUTEX(name)	__COMPAT_DECLARE_SEMAPHORE_GENERIC(name,1)
+#define COMPAT_DECLARE_MUTEX_LOCKED(name) __COMPAT_DECLARE_SEMAPHORE_GENERIC(name,0)
 
-static inline void sema_init(struct semaphore *sem, int val)
+static inline void compat_sema_init(struct compat_semaphore *sem, int val)
 {
 	atomic_set(&sem->count, val);
 	sem->sleepers = 0;
 	init_waitqueue_head(&sem->wait);
 }
 
-static inline void init_MUTEX(struct semaphore *sem)
+static inline void compat_init_MUTEX(struct compat_semaphore *sem)
 {
-	sema_init(sem, 1);
+	compat_sema_init(sem, 1);
 }
 
-static inline void init_MUTEX_LOCKED(struct semaphore *sem)
+static inline void compat_init_MUTEX_LOCKED(struct compat_semaphore *sem)
 {
-	sema_init(sem, 0);
-}
-
-static inline int sema_count(struct semaphore *sem)
-{
-	return atomic_read(&sem->count);
+	compat_sema_init(sem, 0);
 }
 
 /*
  * special register calling convention
  */
-asmlinkage void __down_failed(void);
-asmlinkage int  __down_interruptible_failed(void);
-asmlinkage int  __down_trylock_failed(void);
-asmlinkage void __up_wakeup(void);
+asmlinkage void __compat_down_failed(void);
+asmlinkage int  __compat_down_interruptible_failed(void);
+asmlinkage int  __compat_down_trylock_failed(void);
+asmlinkage void __compat_up_wakeup(void);
 
-extern void __down(struct semaphore * sem);
-extern int  __down_interruptible(struct semaphore * sem);
-extern int  __down_trylock(struct semaphore * sem);
-extern void __up(struct semaphore * sem);
+extern void __compat_down(struct compat_semaphore * sem);
+extern int  __compat_down_interruptible(struct compat_semaphore * sem);
+extern int  __compat_down_trylock(struct compat_semaphore * sem);
+extern void __compat_up(struct compat_semaphore * sem);
+extern int compat_sem_is_locked(struct compat_semaphore *sem);
+#ifdef CONFIG_MOT_FEAT_DOWN_TIMEOUT
+extern int  __down_interruptible_timeout(struct compat_semaphore * sem, signed long timeout);
+#endif
 
 /*
  * This is ugly, but we want the default case to fall through.
  * "__down" is the actual routine that waits...
  */
-static inline void down(struct semaphore * sem)
+static inline void compat_down(struct compat_semaphore * sem)
 {
 	might_sleep();
-	__down_op(sem, __down_failed);
+	__compat_down_op(sem, __compat_down_failed);
 }
 
 /*
  * This is ugly, but we want the default case to fall through.
  * "__down_interruptible" is the actual routine that waits...
  */
-static inline int down_interruptible (struct semaphore * sem)
+static inline int compat_down_interruptible (struct compat_semaphore * sem)
 {
 	might_sleep();
-	return __down_op_ret(sem, __down_interruptible_failed);
+	return __compat_down_op_ret(sem, __compat_down_interruptible_failed);
 }
 
-static inline int down_trylock(struct semaphore *sem)
+#ifdef CONFIG_MOT_FEAT_DOWN_TIMEOUT
+static inline int down_interruptible_timeout (struct compat_semaphore * sem, signed long timeout)
 {
-	return __down_op_ret(sem, __down_trylock_failed);
+	might_sleep();
+	return __down_op_ret_timeout(sem, timeout, __down_interruptible_timeout);
+}
+#endif
+
+static inline int compat_down_trylock(struct compat_semaphore *sem)
+{
+	return __compat_down_op_ret(sem, __compat_down_trylock_failed);
 }
 
 /*
@@ -98,9 +120,13 @@ static inline int down_trylock(struct semaphore *sem)
  * The default case (no contention) will result in NO
  * jumps for both down() and up().
  */
-static inline void up(struct semaphore * sem)
+static inline void compat_up(struct compat_semaphore * sem)
 {
-	__up_op(sem, __up_wakeup);
+	__compat_up_op(sem, __compat_up_wakeup);
 }
+
+#define compat_sema_count(sem) atomic_read(&(sem)->count)
+
+#include <linux/semaphore.h>
 
 #endif

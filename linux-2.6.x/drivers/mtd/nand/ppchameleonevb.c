@@ -6,7 +6,7 @@
  *  Derived from drivers/mtd/nand/edb7312.c
  *
  *
- * $Id: ppchameleonevb.c,v 1.6 2004/11/05 16:07:16 kalev Exp $
+ * $Id: ppchameleonevb.c,v 1.5 2004/11/04 12:53:10 gleixner Exp $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as

@@ -74,6 +74,8 @@ extern unsigned int system_rev;
 # endif
 #endif
 
+#include <linux/kfi.h>
+#include <linux/init.h>
 /*
  * Generate various OMAP cpu specific macros, and cpu class
  * specific macros
@@ -82,13 +84,13 @@ extern unsigned int system_rev;
 #define GET_OMAP_CLASS	(system_rev & 0xff)
 
 #define IS_OMAP_TYPE(type, id)				\
-static inline int is_omap ##type (void)			\
+static __noinstrument inline int is_omap ##type (void)			\
 {							\
 	return (GET_OMAP_TYPE == (id)) ? 1 : 0;		\
 }
 
 #define IS_OMAP_CLASS(class, id)			\
-static inline int is_omap ##class (void)		\
+static __noinstrument inline int is_omap ##class (void)		\
 {							\
 	return (GET_OMAP_CLASS == (id)) ? 1 : 0;	\
 }

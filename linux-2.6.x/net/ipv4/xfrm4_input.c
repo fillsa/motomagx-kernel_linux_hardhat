@@ -6,6 +6,25 @@
  *		Split up af-specific portion
  *	Derek Atkins <derek@ihtfp.com>
  *		Add Encapsulation support
+ *
+ * Copyright (C) 2007 Motorola Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+ * 02111-1307, USA
+ *
+ * Date         Author          Comment
+ * 04/2007      Motorola        UMA DSCP support - copy outer-inner dscp map
  * 	
  */
 
@@ -14,6 +33,8 @@
 #include <net/inet_ecn.h>
 #include <net/ip.h>
 #include <net/xfrm.h>
+
+struct xfrm_tunnel *xfrm_tunnel_handler;
 
 int xfrm4_rcv(struct sk_buff *skb)
 {
@@ -31,30 +52,29 @@ static inline void ipip_ecn_decapsulate(struct sk_buff *skb)
 		IP_ECN_set_ce(inner_iph);
 }
 
-static int xfrm4_parse_spi(struct sk_buff *skb, u8 nexthdr, u32 *spi, u32 *seq)
+static int xfrm4_parse_spi(struct sk_buff *skb, u8 nexthdr, u32 *spi)
 {
 	switch (nexthdr) {
 	case IPPROTO_IPIP:
 		if (!pskb_may_pull(skb, sizeof(struct iphdr)))
 			return -EINVAL;
 		*spi = skb->nh.iph->saddr;
-		*seq = 0;
 		return 0;
 	}
 
-	return xfrm_parse_spi(skb, nexthdr, spi, seq);
+	return xfrm_parse_spi(skb, nexthdr, spi);
 }
 
 int xfrm4_rcv_encap(struct sk_buff *skb, __u16 encap_type)
 {
 	int err;
-	u32 spi, seq;
+	u32 spi;
 	struct sec_decap_state xfrm_vec[XFRM_MAX_DEPTH];
 	struct xfrm_state *x;
 	int xfrm_nr = 0;
 	int decaps = 0;
 
-	if ((err = xfrm4_parse_spi(skb, skb->nh.iph->protocol, &spi, &seq)) != 0)
+	if ((err = xfrm4_parse_spi(skb, skb->nh.iph->protocol, &spi)) != 0)
 		goto drop;
 
 	do {
@@ -71,9 +91,6 @@ int xfrm4_rcv_encap(struct sk_buff *skb, __u16 encap_type)
 		if (unlikely(x->km.state != XFRM_STATE_VALID))
 			goto drop_unlock;
 
-		if (x->props.replay_window && xfrm_replay_check(x, seq))
-			goto drop_unlock;
-
 		if (xfrm_state_check_expire(x))
 			goto drop_unlock;
 
@@ -83,9 +100,6 @@ int xfrm4_rcv_encap(struct sk_buff *skb, __u16 encap_type)
 
 		/* only the first xfrm gets the encap type */
 		encap_type = 0;
-
-		if (x->props.replay_window)
-			xfrm_replay_advance(x, seq);
 
 		x->curlft.bytes += skb->len;
 		x->curlft.packets++;
@@ -97,6 +111,7 @@ int xfrm4_rcv_encap(struct sk_buff *skb, __u16 encap_type)
 		iph = skb->nh.iph;
 
 		if (x->props.mode) {
+			struct xfrm_tunnel *handler = xfrm_tunnel_handler;
 			if (iph->protocol != IPPROTO_IPIP)
 				goto drop;
 			if (!pskb_may_pull(skb, sizeof(struct iphdr)))
@@ -104,10 +119,25 @@ int xfrm4_rcv_encap(struct sk_buff *skb, __u16 encap_type)
 			if (skb_cloned(skb) &&
 			    pskb_expand_head(skb, 0, 0, GFP_ATOMIC))
 				goto drop;
-			if (x->props.flags & XFRM_STATE_DECAP_DSCP)
-				ipv4_copy_dscp(iph, skb->h.ipiph);
+
+#ifdef CONFIG_MOT_FEAT_DSCP_UMA
+                        {
+                            xfrm4_copy_dscp(iph, skb->h.ipiph);
+                        }
+#else
+                        {
+                            if (x->props.flags & XFRM_STATE_DECAP_DSCP)
+                                ipv4_copy_dscp(iph, skb->h.ipiph);
+                        }
+#endif
+                        
 			if (!(x->props.flags & XFRM_STATE_NOECN))
 				ipip_ecn_decapsulate(skb);
+			if (handler) {
+				struct net_device *dev;
+				if ((dev = handler->dev_lookup(skb->nh.iph)))
+					skb->dev = dev;
+			}
 			skb->mac.raw = memmove(skb->data - skb->mac_len,
 					       skb->mac.raw, skb->mac_len);
 			skb->nh.raw = skb->data;
@@ -116,8 +146,9 @@ int xfrm4_rcv_encap(struct sk_buff *skb, __u16 encap_type)
 			break;
 		}
 
-		if ((err = xfrm_parse_spi(skb, skb->nh.iph->protocol, &spi, &seq)) < 0)
+		if ((err = xfrm_parse_spi(skb, skb->nh.iph->protocol, &spi)) < 0)
 			goto drop;
+
 	} while (!err);
 
 	/* Allocate new secpath or COW existing one. */

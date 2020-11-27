@@ -16,6 +16,7 @@
 #include <linux/sched.h>
 #include <linux/err.h>
 #include <linux/init.h>
+#include <linux/module.h>
 #include <asm/semaphore.h>
 
 /*
@@ -49,12 +50,12 @@
  *    we cannot lose wakeup events.
  */
 
-fastcall void __up(struct semaphore *sem)
+fastcall void __compat_up(struct compat_semaphore *sem)
 {
 	wake_up(&sem->wait);
 }
 
-fastcall void __sched __down(struct semaphore * sem)
+fastcall void __sched __compat_down(struct compat_semaphore * sem)
 {
 	struct task_struct *tsk = current;
 	DECLARE_WAITQUEUE(wait, tsk);
@@ -91,7 +92,7 @@ fastcall void __sched __down(struct semaphore * sem)
 	tsk->state = TASK_RUNNING;
 }
 
-fastcall int __sched __down_interruptible(struct semaphore * sem)
+fastcall int __sched __compat_down_interruptible(struct compat_semaphore * sem)
 {
 	int retval = 0;
 	struct task_struct *tsk = current;
@@ -154,7 +155,7 @@ fastcall int __sched __down_interruptible(struct semaphore * sem)
  * single "cmpxchg" without failure cases,
  * but then it wouldn't work on a 386.
  */
-fastcall int __down_trylock(struct semaphore * sem)
+fastcall int __compat_down_trylock(struct compat_semaphore * sem)
 {
 	int sleepers;
 	unsigned long flags;
@@ -190,15 +191,15 @@ fastcall int __down_trylock(struct semaphore * sem)
 asm(
 ".section .sched.text\n"
 ".align 4\n"
-".globl __down_failed\n"
-"__down_failed:\n\t"
+".globl __compat_down_failed\n"
+"__compat_down_failed:\n\t"
 #if defined(CONFIG_FRAME_POINTER)
 	"pushl %ebp\n\t"
 	"movl  %esp,%ebp\n\t"
 #endif
 	"pushl %edx\n\t"
 	"pushl %ecx\n\t"
-	"call __down\n\t"
+	"call __compat_down\n\t"
 	"popl %ecx\n\t"
 	"popl %edx\n\t"
 #if defined(CONFIG_FRAME_POINTER)
@@ -211,15 +212,15 @@ asm(
 asm(
 ".section .sched.text\n"
 ".align 4\n"
-".globl __down_failed_interruptible\n"
-"__down_failed_interruptible:\n\t"
+".globl __compat_down_failed_interruptible\n"
+"__compat_down_failed_interruptible:\n\t"
 #if defined(CONFIG_FRAME_POINTER)
 	"pushl %ebp\n\t"
 	"movl  %esp,%ebp\n\t"
 #endif
 	"pushl %edx\n\t"
 	"pushl %ecx\n\t"
-	"call __down_interruptible\n\t"
+	"call __compat_down_interruptible\n\t"
 	"popl %ecx\n\t"
 	"popl %edx\n\t"
 #if defined(CONFIG_FRAME_POINTER)
@@ -232,15 +233,15 @@ asm(
 asm(
 ".section .sched.text\n"
 ".align 4\n"
-".globl __down_failed_trylock\n"
-"__down_failed_trylock:\n\t"
+".globl __compat_down_failed_trylock\n"
+"__compat_down_failed_trylock:\n\t"
 #if defined(CONFIG_FRAME_POINTER)
 	"pushl %ebp\n\t"
 	"movl  %esp,%ebp\n\t"
 #endif
 	"pushl %edx\n\t"
 	"pushl %ecx\n\t"
-	"call __down_trylock\n\t"
+	"call __compat_down_trylock\n\t"
 	"popl %ecx\n\t"
 	"popl %edx\n\t"
 #if defined(CONFIG_FRAME_POINTER)
@@ -253,45 +254,20 @@ asm(
 asm(
 ".section .sched.text\n"
 ".align 4\n"
-".globl __up_wakeup\n"
-"__up_wakeup:\n\t"
+".globl __compat_up_wakeup\n"
+"__compat_up_wakeup:\n\t"
 	"pushl %edx\n\t"
 	"pushl %ecx\n\t"
-	"call __up\n\t"
+	"call __compat_up\n\t"
 	"popl %ecx\n\t"
 	"popl %edx\n\t"
 	"ret"
 );
 
-/*
- * rw spinlock fallbacks
- */
-#if defined(CONFIG_SMP)
-asm(
-".section .sched.text\n"
-".align	4\n"
-".globl	__write_lock_failed\n"
-"__write_lock_failed:\n\t"
-	LOCK "addl	$" RW_LOCK_BIAS_STR ",(%eax)\n"
-"1:	rep; nop\n\t"
-	"cmpl	$" RW_LOCK_BIAS_STR ",(%eax)\n\t"
-	"jne	1b\n\t"
-	LOCK "subl	$" RW_LOCK_BIAS_STR ",(%eax)\n\t"
-	"jnz	__write_lock_failed\n\t"
-	"ret"
-);
+int fastcall compat_sem_is_locked(struct compat_semaphore *sem)
+{
+	return (int) atomic_read(&sem->count) < 0;
+}
 
-asm(
-".section .sched.text\n"
-".align	4\n"
-".globl	__read_lock_failed\n"
-"__read_lock_failed:\n\t"
-	LOCK "incl	(%eax)\n"
-"1:	rep; nop\n\t"
-	"cmpl	$1,(%eax)\n\t"
-	"js	1b\n\t"
-	LOCK "decl	(%eax)\n\t"
-	"js	__read_lock_failed\n\t"
-	"ret"
-);
-#endif
+EXPORT_SYMBOL(compat_sem_is_locked);
+

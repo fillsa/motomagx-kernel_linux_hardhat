@@ -245,7 +245,7 @@ __do_page_cache_readahead(struct address_space *mapping, struct file *filp,
 			continue;
 
 		spin_unlock_irq(&mapping->tree_lock);
-		page = page_cache_alloc_cold(mapping);
+		page = page_cache_alloc_cold(mapping, page_offset);
 		spin_lock_irq(&mapping->tree_lock);
 		if (!page)
 			break;

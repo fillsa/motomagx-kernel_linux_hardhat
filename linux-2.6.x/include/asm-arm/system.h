@@ -4,6 +4,7 @@
 #ifdef __KERNEL__
 
 #include <linux/config.h>
+#include <linux/ilatency.h>
 
 #define CPU_ARCH_UNKNOWN	0
 #define CPU_ARCH_ARMv3		1
@@ -165,9 +166,15 @@ do {									\
  * spin_unlock_irq() and friends are implemented.  This avoids
  * us needlessly decrementing and incrementing the preempt count.
  */
+#ifndef CONFIG_PREEMPT_RT
 #define prepare_arch_switch(rq,next)	local_irq_enable()
-#define finish_arch_switch(rq,prev)	spin_unlock(&(rq)->lock)
+#define finish_arch_switch(rq,prev)					\
+do {									\
+	spin_unlock(&(rq)->lock);					\
+	local_irq_disable();						\
+} while(0)
 #define task_running(rq,p)		((rq)->curr == (p))
+#endif
 #endif
 
 /*
@@ -180,14 +187,33 @@ extern struct task_struct *__switch_to(struct task_struct *, struct thread_info 
 #define switch_to(prev,next,last)					\
 do {									\
 	last = __switch_to(prev,prev->thread_info,next->thread_info);	\
+	dpm_set_os(current->dpm_state);					\
 } while (0)
 
+#ifdef CONFIG_CRITICAL_IRQSOFF_TIMING
+extern void notrace trace_irqs_off(void);
+extern void notrace trace_irqs_on(void);
+#define local_irq_enable() ({trace_irqs_on();__local_irq_enable();})
+#define local_irq_disable() ({__local_irq_disable();trace_irqs_off();})
+#define local_irq_restore(x) ({trace_irqs_on();__local_irq_restore(x);})
+#define local_irq_save(x) ({__local_irq_save(x); trace_irqs_off();})
+#elif defined(CONFIG_ILATENCY)
+#define local_irq_enable()      ilat_irq_enable(__BASE_FILE__,__LINE__,0)
+#define local_irq_disable()     ilat_irq_disable(__BASE_FILE__,__LINE__)
+#define local_irq_save(x)     do {local_save_flags(x);local_irq_disable();} while (0)
+#define local_irq_restore(x)  ilat_restore_flags(__BASE_FILE__,__LINE__,x)
+#else
+#define local_irq_enable() __local_irq_enable()
+#define local_irq_disable() __local_irq_disable()
+#define local_irq_restore(x) __local_irq_restore(x)
+#define local_irq_save(x) __local_irq_save(x)
+#endif
 /*
  * CPU interrupt mask handling.
  */
 #if __LINUX_ARM_ARCH__ >= 6
 
-#define local_irq_save(x)					\
+#define __local_irq_save(x)					\
 	({							\
 	__asm__ __volatile__(					\
 	"mrs	%0, cpsr		@ local_irq_save\n"	\
@@ -195,8 +221,8 @@ do {									\
 	: "=r" (x) : : "memory", "cc");				\
 	})
 
-#define local_irq_enable()  __asm__("cpsie i	@ __sti" : : : "memory", "cc")
-#define local_irq_disable() __asm__("cpsid i	@ __cli" : : : "memory", "cc")
+#define __local_irq_enable()  __asm__("cpsie i	@ __sti" : : : "memory", "cc")
+#define __local_irq_disable() __asm__("cpsid i	@ __cli" : : : "memory", "cc")
 #define local_fiq_enable()  __asm__("cpsie f	@ __stf" : : : "memory", "cc")
 #define local_fiq_disable() __asm__("cpsid f	@ __clf" : : : "memory", "cc")
 
@@ -205,7 +231,7 @@ do {									\
 /*
  * Save the current interrupt enable state & disable IRQs
  */
-#define local_irq_save(x)					\
+#define __local_irq_save(x)					\
 	({							\
 		unsigned long temp;				\
 		(void) (&temp == &x);				\
@@ -221,7 +247,7 @@ do {									\
 /*
  * Enable IRQs
  */
-#define local_irq_enable()					\
+#define __local_irq_enable()					\
 	({							\
 		unsigned long temp;				\
 	__asm__ __volatile__(					\
@@ -236,7 +262,7 @@ do {									\
 /*
  * Disable IRQs
  */
-#define local_irq_disable()					\
+#define __local_irq_disable()					\
 	({							\
 		unsigned long temp;				\
 	__asm__ __volatile__(					\
@@ -247,7 +273,6 @@ do {									\
 	:							\
 	: "memory", "cc");					\
 	})
-
 /*
  * Enable FIQs
  */
@@ -293,18 +318,23 @@ do {									\
 /*
  * restore saved IRQ & FIQ state
  */
-#define local_irq_restore(x)					\
+#define __local_irq_restore(x)					\
 	__asm__ __volatile__(					\
 	"msr	cpsr_c, %0		@ local_irq_restore\n"	\
 	:							\
 	: "r" (x)						\
 	: "memory", "cc")
 
+#define irqs_disabled_flags(flags)	\
+({					\
+	(flags & PSR_I_BIT);		\
+})
+
 #define irqs_disabled()			\
 ({					\
 	unsigned long flags;		\
 	local_save_flags(flags);	\
-	flags & PSR_I_BIT;		\
+	irqs_disabled_flags(flags);	\
 })
 
 #ifdef CONFIG_SMP
@@ -378,6 +408,50 @@ static inline unsigned long __xchg(unsigned long x, volatile void *ptr, int size
 
 	return ret;
 }
+
+#define	__HAVE_ARCH_CMPXCHG	1
+
+#include <asm/types.h>
+
+static inline unsigned long __cmpxchg_u32(volatile int *m, unsigned long old, 
+					unsigned long new)
+{
+	u32 retval;
+	unsigned long flags;
+
+	local_irq_save(flags);
+	retval = *m;
+	if (retval == old)
+		*m = new;
+	local_irq_restore(flags);	/* implies memory barrier  */
+
+	return retval;
+}
+
+/* This function doesn't exist, so you'll get a linker error
+   if something tries to do an invalid cmpxchg().  */
+extern void __cmpxchg_called_with_bad_pointer(void);
+
+static inline unsigned long __cmpxchg(volatile void * ptr, unsigned long old,
+	unsigned long new, int size)
+{
+	switch (size) {
+	case 4:
+		return __cmpxchg_u32(ptr, old, new);
+	}
+	__cmpxchg_called_with_bad_pointer();
+	return old;
+}
+
+#define cmpxchg(ptr,o,n)						 \
+  ({									 \
+     __typeof__(*(ptr)) _o_ = (o);					 \
+     __typeof__(*(ptr)) _n_ = (n);					 \
+     (__typeof__(*(ptr))) __cmpxchg((ptr), (unsigned long)_o_,		 \
+				    (unsigned long)_n_, sizeof(*(ptr))); \
+  })
+
+
 
 #endif /* CONFIG_SMP */
 

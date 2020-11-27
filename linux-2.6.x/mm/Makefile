@@ -1,6 +1,11 @@
 #
 # Makefile for the linux memory manager.
 #
+ifeq ($(CONFIG_ARM),y)
+ifeq ($(CONFIG_GCOV_ALL),y)
+CFLAGS := $(CFLAGS_NOGCOV)
+endif
+endif
 
 mmu-y			:= nommu.o
 mmu-$(CONFIG_MMU)	:= fremap.o highmem.o madvise.o memory.o mincore.o \

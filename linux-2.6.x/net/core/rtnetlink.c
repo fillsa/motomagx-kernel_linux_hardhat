@@ -53,6 +53,12 @@
 
 DECLARE_MUTEX(rtnl_sem);
 
+//int rtnl_lock_interruptible(void)
+//{
+//      return down_interruptible(&rtnl_sem);
+//}
+
+
 void rtnl_lock(void)
 {
 	rtnl_shlock();
@@ -92,7 +98,8 @@ static const int rtm_min[(RTM_MAX+1-RTM_BASE)/4] =
 	NLMSG_LENGTH(sizeof(struct tcmsg)),
 	NLMSG_LENGTH(sizeof(struct tcmsg)),
 	NLMSG_LENGTH(sizeof(struct tcmsg)),
-	NLMSG_LENGTH(sizeof(struct tcamsg))
+	NLMSG_LENGTH(sizeof(struct tcamsg)),
+	NLMSG_LENGTH(sizeof(struct prefixmsg))
 };
 
 static const int rta_max[(RTM_MAX+1-RTM_BASE)/4] =
@@ -105,7 +112,8 @@ static const int rta_max[(RTM_MAX+1-RTM_BASE)/4] =
 	TCA_MAX,
 	TCA_MAX,
 	TCA_MAX,
-	TCAA_MAX
+	TCAA_MAX,
+	PREFIX_MAX
 };
 
 void __rta_fill(struct sk_buff *skb, int attrtype, int attrlen, const void *data)

@@ -125,6 +125,7 @@ extern unsigned long ioremap_bot, ioremap_base;
  */
 #define VMALLOC_OFFSET (0x1000000) /* 16M */
 #ifdef CONFIG_44x
+#include <asm/ibm44x.h>
 #define VMALLOC_START (((_ALIGN((long)high_memory, PPC44x_PIN_SIZE) + VMALLOC_OFFSET) & ~(VMALLOC_OFFSET-1)))
 #else
 #define VMALLOC_START ((((long)high_memory + VMALLOC_OFFSET) & ~(VMALLOC_OFFSET-1)))
@@ -431,7 +432,7 @@ extern unsigned long bad_call_to_PMD_PAGE_SIZE(void);
 #define pte_pfn(x)		(pte_val(x) >> PAGE_SHIFT)
 #define pte_page(x)		pfn_to_page(pte_pfn(x))
 
-#define pfn_pte(pfn, prot)	__pte(((pfn) << PAGE_SHIFT) | pgprot_val(prot))
+#define pfn_pte(pfn, prot)	__pte(((pte_t)(pfn) << PAGE_SHIFT) | pgprot_val(prot))
 #define mk_pte(page, prot)	pfn_pte(page_to_pfn(page), prot)
 
 /*
@@ -557,12 +558,12 @@ extern void flush_hash_one_pte(pte_t *ptep);
 static inline int ptep_test_and_clear_young(pte_t *ptep)
 {
 	unsigned long old;
-	old = (pte_update(ptep, _PAGE_ACCESSED, 0) & _PAGE_ACCESSED);
+	old = pte_update(ptep, _PAGE_ACCESSED, 0);
 #if _PAGE_HASHPTE != 0
 	if (old & _PAGE_HASHPTE)
 		flush_hash_one_pte(ptep);
 #endif
-	return old != 0;
+	return (old & _PAGE_ACCESSED) != 0;
 }
 
 static inline int ptep_test_and_clear_dirty(pte_t *ptep)
@@ -714,8 +715,22 @@ extern void kernel_set_cachemode (unsigned long address, unsigned long size,
 /* Needs to be defined here and not in linux/mm.h, as it is arch dependent */
 #define kern_addr_valid(addr)	(1)
 
+#ifdef CONFIG_PHYS_64BIT
+extern int remap_pfn_range(struct vm_area_struct *vma, unsigned long from,
+			unsigned long paddr, unsigned long size, pgprot_t prot);
+static inline int io_remap_page_range(struct vm_area_struct *vma,
+					unsigned long vaddr,
+					unsigned long paddr,
+					unsigned long size,
+					pgprot_t prot)
+{
+	phys_addr_t paddr64 = fixup_bigphys_addr(paddr, size);
+	return remap_pfn_range(vma, vaddr, paddr64 >> PAGE_SHIFT, size, prot);
+}
+#else
 #define io_remap_page_range(vma, vaddr, paddr, size, prot)		\
 		remap_pfn_range(vma, vaddr, (paddr) >> PAGE_SHIFT, size, prot)
+#endif
 
 /*
  * No page table caches to initialise

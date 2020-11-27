@@ -1,0 +1,60 @@
+# Copyright (C) 2005-2007 Motorola, Inc.
+#
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License version 2 as
+#  published by the Free Software Foundation.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+# Motorola 2007-Jan-17 - Maxim MAX6946 LED Controller support
+# Motorola 2006-Oct-30 - Maxim MAX7314 LED Controller support
+# Motorola 2006-Oct-06 - Update File
+# Motorola 2006-Sep-29 - Ceramic Speaker Support
+# Motorola 2006-Aug-03 - Linear Vibrator Support
+# Motorola 2006-Jun-22 - Remove MOT_POWER_IC dependencies
+# Motorola 2005-Mar-25 - File re-written from scratch
+
+menu "Power IC support"
+
+config MOT_POWER_IC
+    tristate "Motorola Power IC"
+    ---help---
+    This configuration enables the Power IC to be used by SCM-A11 and Zeus
+
+config MOT_POWER_IC_ATLAS
+    tristate "Motorola Power IC"
+    depends on MOT_POWER_IC
+    ---help---
+    This configuration enables the Atlas to be used by SCM-A11 without affecting EzX
+
+config MOT_FEAT_MAX6946
+    tristate "Maxim MAX6946 LED Controller support"
+    depends on MOT_POWER_IC
+    ---help---
+    This configuration enables Maxim MAX6946 LED Controller support for all platforms
+
+config MOT_FEAT_MAX7314
+    tristate "Maxim MAX7314 LED Controller support"
+    depends on MOT_POWER_IC
+    ---help---
+    This configuration enables Maxim MAX7314 LED Controller support for all platforms
+
+config LINEARVIBRATOR
+    tristate "Linear Vibrator support"
+    default n
+    ---help---
+    This configuration enables the linear vibrator for all platforms
+
+config CERAMICSPEAKER
+    tristate "Ceramic Speaker support"
+    default n
+    ---help---
+    This configuration enables the ceramic speaker for all platforms
+endmenu

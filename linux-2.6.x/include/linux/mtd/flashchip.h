@@ -6,7 +6,7 @@
  *
  * (C) 2000 Red Hat. GPLd.
  *
- * $Id: flashchip.h,v 1.14 2004/06/15 16:44:59 nico Exp $
+ * $Id: flashchip.h,v 1.16 2005/02/08 17:11:15 nico Exp $
  *
  */
 
@@ -29,6 +29,7 @@ typedef enum {
 	FL_ERASE_SUSPENDED,
 	FL_WRITING,
 	FL_WRITING_TO_BUFFER,
+	FL_OTP_WRITE,
 	FL_WRITE_SUSPENDING,
 	FL_WRITE_SUSPENDED,
 	FL_PM_SUSPENDED,
@@ -37,6 +38,8 @@ typedef enum {
 	FL_LOCKING,
 	FL_UNLOCKING,
 	FL_POINT,
+	FL_XIP_WHILE_ERASING,
+	FL_XIP_WHILE_WRITING,
 	FL_UNKNOWN
 } flstate_t;
 
@@ -60,8 +63,8 @@ struct flchip {
 	flstate_t state;
 	flstate_t oldstate;
 
-	int write_suspended:1;
-	int erase_suspended:1;
+	unsigned int write_suspended:1;
+	unsigned int erase_suspended:1;
 	unsigned long in_progress_block_addr;
 
 	spinlock_t *mutex;

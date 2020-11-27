@@ -772,6 +772,10 @@ config BLK_DEV_IDE_PMAC_BLINK
 	  This option enables the use of the sleep LED as a hard drive
 	  activity LED.
 
+config BLK_DEV_IDE_SWARM
+	bool "IDE for Sibyte evaluation boards"
+	depends on SIBYTE_SB1xxx_SOC
+
 config IDE_ARM
 	def_bool ARM && (ARCH_A5K || ARCH_CLPS7500 || ARCH_RPC || ARCH_SHARK)
 
@@ -816,6 +820,13 @@ config BLK_DEV_IDE_BAST
 	help
 	  Say Y here if you want to support the onboard IDE channels on the
 	  Simtec BAST or the Thorcom VR1000
+
+config BLK_DEV_IDE_MXC
+	tristate "Freescale MXC IDE support"
+	depends on ARM && ARCH_MX3
+	help
+	  Say Y here if you want to support the IDE controller on the
+	  Freescale iMX3 processor.
 
 config BLK_DEV_GAYLE
 	bool "Amiga Gayle IDE interface support"
@@ -1007,7 +1018,7 @@ config BLK_DEV_UMC8672
 endif
 
 config BLK_DEV_IDEDMA
-	def_bool BLK_DEV_IDEDMA_PCI || BLK_DEV_IDEDMA_PMAC || BLK_DEV_IDEDMA_ICS
+	def_bool BLK_DEV_IDEDMA_PCI || BLK_DEV_IDEDMA_PMAC || BLK_DEV_IDEDMA_ICS || BLK_DEV_IDE_MXC
 
 config IDEDMA_IVB
 	bool "IGNORE word93 Validation BITS"

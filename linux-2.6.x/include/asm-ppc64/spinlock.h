@@ -23,10 +23,16 @@
 
 typedef struct {
 	volatile unsigned int lock;
+#ifdef CONFIG_PREEMPT
+	unsigned int break_lock;
+#endif
 } spinlock_t;
 
 typedef struct {
 	volatile signed int lock;
+#ifdef CONFIG_PREEMPT
+	unsigned int break_lock;
+#endif
 } rwlock_t;
 
 #ifdef __KERNEL__
@@ -143,16 +149,9 @@ static void __inline__ _raw_spin_lock_flags(spinlock_t *lock, unsigned long flag
 #define rwlock_init(x)		do { *(x) = RW_LOCK_UNLOCKED; } while(0)
 #define rwlock_is_locked(x)	((x)->lock)
 
-static __inline__ int is_read_locked(rwlock_t *rw)
-{
-	return rw->lock > 0;
-}
-
-static __inline__ int is_write_locked(rwlock_t *rw)
-{
-	return rw->lock < 0;
-}
-
+#define read_can_lock(rw)	((rw)->lock >= 0)
+#define write_can_lock(rw)	(!(rw)->lock)
+	
 static __inline__ void _raw_write_unlock(rwlock_t *rw)
 {
 	__asm__ __volatile__("lwsync		# write_unlock": : :"memory");
@@ -215,6 +214,8 @@ static void __inline__ _raw_read_unlock(rwlock_t *rw)
 	: "r"(&rw->lock)
 	: "cr0", "memory");
 }
+
+#define _raw_read_trylock(lock) generic_raw_read_trylock(lock)
 
 /*
  * This returns the old value in the lock,

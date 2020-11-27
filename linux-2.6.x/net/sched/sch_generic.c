@@ -14,6 +14,7 @@
 #include <asm/uaccess.h>
 #include <asm/system.h>
 #include <linux/bitops.h>
+#include <linux/kallsyms.h>
 #include <linux/config.h>
 #include <linux/module.h>
 #include <linux/types.h>
@@ -54,7 +55,7 @@
 
    qdisc_tree_lock must be grabbed BEFORE dev->queue_lock!
  */
-rwlock_t qdisc_tree_lock = RW_LOCK_UNLOCKED;
+DEFINE_RWLOCK(qdisc_tree_lock);
 
 void qdisc_lock_tree(struct net_device *dev)
 {
@@ -108,6 +109,10 @@ int qdisc_restart(struct net_device *dev)
 		 * will be requeued.
 		 */
 		if (!nolock) {
+#ifdef CONFIG_PREEMPT_RT
+			spin_lock(&dev->xmit_lock);
+			dev->xmit_lock_owner = _smp_processor_id();
+#else
 			if (!spin_trylock(&dev->xmit_lock)) {
 			collision:
 				/* So, someone grabbed the driver. */
@@ -117,17 +122,19 @@ int qdisc_restart(struct net_device *dev)
 				   it by checking xmit owner and drop the
 				   packet when deadloop is detected.
 				*/
-				if (dev->xmit_lock_owner == smp_processor_id()) {
+				if (dev->xmit_lock_owner == _smp_processor_id()) {
 					kfree_skb(skb);
 					if (net_ratelimit())
 						printk(KERN_DEBUG "Dead loop on netdevice %s, fix it urgently!\n", dev->name);
+
 					return -1;
 				}
 				__get_cpu_var(netdev_rx_stat).cpu_collision++;
 				goto requeue;
 			}
 			/* Remember that the driver is grabbed by us. */
-			dev->xmit_lock_owner = smp_processor_id();
+			dev->xmit_lock_owner = _smp_processor_id();
+#endif
 		}
 		
 		{
@@ -139,18 +146,41 @@ int qdisc_restart(struct net_device *dev)
 				if (netdev_nit)
 					dev_queue_xmit_nit(skb, dev);
 
+				WARN_ON_RT(irqs_disabled());
 				ret = dev->hard_start_xmit(skb, dev);
+#ifdef CONFIG_PREEMPT_RT
+				if (irqs_disabled()) {
+					if (printk_ratelimit())
+						print_symbol("network driver disabled interrupts: %s\n", (unsigned long)dev->hard_start_xmit);
+					local_irq_enable();
+				}
+#endif
+
 				if (ret == NETDEV_TX_OK) { 
 					if (!nolock) {
 						dev->xmit_lock_owner = -1;
 						spin_unlock(&dev->xmit_lock);
 					}
 					spin_lock(&dev->queue_lock);
+#if defined(CONFIG_PREEMPT_RT) && 0
+					preempt_disable();
+					__get_cpu_var(netdev_rx_stat).cpu_collision++;
+					preempt_enable();
+					goto requeue;
+#else
 					return -1;
+#endif
 				}
 				if (ret == NETDEV_TX_LOCKED && nolock) {
 					spin_lock(&dev->queue_lock);
+#ifndef CONFIG_PREEMPT_RT
 					goto collision; 
+#else
+					preempt_disable();
+					__get_cpu_var(netdev_rx_stat).cpu_collision++;
+					preempt_enable();
+					goto requeue;
+#endif
 				}
 			}
 
@@ -177,8 +207,10 @@ int qdisc_restart(struct net_device *dev)
 requeue:
 		q->ops->requeue(skb, q);
 		netif_schedule(dev);
+
 		return 1;
 	}
+
 	return q->q.qlen;
 }
 

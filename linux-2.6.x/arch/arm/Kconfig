@@ -1,9 +1,50 @@
 #
+# Copyright (C) 2004-2007 Motorola, Inc.
+#
+# This Program is distributed in the hope that it will
+# be useful, but WITHOUT ANY WARRANTY;
+# without even the implied warranty of
+# MERCHANTIBILITY or FITNESS FOR A
+# PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.                                                                          
+#
+# This program is free software; you can redistribute it
+# and/or modify it under the terms of the GNU General
+# Public License as published by the Free Software
+# Foundation; either version 2 of the License, or (at
+# your option) any later version.  You should have
+# received a copy of the GNU General Public License
+# along with this program; if not, write to the Free
+# Software Foundation, Inc., 675 Mass Ave,
+# Cambridge, MA 02139, USA
+#
+# Changelog:
+# Date               Author           Comment
+# -----------------------------------------------------------------------------
+# 12/14/2004         Motorola         Integrate MV Drop code
+# 02/25/2005         Motorola         Integrate MV Drop code
+# 04/05/2005         Motorola         Integrate MV Drop code
+# 05/12/2005         Motorola         Integrate MV Drop code
+# 06/24/2005         Motorola         Integrate MV Drop code
+# 09/15/2005         Motorola         Integrate MV Drop code
+# 11/11/2005         Motorola         Pull in the MVista 051028 drop into vobs
+# 01/05/2006         Motorola         Pull in the MVista 051219 drop into vobs
+# 07/15/2006         Motorola         Pull in the MVista 060512 drop into vobs
+# 11/09/2006         Motorola         Replace source "drivers/cap_touch/Kconfig" with source "drivers/keyv/Kconfig"
+# 12/02/2006         Motorola         Add source "arch/arm/Kconfig.wfn"
+# 07/02/2007         Motorola         Add comments.
+# 08/18/2007         Motorola         Add comments.
+# 10/15/2007         Motorola         FIQ related modified.
+#
 # For a description of the syntax of this configuration file,
 # see Documentation/kbuild/kconfig-language.txt.
 #
 
 mainmenu "Linux Kernel Configuration"
+
+source "arch/arm/Kconfig.mot"
+
+source "arch/arm/Kconfig.wfn"
 
 config ARM
 	bool
@@ -50,10 +91,6 @@ config UID16
 	bool
 	default y
 
-config RWSEM_GENERIC_SPINLOCK
-	bool
-	default y
-
 config RWSEM_XCHGADD_ALGORITHM
 	bool
 
@@ -69,7 +106,7 @@ config GENERIC_IOMAP
 
 source "init/Kconfig"
 
-menu "System Type"
+menu "System type and features"
 
 choice
 	prompt "ARM system type"
@@ -107,6 +144,9 @@ config ARCH_FOOTBRIDGE
 
 config ARCH_INTEGRATOR
 	bool "Integrator"
+
+config ARCH_MXC
+	bool "Freescale MXC/iMX-based"
 
 config ARCH_IOP3XX
 	bool "IOP3xx-based"
@@ -175,6 +215,11 @@ config ARCH_H720X
 	help
 	  This enables support for systems based on the Hynix HMS720x
 
+config ARCH_PNX4008
+	bool "Philips PNX4008 mobile"
+	help
+	  Say Y here if this kernel is for PNX4008 mobile platform.
+
 endchoice
 
 source "arch/arm/mach-clps711x/Kconfig"
@@ -207,6 +252,10 @@ source "arch/arm/mach-h720x/Kconfig"
 
 source "arch/arm/mach-versatile/Kconfig"
 
+source "arch/arm/plat-mxc/Kconfig"
+
+source "arch/arm/mach-pnx4008/Kconfig"
+
 # Definitions to make life easier
 config ARCH_ACORN
 	bool
@@ -230,6 +279,11 @@ config SHARP_LOCOMO
 	depends on SA1100_COLLIE
 	default y
 
+config SHARP_SCOOP
+	bool
+	depends on PXA_SHARPSL
+	default y
+
 config FORCE_MAX_ZONEORDER
 	int
 	depends on SA1111
@@ -248,20 +302,85 @@ config XSCALE_PMU
 	depends on CPU_XSCALE && !XSCALE_PMU_TIMER
 	default y
 
-endmenu
-
-menu "General setup"
-
 # Select various configuration options depending on the machine type
-config DISCONTIGMEM
-	bool
-	depends on ARCH_EDB7211 || ARCH_SA1100 || (ARCH_LH7A40X && !LH7A40X_CONTIGMEM)
+
+config SMP
+	bool "Symmetric Multi-Processing (EXPERIMENTAL)"
+	depends on EXPERIMENTAL && n
+	help
+	  This enables support for systems with more than one CPU. If you have
+	  a system with only one CPU, like most personal computers, say N. If
+	  you have a system with more than one CPU, say Y.
+
+	  If you say N here, the kernel will run on single and multiprocessor
+	  machines, but will use only one CPU of a multiprocessor machine. If
+	  you say Y here, the kernel will run on many, but not all, single
+	  processor machines. On a single processor machine, the kernel will
+	  run faster if you say N here.
+
+	  See also the <file:Documentation/smp.tex>,
+	  <file:Documentation/smp.txt>, <file:Documentation/i386/IO-APIC.txt>,
+	  <file:Documentation/nmi_watchdog.txt> and the SMP-HOWTO available at
+	  <http://www.linuxdoc.org/docs.html#howto>.
+
+	  If you don't know what to do here, say N.
+
+config NR_CPUS
+	int "Maximum number of CPUs (2-32)"
+	depends on SMP
+	default "4"
+
+config AEABI
+	bool "Use the ARM EABI to compile the kernel"
+	help
+	  This option allows for the kernel to be compiled using the latest
+	  ARM ABI (aka EABI).  This is only useful if you are using a user
+	  space environment that is also compiled with EABI.
+
+	  Since there are major incompatibilities between the legacy ABI and
+	  EABI, especially with regard to structure member alignment, this
+	  option also changes the kernel syscall calling convention to
+	  disambiguate both ABIs and allow for backward compatibility support
+	  (selected with CONFIG_OABI_COMPAT).
+
+	  To use this you need GCC version 4.0.0 or later.
+
+config OABI_COMPAT
+	bool "Allow old ABI binaries to run with this kernel (EXPERIMENTAL)"
+	depends on AEABI && EXPERIMENTAL
 	default y
+	help
+	  This option preserves the old syscall interface along with the
+	  new (ARM EABI) one. It also provides a compatibility layer to
+	  intercept syscalls that have structure arguments which layout
+	  in memory differs between the legacy ABI and the new ARM EABI
+	  (only for non "thumb" binaries). This option adds a tiny
+	  overhead to all syscalls and produces a slightly larger kernel.
+	  If you know you'll be using only pure EABI user space then you
+	  can say N here. If this option is not selected and you attempt
+	  to execute a legacy ABI binary then the result will be
+	  UNPREDICTABLE (in fact it can be predicted that it won't work
+	  at all). If in doubt say Y.
+
+config DISCONTIGMEM
+	bool "Discontiguous Memory support"
+	default y if ARCH_EDB7211 || ARCH_SA1100 || (ARCH_LH7A40X && !LH7A40X_CONTIGMEM)
 	help
 	  Say Y to support efficient handling of discontiguous physical memory,
 	  for architectures which are either NUMA (Non-Uniform Memory Access)
 	  or have huge holes in the physical address space for other reasons.
 	  See <file:Documentation/vm/numa> for more.
+
+config NUMA
+        bool "NUMA Support"
+        depends on DISCONTIGMEM
+        help
+	  Say Y to compile the kernel to support NUMA (Non-Uniform Memory
+	  Access).  Although this option is normally for configuring
+	  high-end multiprocessor server machines, it can also be used
+	  on UP machines with discontiguous memory to make use of NUMA
+	  memory allocation policies (a.k.a. "Memory Type Based
+	  Allocation"). If in doubt, say N.
 
 # Now handle the bus types
 config PCI
@@ -296,12 +415,12 @@ config ICST307
 
 config ARM_AMBA
 	bool
-	depends on ARCH_INTEGRATOR || ARCH_VERSATILE
+	depends on ARCH_INTEGRATOR || ARCH_VERSATILE || ARCH_PNX4008
 	default y
 
 config ISA
 	bool
-	depends on FOOTBRIDGE_HOST || ARCH_SHARK || ARCH_CLPS7500 || ARCH_EBSA110 || ARCH_CDB89712 || ARCH_EDB7211 || ARCH_SA1100 || ARCH_MX1ADS
+	depends on FOOTBRIDGE_HOST || ARCH_SHARK || ARCH_CLPS7500 || ARCH_EBSA110 || ARCH_CDB89712 || ARCH_EDB7211 || ARCH_SA1100 || ARCH_MX1ADS || ARCH_MXC
 	default y
 	help
 	  Find out whether you have ISA slots on your motherboard.  ISA is the
@@ -317,7 +436,7 @@ config ISA_DMA
 
 config FIQ
 	bool
-	depends on ARCH_ACORN || ARCH_L7200
+	depends on ARCH_ACORN || ARCH_L7200 || ARCH_MXC91231
 	default y
 
 # Compressed boot loader in ROM.  Yes, we really want to ask about
@@ -382,21 +501,70 @@ config XIP_PHYS_ADDR
 	  be linked for and stored to.  This address is dependent on your
 	  own flash usage.
 
-	  Please note that, if you're using MTD, you must use a flash chip
-	  that is NOT handled by MTD or the flash will be turned into non
-	  data mode for status and query purposes which will instantaneously
-	  crash the kernel.
+config HIGH_RES_TIMERS
+	bool "Configure High-Resolution-Timers"
+	help
+	  POSIX timers are available by default.  This option enables
+	  high-resolution POSIX timers.  With this option the resolution
+	  is about 10 microsecond.  High resolution is not free.  If
+	  enabled this option will add a small overhead each time a
+	  timer expires that is not on a 1/HZ tick boundary.  If no such
+	  timers are used the overhead is nil.
 
-	  MTD can however be used with a XIP kernel on the same flash chip
-	  but only if the flash memory supports multiple partitions in
-	  hardware, like with the Intel K3 flash parts, and only if the
-	  kernel is not stored within the firrst hardware partition of the
-	  chip.
+	  This option enables two additional POSIX CLOCKS,
+	  CLOCK_REALTIME_HR and CLOCK_MONOTONIC_HR.  Note that this
+	  option does not change the resolution of CLOCK_REALTIME or
+	  CLOCK_MONOTONIC which remain at 1/HZ resolution.
 
-	  In any case, make sure that MTD support is configured out for
-	  the first attempt.
+config VST
+	bool "Provide Variable idle Sleep Time"
+	depends on HIGH_RES_TIMERS
+	help
 
-if (ARCH_SA1100 || ARCH_INTEGRATOR)
+	  CONFIG_VST: This option causes a scan of the timer list when
+	  ever the system is about to go idle.  If no "immediate" timers
+	  are pending, the tick interrupt is turned off and an interrupt
+	  is scheduled for when the next timer expires.  Thus an idle
+	  system is not interrupted by useless timer ticks.  The
+	  definition of "immediate" and other useful information is
+	  available at /proc/sys/kernel/vst.
+
+	  The system boots with VST enabled and it can be disabled by:
+	  "echo 0 > /proc/sys/kernel/vst/enable".
+
+config VST_STATS
+	bool "Provide VST timer info via /proc"
+	depends on VST && PROC_FS
+	help
+
+	  CONFIG_VST_STATS: This option turns on code that collects
+	  information in a circular buffer on timers which are incurred
+	  while entering, or attempting to enter the VST state.  This
+	  information is useful if you are trying to figure out why the
+	  system is not entering the VST state.  See
+	  Documentation/vst.txt for more information on what is
+	  displayed and how to interpret the information.  Say NO here
+	  unless you are trying to optimize VST entry.
+
+config IDLE
+	bool "Provide IDLE call back functions"
+	help
+
+	  CONFIG_IDLE: This option provides the IDLE notify facility.
+	  Registered functions will be called when ever the system is
+	  about to go idle and when the system exits the idle task.  It
+	  is expected that callers may change timers and other such
+	  things so as to more fully use the VST capability (see above).
+
+	  The system boots with IDLE notify disabled.  It can be enabled
+	  by "echo 1 > /proc/sys/kernel/idle/enable".  Other information
+	  is also available at /proc/sys/kernel/idle/*.
+
+	  This capability does not affect the system unless it is
+	  enabled AND one or more functions have registered to be
+	  called.
+
+if (ARCH_SA1100 || ARCH_INTEGRATOR || ARCH_MXC)
 
 source "drivers/cpufreq/Kconfig"
 
@@ -431,6 +599,7 @@ comment "At least one math emulation must be selected"
 
 config FPE_NWFPE
 	bool "NWFPE math emulation"
+	depends on !AEABI || OABI_COMPAT
 	---help---
 	  Say Y to include the NWFPE floating point emulator in the kernel.
 	  This is necessary to run most binaries. Linux does not currently
@@ -454,7 +623,7 @@ config FPE_NWFPE_XP
 
 config FPE_FASTFPE
 	bool "FastFPE math emulation (EXPERIMENTAL)"
-	depends on !CPU_32v3 && EXPERIMENTAL
+	depends on (!AEABI || OABI_COMPAT) && !CPU_32v3 && EXPERIMENTAL
 	---help---
 	  Say Y here to include the FAST floating point emulator in the kernel.
 	  This is an experimental much faster emulator which now also has full
@@ -480,7 +649,22 @@ config VFP
 
 source "fs/Kconfig.binfmt"
 
-source "drivers/base/Kconfig"
+source "lib/Kconfig.RT"
+
+config RWSEM_GENERIC_SPINLOCK
+	bool
+	default y
+
+config ASM_SEMAPHORES
+	bool
+	default y
+
+config RWSEM_XCHGADD_ALGORITHM
+	bool
+	depends on !RWSEM_GENERIC_SPINLOCK && !PREEMPT_RT
+	default y
+
+menu "Power management options (PM, DPM, ACPI, APM)"
 
 config PM
 	bool "Power Management support"
@@ -501,19 +685,6 @@ config PM
 	  Note that, even if you say N here, Linux on the x86 architecture
 	  will issue the hlt instruction if nothing is to be done, thereby
 	  sending the processor to sleep and saving power.
-
-config PREEMPT
-	bool "Preemptible Kernel (EXPERIMENTAL)"
-	depends on CPU_32 && EXPERIMENTAL
-	help
-	  This option reduces the latency of the kernel when reacting to
-	  real-time or interactive events by allowing a low priority process to
-	  be preempted even if it is in kernel mode executing a system call.
-	  This allows applications to run more reliably even when the system is
-	  under load.
-
-	  Say Y here if you are building a kernel for a desktop, embedded
-	  or real-time system.  Say N if you are unsure.
 
 config APM
 	tristate "Advanced Power Management Emulation"
@@ -574,9 +745,25 @@ config APM
 	  To compile this driver as a module, choose M here: the
 	  module will be called apm.
 
+config SUSPEND_REMOUNTFS
+	bool "Remount filesystem read-only during suspend"
+	depends on PM
+	default n
+	help
+	  Remount all writeable filesystems read-only while the system is
+	  placed into a suspend state, flushing buffers and marking
+	  filesystems clean, in case power is cycled during the suspend
+	  interval.
+
+source "drivers/dpm/Kconfig"
+
+endmenu
+
+source "drivers/evb/Kconfig"
+
 config ARTHUR
 	tristate "RISC OS personality"
-	depends on CPU_32
+	depends on CPU_32 && !AEABI
 	help
 	  Say Y here to include the kernel code necessary if you want to run
 	  Acorn RISC OS/Arthur binaries under Linux. This code is still very
@@ -609,7 +796,7 @@ config LEDS
 	  system, but the driver will do nothing.
 
 config LEDS_TIMER
-	bool "Timer LED" if LEDS && (ARCH_NETWINDER || ARCH_EBSA285 || ARCH_SHARK || MACH_MAINSTONE || ARCH_CO285 || ARCH_SA1100 || ARCH_LUBBOCK || ARCH_PXA_IDP || ARCH_INTEGRATOR || ARCH_P720T || ARCH_VERSATILE || ARCH_IMX)
+	bool "Timer LED" if LEDS && (ARCH_NETWINDER || ARCH_EBSA285 || ARCH_SHARK || MACH_MAINSTONE || ARCH_CO285 || ARCH_SA1100 || ARCH_LUBBOCK || ARCH_PXA_IDP || ARCH_INTEGRATOR || ARCH_P720T || ARCH_VERSATILE || ARCH_IMX || MACH_OMAP_H2 || MACH_OMAP_PERSEUS2)
 	depends on ARCH_NETWINDER || ARCH_EBSA110 || ARCH_EBSA285 || ARCH_SHARK || ARCH_CO285 || ARCH_SA1100 || ARCH_LUBBOCK || MACH_MAINSTONE || ARCH_PXA_IDP || ARCH_INTEGRATOR || ARCH_CDB89712 || ARCH_P720T || ARCH_OMAP || ARCH_VERSATILE || ARCH_IMX
 	default y if ARCH_EBSA110
 	help
@@ -625,7 +812,7 @@ config LEDS_TIMER
 
 config LEDS_CPU
 	bool "CPU usage LED"
-	depends on LEDS && (ARCH_NETWINDER || ARCH_EBSA285 || ARCH_SHARK || ARCH_CO285 || ARCH_SA1100 || ARCH_LUBBOCK || MACH_MAINSTONE || ARCH_PXA_IDP || ARCH_INTEGRATOR || ARCH_P720T || ARCH_VERSATILE || ARCH_IMX)
+	depends on LEDS && (ARCH_NETWINDER || ARCH_EBSA285 || ARCH_SHARK || ARCH_CO285 || ARCH_SA1100 || ARCH_LUBBOCK || MACH_MAINSTONE || ARCH_PXA_IDP || ARCH_INTEGRATOR || ARCH_P720T || ARCH_VERSATILE || ARCH_IMX || MACH_OMAP_H2 || MACH_OMAP_PERSEUS2)
 	help
 	  If you say Y here, the red LED will be used to give a good real
 	  time indication of CPU usage, by lighting whenever the idle task
@@ -650,6 +837,10 @@ config ALIGNMENT_TRAP
 
 endmenu
 
+menu "Device Drivers"
+
+source "drivers/base/Kconfig"
+
 source "drivers/parport/Kconfig"
 
 if ALIGNMENT_TRAP
@@ -666,7 +857,7 @@ source "drivers/acorn/block/Kconfig"
 
 source "net/Kconfig"
 
-if ARCH_CLPS7500 || ARCH_IOP3XX || ARCH_IXP4XX || ARCH_L7200 || ARCH_LH7A40X || ARCH_PXA || ARCH_RPC || ARCH_S3C2410 || ARCH_SA1100 || ARCH_SHARK || FOOTBRIDGE
+if ARCH_CLPS7500 || ARCH_IOP3XX || ARCH_IXP4XX || ARCH_L7200 || ARCH_LH7A40X || ARCH_PXA || ARCH_RPC || ARCH_S3C2410 || ARCH_SA1100 || ARCH_SHARK || FOOTBRIDGE || ARCH_MX3
 source "drivers/ide/Kconfig"
 endif
 
@@ -689,9 +880,11 @@ source "drivers/char/Kconfig"
 
 source "drivers/i2c/Kconfig"
 
-#source "drivers/l3/Kconfig"
+source "drivers/spi/Kconfig"
 
-source "drivers/media/Kconfig"
+source "drivers/w1/Kconfig"
+
+#source "drivers/l3/Kconfig"
 
 source "fs/Kconfig"
 
@@ -699,13 +892,33 @@ source "arch/arm/oprofile/Kconfig"
 
 source "drivers/video/Kconfig"
 
+source "drivers/media/Kconfig"
+
 source "sound/Kconfig"
 
 source "drivers/misc/Kconfig"
 
 source "drivers/usb/Kconfig"
 
+source "drivers/otg/Kconfig"
+
+source "drivers/ssi/Kconfig"
+
 source "drivers/mmc/Kconfig"
+
+source "drivers/profiler/Kconfig"
+
+source "drivers/power_ic/Kconfig"
+
+source "drivers/keyv/Kconfig"
+
+source "drivers/aplogger/Kconfig"
+
+source "drivers/sim/Kconfig"
+
+endmenu
+
+source "ktools/Kconfig"
 
 source "arch/arm/Kconfig.debug"
 
@@ -714,3 +927,6 @@ source "security/Kconfig"
 source "crypto/Kconfig"
 
 source "lib/Kconfig"
+
+source "drivers/mxc/Kconfig"
+

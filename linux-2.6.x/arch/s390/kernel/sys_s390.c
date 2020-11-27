@@ -145,32 +145,35 @@ asmlinkage long old_select(struct sel_arg_struct __user *arg)
  *
  * This is really horribly ugly.
  */
-asmlinkage long sys_ipc(uint call, int first, int second,
+asmlinkage long sys_ipc(uint call, int first, unsigned long second,
 				  unsigned long third, void __user *ptr)
 {
         struct ipc_kludge tmp;
 	int ret;
 
+        ltt_ev_ipc(LTT_EV_IPC_CALL, call, first);
+
         switch (call) {
         case SEMOP:
-		return sys_semtimedop (first, (struct sembuf __user *) ptr, second,
-				       NULL);
+		return sys_semtimedop(first, (struct sembuf __user *)ptr,
+				       (unsigned)second, NULL);
 	case SEMTIMEDOP:
-		return sys_semtimedop (first, (struct sembuf __user *) ptr, second,
+		return sys_semtimedop(first, (struct sembuf __user *)ptr,
+				       (unsigned)second,
 				       (const struct timespec __user *) third);
         case SEMGET:
-                return sys_semget (first, second, third);
+                return sys_semget(first, (int)second, third);
         case SEMCTL: {
                 union semun fourth;
                 if (!ptr)
                         return -EINVAL;
                 if (get_user(fourth.__pad, (void __user * __user *) ptr))
                         return -EFAULT;
-                return sys_semctl (first, second, third, fourth);
+                return sys_semctl(first, (int)second, third, fourth);
         }
         case MSGSND:
 		return sys_msgsnd (first, (struct msgbuf __user *) ptr,
-                                   second, third);
+                                   (size_t)second, third);
 		break;
         case MSGRCV:
                 if (!ptr)
@@ -179,15 +182,17 @@ asmlinkage long sys_ipc(uint call, int first, int second,
                                     sizeof (struct ipc_kludge)))
                         return -EFAULT;
                 return sys_msgrcv (first, tmp.msgp,
-                                   second, tmp.msgtyp, third);
+                                   (size_t)second, tmp.msgtyp, third);
         case MSGGET:
-                return sys_msgget ((key_t) first, second);
+                return sys_msgget((key_t)first, (int)second);
         case MSGCTL:
-                return sys_msgctl (first, second, (struct msqid_ds __user *) ptr);
+                return sys_msgctl(first, (int)second,
+				   (struct msqid_ds __user *)ptr);
 
 	case SHMAT: {
 		ulong raddr;
-		ret = do_shmat (first, (char __user *) ptr, second, &raddr);
+		ret = do_shmat(first, (char __user *)ptr,
+				(int)second, &raddr);
 		if (ret)
 			return ret;
 		return put_user (raddr, (ulong __user *) third);
@@ -196,9 +201,9 @@ asmlinkage long sys_ipc(uint call, int first, int second,
 	case SHMDT:
 		return sys_shmdt ((char __user *)ptr);
 	case SHMGET:
-		return sys_shmget (first, second, third);
+		return sys_shmget(first, (size_t)second, third);
 	case SHMCTL:
-		return sys_shmctl (first, second,
+		return sys_shmctl(first, (int)second,
                                    (struct shmid_ds __user *) ptr);
 	default:
 		return -ENOSYS;

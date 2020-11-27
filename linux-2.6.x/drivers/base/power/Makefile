@@ -1,4 +1,4 @@
-obj-y			:= shutdown.o
+obj-y			:= shutdown.o power-dpm.o
 obj-$(CONFIG_PM)	+= main.o suspend.o resume.o runtime.o sysfs.o
 
 ifeq ($(CONFIG_DEBUG_DRIVER),y)

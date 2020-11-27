@@ -38,8 +38,7 @@ extern void omap1510_fpga_init_irq(void);
 #define H2P2_DBG_FPGA_SIZE		SZ_4K		/* SIZE */
 #define H2P2_DBG_FPGA_START		0x04000000	/* PA */
 
-#define H2P2_DBG_FPGA_ETHR_START	H2P2_DBG_FPGA_START
-#define H2P2_DBG_FPGA_ETHR_BASE		H2P2_DBG_FPGA_BASE
+#define H2P2_DBG_FPGA_ETHR_START	(H2P2_DBG_FPGA_START + 0x300)
 #define H2P2_DBG_FPGA_FPGA_REV		(H2P2_DBG_FPGA_BASE + 0x10)	/* FPGA Revision */
 #define H2P2_DBG_FPGA_BOARD_REV		(H2P2_DBG_FPGA_BASE + 0x12)	/* Board Revision */
 #define H2P2_DBG_FPGA_GPIO		(H2P2_DBG_FPGA_BASE + 0x14)	/* GPIO outputs */
@@ -116,7 +115,6 @@ extern void omap1510_fpga_init_irq(void);
 #define INNOVATOR_FPGA_IMR2			(OMAP1510_FPGA_BASE + 0x210)
 
 #define OMAP1510_FPGA_ETHR_START		(OMAP1510_FPGA_START + 0x300)
-#define OMAP1510_FPGA_ETHR_BASE			(OMAP1510_FPGA_BASE + 0x300)
 
 /*
  * Power up Giga UART driver, turn on HID clock.

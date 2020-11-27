@@ -1074,6 +1074,8 @@ static int snd_ac97_free(ac97_t *ac97)
 {
 	if (ac97) {
 		snd_ac97_proc_done(ac97);
+		if (ac97->dev.bus)
+			device_unregister(&ac97->dev);
 		if (ac97->bus) {
 			ac97->bus->codec[ac97->num] = NULL;
 			if (ac97->bus->shared_type) {
@@ -2157,6 +2159,12 @@ int snd_ac97_mixer(ac97_bus_t *bus, ac97_template_t *template, ac97_t **rac97)
 		snd_ac97_free(ac97);
 		return err;
 	}
+	ac97->dev.bus = &ac97_bus_type;
+	ac97->dev.parent = ac97->bus->card->dev;
+	ac97->dev.platform_data = ac97;
+	strncpy(ac97->dev.bus_id, snd_ac97_get_short_name(ac97), BUS_ID_SIZE);
+	if ((err = device_register(&ac97->dev)) < 0)
+		return err;
 	*rac97 = ac97;
 
 	if (bus->shared_type) {

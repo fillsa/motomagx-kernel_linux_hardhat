@@ -8,4 +8,5 @@ DRIVER_OBJS = $(addprefix ../../../drivers/oprofile/, \
 
 oprofile-y				:= $(DRIVER_OBJS) init.o
 oprofile-$(CONFIG_CPU_XSCALE)		+= common.o op_model_xscale.o
+oprofile-$(CONFIG_CPU_V6)       	+= common.o op_model_arm11.o
 

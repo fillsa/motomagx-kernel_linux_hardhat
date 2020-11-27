@@ -239,6 +239,7 @@ typedef enum {
 	V5_1610_GPIO24,
 	AA20_1610_GPIO_41,
 	W19_1610_GPIO48,
+	V14_1610_GPIO37,
 
 	/* OMAP-1610 uWire */
 	V19_1610_UWIRE_SCLK,
@@ -309,6 +310,12 @@ typedef enum {
 
 	/* Power management */
 	T20_1610_LOW_PWR,
+
+	/* MCLK Settings */
+	V5_1710_MCLK_ON,
+	V5_1710_MCLK_OFF,
+	R10_1610_MCLK_ON,
+	R10_1610_MCLK_OFF,
 
 } reg_cfg_t;
 
@@ -448,6 +455,7 @@ MUX_CFG("P10_1610_GPIO22",	 C,    0,    7,	  2,  26,   0,	  2,	 1,  1)
 MUX_CFG("V5_1610_GPIO24",	 B,   15,    7,	  2,  21,   0,	  2,	 1,  1)
 MUX_CFG("AA20_1610_GPIO_41",	 9,    9,    7,	  1,  31,   0,	  1,	 1,  1)
 MUX_CFG("W19_1610_GPIO48",	 8,   15,    7,   1,  23,   1,    1,     0,  1)
+MUX_CFG("V14_1610_GPIO37",       9,   18,    7,   2,   2,   0,    2,     2,  0)
 
 /* OMAP-1610 uWire */
 MUX_CFG("V19_1610_UWIRE_SCLK",	 8,    6,    0,	  1,  20,   0,	  1,	 1,  1)
@@ -516,6 +524,12 @@ MUX_CFG("N19_1610_KBR5",	 6,  12,     1,	  1,   2,   1,	  1,	 1,  0)
 
 /* Power management */
 MUX_CFG("T20_1610_LOW_PWR",	 7,   12,    1,	  NA,   0,   0,   NA,	 0,  0)
+
+/* MCLK Settings */
+MUX_CFG("V5_1710_MCLK_ON",	 B,   15,    0,	  NA,   0,   0,   NA,	 0,  0)
+MUX_CFG("V5_1710_MCLK_OFF",	 B,   15,    6,	  NA,   0,   0,   NA,	 0,  0)
+MUX_CFG("R10_1610_MCLK_ON",	 B,   18,    0,	  NA,  22,   0,	  NA,	 1,  0)
+MUX_CFG("R10_1610_MCLK_OFF",	 B,   18,    6,	  2,   22,   1,	  2,	 1,  1)
 };
 
 #endif	/* __MUX_C__ */

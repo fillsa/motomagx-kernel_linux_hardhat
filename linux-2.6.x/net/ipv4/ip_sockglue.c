@@ -15,7 +15,33 @@
  *		Alan Cox	:	Fixed a couple of oopses in Martin's 
  *					TOS tweaks.
  *		Mike McLagan	:	Routing by source
+ *
  */
+
+/*
+ * Copyright (C) 2006 Motorola, Inc. 
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+ * 02111-1307, USA
+ *   
+ * Changelog:  
+ * Date         Author     Comment
+ * ----------   --------   --------------------------
+ * 08/15/2006   Motorola   Add a new sock option IP_USE_RECVTOS
+ *
+ */
+
 
 #include <linux/config.h>
 #include <linux/module.h>
@@ -186,7 +212,7 @@ int ip_cmsg_send(struct msghdr *msg, struct ipcm_cookie *ipc)
    sent to multicast group to reach destination designated router.
  */
 struct ip_ra_chain *ip_ra_chain;
-rwlock_t ip_ra_lock = RW_LOCK_UNLOCKED;
+DEFINE_RWLOCK(ip_ra_lock);
 
 int ip_ra_control(struct sock *sk, unsigned char on, void (*destructor)(struct sock *))
 {
@@ -396,7 +422,8 @@ int ip_setsockopt(struct sock *sk, int level, int optname, char __user *optval, 
 			    (1<<IP_MTU_DISCOVER) | (1<<IP_RECVERR) | 
 			    (1<<IP_ROUTER_ALERT) | (1<<IP_FREEBIND))) || 
 				optname == IP_MULTICAST_TTL || 
-				optname == IP_MULTICAST_LOOP) { 
+				optname == IP_MULTICAST_LOOP ||
+            optname == IP_USE_RECVTOS ) { 
 		if (optlen >= sizeof(int)) {
 			if (get_user(val, (int __user *) optval))
 				return -EFAULT;
@@ -520,6 +547,11 @@ int ip_setsockopt(struct sock *sk, int level, int optname, char __user *optval, 
 			if (!val)
 				skb_queue_purge(&sk->sk_error_queue);
 			break;
+      case IP_USE_RECVTOS:
+         if(sk->sk_type != SOCK_STREAM)
+            goto e_inval;
+         inet_sk(sk)->use_recvtos = !!val; 
+         break;
 		case IP_MULTICAST_TTL:
 			if (sk->sk_type == SOCK_STREAM)
 				goto e_inval;
@@ -848,6 +880,9 @@ mc_msf_out:
  
 		case IP_IPSEC_POLICY:
 		case IP_XFRM_POLICY:
+			err = -EPERM;
+			if (!capable(CAP_NET_ADMIN))
+				break;
 			err = xfrm_user_policy(sk, optname, optval, optlen);
 			break;
 
@@ -967,6 +1002,9 @@ int ip_getsockopt(struct sock *sk, int level, int optname, char __user *optval, 
 		case IP_RECVERR:
 			val = inet->recverr;
 			break;
+      case IP_USE_RECVTOS:
+         val=inet_sk(sk)->use_recvtos;
+         break;
 		case IP_MULTICAST_TTL:
 			val = inet->mc_ttl;
 			break;

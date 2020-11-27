@@ -1,13 +1,22 @@
 /*
  * mm/page-writeback.c.
  *
+ * Copyright (C) 2006, Motorola
  * Copyright (C) 2002, Linus Torvalds.
+ * Copyright (C) 2007, Motorola, Inc.
  *
  * Contains functions related to writing back dirty pages at the
  * address_space level.
  *
+ * 28Dec206	Motorola                Added sync_inodes call to wb_kupdate function
  * 10Apr2002	akpm@zip.com.au
  *		Initial version
+ */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 13-Jul-2007  Motorola        Fix the bug about st_ctime, and st_mtime field  
+ *                              of a mapped region, and msync()
  */
 
 #include <linux/kernel.h>
@@ -133,16 +142,28 @@ static void get_writeback_state(struct writeback_state *wbs)
  * clamping level.
  */
 static void
-get_dirty_limits(struct writeback_state *wbs, long *pbackground, long *pdirty)
+get_dirty_limits(struct writeback_state *wbs, long *pbackground, long *pdirty,
+		struct address_space *mapping)
 {
 	int background_ratio;		/* Percentages */
 	int dirty_ratio;
 	int unmapped_ratio;
 	long background;
 	long dirty;
+	unsigned long available_memory = total_pages;
 	struct task_struct *tsk;
 
 	get_writeback_state(wbs);
+
+#ifdef CONFIG_HIGHMEM
+	/*
+	 * If this mapping can only allocate from low memory,
+	 * we exclude high memory from our count.
+	 */
+	if (mapping && !(mapping_gfp_mask(mapping) & __GFP_HIGHMEM))
+		available_memory -= totalhigh_pages;
+#endif
+
 
 	unmapped_ratio = 100 - (wbs->nr_mapped * 100) / total_pages;
 
@@ -157,8 +178,8 @@ get_dirty_limits(struct writeback_state *wbs, long *pbackground, long *pdirty)
 	if (background_ratio >= dirty_ratio)
 		background_ratio = dirty_ratio / 2;
 
-	background = (background_ratio * total_pages) / 100;
-	dirty = (dirty_ratio * total_pages) / 100;
+	background = (background_ratio * available_memory) / 100;
+	dirty = (dirty_ratio * available_memory) / 100;
 	tsk = current;
 	if (tsk->flags & PF_LESS_THROTTLE || rt_task(tsk)) {
 		background += background / 4;
@@ -194,7 +215,8 @@ static void balance_dirty_pages(struct address_space *mapping)
 			.nr_to_write	= write_chunk,
 		};
 
-		get_dirty_limits(&wbs, &background_thresh, &dirty_thresh);
+		get_dirty_limits(&wbs, &background_thresh,
+					&dirty_thresh, mapping);
 		nr_reclaimable = wbs.nr_dirty + wbs.nr_unstable;
 		if (nr_reclaimable + wbs.nr_writeback <= dirty_thresh)
 			break;
@@ -210,7 +232,7 @@ static void balance_dirty_pages(struct address_space *mapping)
 		if (nr_reclaimable) {
 			writeback_inodes(&wbc);
 			get_dirty_limits(&wbs, &background_thresh,
-					&dirty_thresh);
+					&dirty_thresh, mapping);
 			nr_reclaimable = wbs.nr_dirty + wbs.nr_unstable;
 			if (nr_reclaimable + wbs.nr_writeback <= dirty_thresh)
 				break;
@@ -296,7 +318,7 @@ static void background_writeout(unsigned long _min_pages)
 		long background_thresh;
 		long dirty_thresh;
 
-		get_dirty_limits(&wbs, &background_thresh, &dirty_thresh);
+		get_dirty_limits(&wbs, &background_thresh, &dirty_thresh, NULL);
 		if (wbs.nr_dirty + wbs.nr_unstable < background_thresh
 				&& min_pages <= 0)
 			break;
@@ -389,6 +411,9 @@ static void wb_kupdate(unsigned long arg)
 		}
 		nr_to_write -= MAX_WRITEBACK_PAGES - wbc.nr_to_write;
 	}
+#ifdef CONFIG_MOT_FEAT_SYNC_INODE
+        sync_inodes(0);
+#endif
 	if (time_before(next_jif, jiffies + HZ))
 		next_jif = jiffies + HZ;
 	if (dirty_writeback_centisecs)
@@ -581,10 +606,16 @@ EXPORT_SYMBOL(write_one_page);
  */
 int __set_page_dirty_nobuffers(struct page *page)
 {
+#ifdef CONFIG_MOT_WFN484
+	struct address_space *mapping = page_mapping(page);
+#endif
+
 	int ret = 0;
 
 	if (!TestSetPageDirty(page)) {
+#ifndef CONFIG_MOT_WFN484
 		struct address_space *mapping = page_mapping(page);
+#endif
 		struct address_space *mapping2;
 
 		if (mapping) {
@@ -604,7 +635,14 @@ int __set_page_dirty_nobuffers(struct page *page)
 							I_DIRTY_PAGES);
 			}
 		}
+#ifdef CONFIG_MOT_WFN484
+		ret = 1;
+#endif
 	}
+#ifdef CONFIG_MOT_WFN484
+	if (page_mapped(page))
+		set_bit(AS_MCTIME, &mapping->flags);
+#endif
 	return ret;
 }
 EXPORT_SYMBOL(__set_page_dirty_nobuffers);

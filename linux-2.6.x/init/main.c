@@ -2,11 +2,18 @@
  *  linux/init/main.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *           (c) Copyright Motorola 2006
  *
  *  GK 2/5/95  -  Changed to support mounting root fs via NFS
  *  Added initrd & change_root: Werner Almesberger & Hans Lermen, Feb '96
  *  Moan early if gcc is old, avoiding bogus kernels - Paul Gortmaker, May '96
  *  Simplified starting of init:  Michael A. Griffith <grif@acm.org> 
+ *
+ * Revision History:
+ *
+ * Date         Author    Comment
+ * ----------   --------  -------------------
+ * 11/16/2006   Motorola  Hardware Config Framework
  */
 
 #define __KERNEL_SYSCALLS__
@@ -44,12 +51,14 @@
 #include <linux/efi.h>
 #include <linux/unistd.h>
 #include <linux/rmap.h>
+#include <linux/irq.h>
 #include <linux/mempolicy.h>
 #include <linux/key.h>
 
 #include <asm/io.h>
 #include <asm/bugs.h>
 #include <asm/setup.h>
+#include <asm/mothwcfg.h>
 
 /*
  * This is one of the first .c files built. Error out early
@@ -63,6 +72,11 @@
 
 #ifdef CONFIG_X86_LOCAL_APIC
 #include <asm/smp.h>
+#endif
+
+#ifdef CONFIG_RTAI_RTSPMM
+#include <linux/module.h>
+#include <linux/rt_mem_partitions.h>
 #endif
 
 /*
@@ -443,10 +457,13 @@ static void __init smp_init(void)
 static void noinline rest_init(void)
 	__releases(kernel_lock)
 {
+	system_state = SYSTEM_BOOTING_SCHEDULER_OK;
+
 	kernel_thread(init, NULL, CLONE_FS | CLONE_SIGHAND);
 	numa_default_policy();
 	unlock_kernel();
- 	cpu_idle();
+	preempt_enable_no_resched();
+	cpu_idle();
 } 
 
 /* Check for early params. */
@@ -481,6 +498,46 @@ void __init parse_early_param(void)
 	done = 1;
 }
 
+#ifdef CONFIG_RTAI_RTSPMM
+void *rt_mem_block_ptr =NULL;
+EXPORT_SYMBOL(rt_mem_block_ptr);
+/* Table of all the partitions which are defined in the linux kernel menu */
+RT_PARTITION_DEF_T rt_partitions_table[ RT_MAX_PART_NUM ]=
+{ { CONFIG_PART_0_SIZE, CONFIG_PART_0_NUM_BLCK, 0},
+  { CONFIG_PART_1_SIZE, CONFIG_PART_1_NUM_BLCK, 0},
+  { CONFIG_PART_2_SIZE, CONFIG_PART_2_NUM_BLCK, 0},
+  { CONFIG_PART_3_SIZE, CONFIG_PART_3_NUM_BLCK, 0},
+  { CONFIG_PART_4_SIZE, CONFIG_PART_4_NUM_BLCK, 0},
+  { CONFIG_PART_5_SIZE, CONFIG_PART_5_NUM_BLCK, 0},
+  { CONFIG_PART_6_SIZE, CONFIG_PART_6_NUM_BLCK, 0},
+  { CONFIG_PART_7_SIZE, CONFIG_PART_7_NUM_BLCK, 0},
+  { CONFIG_PART_8_SIZE, CONFIG_PART_8_NUM_BLCK, 0},
+  { CONFIG_PART_9_SIZE, CONFIG_PART_9_NUM_BLCK, 0},
+  { CONFIG_PART_10_SIZE, CONFIG_PART_10_NUM_BLCK, 0},
+  { CONFIG_PART_11_SIZE, CONFIG_PART_11_NUM_BLCK, 0},
+  { CONFIG_PART_12_SIZE, CONFIG_PART_12_NUM_BLCK, 0},
+  { CONFIG_PART_13_SIZE, CONFIG_PART_13_NUM_BLCK, 0},
+  { CONFIG_PART_14_SIZE, CONFIG_PART_14_NUM_BLCK, 0},
+  { CONFIG_PART_15_SIZE, CONFIG_PART_15_NUM_BLCK, 0},
+  { CONFIG_PART_16_SIZE, CONFIG_PART_16_NUM_BLCK, 0},
+  { CONFIG_PART_17_SIZE, CONFIG_PART_17_NUM_BLCK, 0},
+  { CONFIG_PART_18_SIZE, CONFIG_PART_18_NUM_BLCK, 0},
+  { CONFIG_PART_19_SIZE, CONFIG_PART_19_NUM_BLCK, 0},
+  { CONFIG_PART_20_SIZE, CONFIG_PART_20_NUM_BLCK, 0},
+  { CONFIG_PART_21_SIZE, CONFIG_PART_21_NUM_BLCK, 0},
+  { CONFIG_PART_22_SIZE, CONFIG_PART_22_NUM_BLCK, 0},
+  { CONFIG_PART_23_SIZE, CONFIG_PART_23_NUM_BLCK, 0},
+  { CONFIG_PART_24_SIZE, CONFIG_PART_24_NUM_BLCK, 0},
+  { CONFIG_PART_25_SIZE, CONFIG_PART_25_NUM_BLCK, 0},
+  { CONFIG_PART_26_SIZE, CONFIG_PART_26_NUM_BLCK, 0},
+  { CONFIG_PART_27_SIZE, CONFIG_PART_27_NUM_BLCK, 0},
+  { CONFIG_PART_28_SIZE, CONFIG_PART_28_NUM_BLCK, 0},
+  { CONFIG_PART_29_SIZE, CONFIG_PART_29_NUM_BLCK, 0},
+  { CONFIG_PART_30_SIZE, CONFIG_PART_30_NUM_BLCK, 0},
+  { CONFIG_PART_31_SIZE, CONFIG_PART_31_NUM_BLCK, 0} };
+EXPORT_SYMBOL(rt_partitions_table);
+#endif
+
 /*
  *	Activate the first processor.
  */
@@ -489,6 +546,11 @@ asmlinkage void __init start_kernel(void)
 {
 	char * command_line;
 	extern struct kernel_param __start___param[], __stop___param[];
+#ifdef CONFIG_RTAI_RTSPMM
+        unsigned int indice_part;
+        /* Size of the needed memory block by the configuration */
+        unsigned long rt_mem_block_size = 0;
+#endif
 /*
  * Interrupts are still disabled. Do necessary setups, then
  * enable them
@@ -511,8 +573,14 @@ asmlinkage void __init start_kernel(void)
 	 * time - but meanwhile we still have a functioning scheduler.
 	 */
 	sched_init();
+	/*
+	 * Disable preemption - early bootup scheduling is extremely
+	 * fragile until we cpu_idle() for the first time.
+	 */
+	preempt_disable();
 	build_all_zonelists();
 	page_alloc_init();
+	early_init_hardirqs();
 	printk("Kernel command line: %s\n", saved_command_line);
 	parse_early_param();
 	parse_args("Booting kernel", command_line, __start___param,
@@ -535,6 +603,40 @@ asmlinkage void __init start_kernel(void)
 	console_init();
 	if (panic_later)
 		panic(panic_later, panic_param);
+
+#ifdef CONFIG_RTAI_RTSPMM
+        /* Allocate a big and continuous memory block for the module SPMM
+           included in the RTAI functionalities */
+        printk("--- Memory Allocation for the module rt_spmm ---\n");
+        /* WARNING
+           We need to add some space for the structures vrtxptext and vrtxpt and the partitions bitmap
+           that the module rt_spmm uses to handle the blocks in each partition */
+        /* for each defined partitions */
+        for(indice_part = 0; indice_part <  RT_MAX_PART_NUM; indice_part ++)
+          {
+            if ((rt_partitions_table[indice_part].block_size != 0) &&
+                (rt_partitions_table[indice_part].num_of_blocks != 0))
+              {
+                rt_partitions_table[indice_part].part_size =
+                  (rt_partitions_table[indice_part].block_size + XN_NBBY)
+                  *rt_partitions_table[indice_part].num_of_blocks +
+                  + sizeof(vrtxptext_t)+sizeof(vrtxpt_t);
+                rt_mem_block_size += rt_partitions_table[indice_part].part_size;
+              }
+          }
+#ifdef CONFIG_RTAI_PART_DMA
+        printk("Allocate memory in the low part of memory\n");
+        rt_mem_block_ptr=(void*)alloc_bootmem_low(rt_mem_block_size + PAGE_SIZE-1);
+#else
+        printk("Allocate memory in the standard part of memory\n");
+        rt_mem_block_ptr=(void*)alloc_bootmem(rt_mem_block_size + PAGE_SIZE-1);
+#endif /* CONFIG_PART_DMA */
+        printk("Needed Memory Size : %lu\n", rt_mem_block_size);
+        printk("Allocated Memory Size : %lu\n", rt_mem_block_size + PAGE_SIZE-1);
+        printk("Memory block address : 0x%x\n", (unsigned int)rt_mem_block_ptr);
+        printk("-----------------------------------------------\n");
+#endif /* CONFIG_RTAI_RTSPMM */
+
 	profile_init();
 	local_irq_enable();
 #ifdef CONFIG_BLK_DEV_INITRD
@@ -566,6 +668,11 @@ asmlinkage void __init start_kernel(void)
 	unnamed_dev_init();
 	security_init();
 	vfs_caches_init(num_physpages);
+
+#ifdef CONFIG_MOT_FEAT_DEVICE_TREE
+	mothwcfg_init();
+#endif /* CONFIG_MOT_FEAT_DEVICE_TREE */
+
 	radix_tree_init();
 	signals_init();
 	/* rootfs populating might need page-writeback */
@@ -642,6 +749,7 @@ static void __init do_basic_setup(void)
 	init_workqueues();
 	usermodehelper_init();
 	key_init();
+
 	driver_init();
 
 #ifdef CONFIG_SYSCTL
@@ -657,12 +765,14 @@ static void __init do_basic_setup(void)
 static void do_pre_smp_initcalls(void)
 {
 	extern int spawn_ksoftirqd(void);
+	extern int spawn_desched_task(void);
 #ifdef CONFIG_SMP
 	extern int migration_init(void);
 
 	migration_init();
 #endif
 	spawn_ksoftirqd();
+	spawn_desched_task();
 }
 
 static void run_init_process(char *init_filename)
@@ -689,6 +799,11 @@ static inline void fixup_cpu_present_map(void)
 #endif
 }
 
+#ifdef CONFIG_KFI_BOOT_TIMING
+void to_userspace(void)
+{
+}
+#endif
 static int init(void * unused)
 {
 	lock_kernel();
@@ -704,6 +819,8 @@ static int init(void * unused)
 
 	/* Sets up cpus_possible() */
 	smp_prepare_cpus(max_cpus);
+
+	init_hardirqs();
 
 	do_pre_smp_initcalls();
 
@@ -750,6 +867,9 @@ static int init(void * unused)
 	 * The Bourne shell can be used instead of init if we are 
 	 * trying to recover a really broken machine.
 	 */
+#ifdef CONFIG_KFI_BOOT_TIMING
+	to_userspace();
+#endif
 
 	if (execute_command)
 		run_init_process(execute_command);

@@ -26,6 +26,7 @@
 #include <asm/arch/gpio.h>
 #include <asm/arch/fpga.h>
 #include <asm/arch/usb.h>
+#include <asm/hardware/clock.h>
 
 #include "ohci-omap.h"
 
@@ -41,38 +42,29 @@ extern int ocpi_enable(void);
  */
 static int omap_ohci_clock_power(int on)
 {
-	if (on) {
-		/* for 1510, 48MHz DPLL is set up in usb init */
+	struct clk *usb_ck;
+	struct clk *usb_host_ck;
 
-		if (cpu_is_omap16xx()) {
-			/* Enable OHCI */
-			omap_writel(omap_readl(ULPD_SOFT_REQ) | SOFT_USB_OTG_REQ,
-				ULPD_SOFT_REQ);
+	usb_ck = clk_get(0, "usb_ck");
+	if (IS_ERR(usb_ck))
+		return PTR_ERR(usb_ck);
 
-			/* USB host clock request if not using OTG */
-			omap_writel(omap_readl(ULPD_SOFT_REQ) | SOFT_USB_REQ,
-				ULPD_SOFT_REQ);
-
-			omap_writel(omap_readl(ULPD_STATUS_REQ) | USB_HOST_DPLL_REQ,
-			     ULPD_STATUS_REQ);
-		}
-
-		/* Enable 48MHz clock to USB */
-		omap_writel(omap_readl(ULPD_CLOCK_CTRL) | USB_MCLK_EN,
-		       ULPD_CLOCK_CTRL);
-
-		omap_writel(omap_readl(ARM_IDLECT2) | (1 << EN_LBFREECK) | (1 << EN_LBCK),
-		       ARM_IDLECT2);
-
-		omap_writel(omap_readl(MOD_CONF_CTRL_0) | USB_HOST_HHC_UHOST_EN,
-		       MOD_CONF_CTRL_0);
-	} else {
-		/* Disable 48MHz clock to USB */
-		omap_writel(omap_readl(ULPD_CLOCK_CTRL) & ~USB_MCLK_EN,
-		       ULPD_CLOCK_CTRL);
-
-		/* FIXME: The DPLL stays on for now */
+	usb_host_ck = clk_get(0, "usb_hhc_ck");
+	if (IS_ERR(usb_host_ck)) {
+		clk_put(usb_ck);
+		return PTR_ERR(usb_host_ck);
 	}
+
+	if (on) {
+		clk_enable(usb_ck);
+		clk_enable(usb_host_ck);
+	} else {
+		clk_disable(usb_ck);
+		clk_disable(usb_host_ck);
+	}
+
+	clk_put(usb_host_ck);
+	clk_put(usb_ck);
 
 	return 0;
 }
@@ -188,7 +180,7 @@ static int omap_start_hc(struct ohci_hcd *ohci, struct platform_device *pdev)
 
 	/* boards can use OTG transceivers in non-OTG modes */
 	need_transceiver = need_transceiver
-			|| machine_is_omap_h2();
+			|| machine_is_omap_h2() || machine_is_omap_h3();
 
 	if (cpu_is_omap16xx())
 		ocpi_enable();
@@ -319,7 +311,11 @@ int usb_hcd_omap_probe (const struct hc_driver *driver,
 	}
 
 	retval = request_irq (hcd->irq, usb_hcd_irq, 
+#ifdef CONFIG_PREEMPT_HARDIRQS
+			      0, hcd->description, hcd);
+#else
 			      SA_INTERRUPT, hcd->description, hcd);
+#endif
 	if (retval != 0) {
 		dev_dbg(&pdev->dev, "request_irq failed\n");
 		retval = -EBUSY;
@@ -486,11 +482,11 @@ static int ohci_hcd_omap_drv_remove(struct device *dev)
 	struct usb_hcd		*hcd = dev_get_drvdata(dev);
 	struct ohci_hcd		*ohci = hcd_to_ohci (hcd);
 
-	usb_hcd_omap_remove(hcd, pdev);
 	if (ohci->transceiver) {
 		(void) otg_set_host(ohci->transceiver, 0);
 		put_device(ohci->transceiver->dev);
 	}
+	usb_hcd_omap_remove(hcd, pdev);
 	dev_set_drvdata(dev, NULL);
 
 	return 0;

@@ -1,3 +1,15 @@
+/*
+ * binfmts.h
+ *
+ * Copyright (C) 2008 Motorola, Inc.
+ *
+ * Date         Author     Comment
+ * 2008-02-28  Motorola   Fix full coredump core pattern issue
+ */
+
+
+
+
 #ifndef _LINUX_BINFMTS_H
 #define _LINUX_BINFMTS_H
 
@@ -80,6 +92,13 @@ extern int copy_strings_kernel(int argc,char ** argv,struct linux_binprm *bprm);
 extern void compute_creds(struct linux_binprm *binprm);
 extern int do_coredump(long signr, int exit_code, struct pt_regs * regs);
 extern int set_binfmt(struct linux_binfmt *new);
+
+
+#ifdef CONFIG_MOT_FEAT_APP_DUMP
+extern int elf_get_last_dump_status(void);
+extern void elf_clear_last_dump_status(void);
+#endif /* CONFIG_MOT_FEAT_APP_DUMP */
+
 
 #endif /* __KERNEL__ */
 #endif /* _LINUX_BINFMTS_H */

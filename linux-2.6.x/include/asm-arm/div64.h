@@ -45,4 +45,11 @@
 	__rem;							\
 })
 
+#define div_ll_X_l_rem(dividend,divisor,remainder)		\
+({								\
+	u64 __result = dividend;				\
+	*remainder = do_div(__result,divisor);			\
+	__result;						\
+})
+
 #endif

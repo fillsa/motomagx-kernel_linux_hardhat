@@ -10,6 +10,8 @@
  * Kevin D. Kissell, kevink@mips.com and Carsten Langgaard, carstenl@mips.com
  * Copyright (C) 2000, 01 MIPS Technologies, Inc.
  * Copyright (C) 2002, 2003, 2004  Maciej W. Rozycki
+ *
+ * KGDB specific changes - Manish Lachwani (mlachwani@mvista.com)
  */
 #include <linux/config.h>
 #include <linux/init.h>
@@ -20,6 +22,8 @@
 #include <linux/smp_lock.h>
 #include <linux/spinlock.h>
 #include <linux/kallsyms.h>
+#include <linux/kgdb.h>
+#include <linux/ltt-events.h>
 
 #include <asm/bootinfo.h>
 #include <asm/branch.h>
@@ -34,16 +38,15 @@
 #include <asm/tlbdebug.h>
 #include <asm/traps.h>
 #include <asm/uaccess.h>
+#include <asm/unistd.h>
 #include <asm/mmu_context.h>
 #include <asm/watch.h>
 #include <asm/types.h>
+#include <asm/kdebug.h>
 
-extern asmlinkage void handle_mod(void);
+extern asmlinkage void handle_tlbm(void);
 extern asmlinkage void handle_tlbl(void);
 extern asmlinkage void handle_tlbs(void);
-extern asmlinkage void __xtlb_mod(void);
-extern asmlinkage void __xtlb_tlbl(void);
-extern asmlinkage void __xtlb_tlbs(void);
 extern asmlinkage void handle_adel(void);
 extern asmlinkage void handle_ades(void);
 extern asmlinkage void handle_ibe(void);
@@ -72,6 +75,21 @@ int (*board_be_handler)(struct pt_regs *regs, int is_fixup);
  */
 #define MODULE_RANGE (8*1024*1024)
 
+struct notifier_block *mips_die_chain;
+static spinlock_t die_notifier_lock = SPIN_LOCK_UNLOCKED;
+
+int register_die_notifier(struct notifier_block *nb)
+{
+	int err = 0;
+	unsigned long flags;
+
+	spin_lock_irqsave(&die_notifier_lock, flags);
+	err = notifier_chain_register(&mips_die_chain, nb);
+	spin_unlock_irqrestore(&die_notifier_lock, flags);
+
+	return err;
+}
+
 /*
  * This routine abuses get_user()/put_user() to reference pointers
  * with at least a bit of error checking ...
@@ -82,7 +100,12 @@ void show_stack(struct task_struct *task, unsigned long *sp)
 	long stackdata;
 	int i;
 
-	sp = sp ? sp : (unsigned long *) &sp;
+	if (!sp) {
+		if (task && task != current)
+			sp = (unsigned long *) task->thread.reg29;
+		else
+			sp = (unsigned long *) &sp;
+	}
 
 	printk("Stack :");
 	i = 0;
@@ -110,8 +133,12 @@ void show_trace(struct task_struct *task, unsigned long *stack)
 	const int field = 2 * sizeof(unsigned long);
 	unsigned long addr;
 
-	if (!stack)
-		stack = (unsigned long*)&stack;
+	if (!stack) {
+		if (task && task != current)
+			stack = (unsigned long *) task->thread.reg29;
+		else
+			stack = (unsigned long *) &stack;
+	}
 
 	printk("Call Trace:");
 #ifdef CONFIG_KALLSYMS
@@ -244,7 +271,7 @@ void show_registers(struct pt_regs *regs)
 	printk("\n");
 }
 
-static spinlock_t die_lock = SPIN_LOCK_UNLOCKED;
+static raw_spinlock_t die_lock = RAW_SPIN_LOCK_UNLOCKED;
 
 NORET_TYPE void __die(const char * str, struct pt_regs * regs,
 	const char * file, const char * func, unsigned long line)
@@ -265,8 +292,10 @@ NORET_TYPE void __die(const char * str, struct pt_regs * regs,
 void __die_if_kernel(const char * str, struct pt_regs * regs,
 		     const char * file, const char * func, unsigned long line)
 {
-	if (!user_mode(regs))
+	if (!user_mode(regs)) {
+		notify_die(DIE_TRAP, (char *)str, regs, 0);
 		__die(str, regs, file, func, line);
+	}
 }
 
 extern const struct exception_table_entry __start___dbe_table[];
@@ -390,16 +419,12 @@ static inline void simulate_ll(struct pt_regs *regs, unsigned int opcode)
 		goto sig;
 	}
 
-	preempt_disable();
-
 	if (ll_task == NULL || ll_task == current) {
 		ll_bit = 1;
 	} else {
 		ll_bit = 0;
 	}
 	ll_task = current;
-
-	preempt_enable();
 
 	regs->regs[(opcode & RT) >> 16] = value;
 
@@ -434,16 +459,11 @@ static inline void simulate_sc(struct pt_regs *regs, unsigned int opcode)
 		goto sig;
 	}
 
-	preempt_disable();
-
 	if (ll_bit == 0 || ll_task != current) {
 		regs->regs[reg] = 0;
-		preempt_enable();
 		compute_return_epc(regs);
 		return;
 	}
-
-	preempt_enable();
 
 	if (put_user(regs->regs[reg], vaddr)) {
 		signal = SIGSEGV;
@@ -501,10 +521,9 @@ asmlinkage void do_ov(struct pt_regs *regs)
  */
 asmlinkage void do_fpe(struct pt_regs *regs, unsigned long fcr31)
 {
+	ltt_ev_trap_entry(CAUSE_EXCCODE(regs), CAUSE_EPC(regs));
 	if (fcr31 & FPU_CSR_UNI_X) {
 		int sig;
-
-		preempt_disable();
 
 		/*
 	 	 * Unimplemented operation exception.  If we've got the full
@@ -530,8 +549,6 @@ asmlinkage void do_fpe(struct pt_regs *regs, unsigned long fcr31)
 
 		/* Restore the hardware register state */
 		restore_fp(current);
-
-		preempt_enable();
 
 		/* If something went wrong, signal */
 		if (sig)
@@ -640,6 +657,8 @@ asmlinkage void do_cpu(struct pt_regs *regs)
 
 	die_if_kernel("do_cpu invoked from kernel context!", regs);
 
+	ltt_ev_trap_entry(CAUSE_EXCCODE(regs), CAUSE_EPC(regs));
+
 	cpid = (regs->cp0_cause >> CAUSEB_CE) & 3;
 
 	switch (cpid) {
@@ -652,8 +671,6 @@ asmlinkage void do_cpu(struct pt_regs *regs)
 		break;
 
 	case 1:
-		preempt_disable();
-
 		own_fpu();
 		if (current->used_math) {	/* Using the FPU again.  */
 			restore_fp(current);
@@ -668,8 +685,6 @@ asmlinkage void do_cpu(struct pt_regs *regs)
 			if (sig)
 				force_sig(sig, current);
 		}
-
-		preempt_enable();
 
 		return;
 
@@ -952,6 +967,9 @@ void __init trap_init(void)
 	extern char except_vec4;
 	unsigned long i;
 
+	if (kgdb_early_setup)
+		return;	/* Already done */
+
 	per_cpu_trap_init();
 
 	/*
@@ -1001,16 +1019,10 @@ void __init trap_init(void)
 	if (board_be_init)
 		board_be_init();
 
-#ifdef CONFIG_MIPS32
-	set_except_vector(1, handle_mod);
+	set_except_vector(1, handle_tlbm);
 	set_except_vector(2, handle_tlbl);
 	set_except_vector(3, handle_tlbs);
-#endif
-#ifdef CONFIG_MIPS64
-	set_except_vector(1, __xtlb_mod);
-	set_except_vector(2, __xtlb_tlbl);
-	set_except_vector(3, __xtlb_tlbs);
-#endif
+
 	set_except_vector(4, handle_adel);
 	set_except_vector(5, handle_ades);
 
@@ -1047,7 +1059,7 @@ void __init trap_init(void)
 		 * unaligned ldc1/sdc1 exception.  The handlers have not been
 		 * written yet.  Well, anyway there is no R6000 machine on the
 		 * current list of targets for Linux/MIPS.
-		 * (Duh, crap, there is someone with a tripple R6k machine)
+		 * (Duh, crap, there is someone with a triple R6k machine)
 		 */
 		//set_except_vector(14, handle_mc);
 		//set_except_vector(15, handle_ndc);
@@ -1060,3 +1072,77 @@ void __init trap_init(void)
 
 	flush_icache_range(CAC_BASE, CAC_BASE + 0x400);
 }
+
+#if (CONFIG_LTT)
+asmlinkage void trace_real_syscall_entry(struct pt_regs * regs)
+{
+	unsigned long       addr;
+	int                 depth = 0;
+	unsigned long       end_code;
+	unsigned long       lower_bound;
+	int                 seek_depth;
+	unsigned long       *stack;
+	unsigned long       start_code;
+	unsigned long       *start_stack;
+	ltt_syscall_entry trace_syscall_event;
+	unsigned long       upper_bound;
+	int                 use_bounds;
+	int                 use_depth;
+
+	/*
+	 * With the 16-bit syscall_id, all three 64-bit kernel ABIs can at last
+	 * be correctly traced (this also enables tracing syscalls for other OS
+	 * like SVR4, IRIX5, BSD43)
+	 */
+	trace_syscall_event.syscall_id = regs->regs[2];
+
+	trace_syscall_event.address  = regs->cp0_epc;
+
+	if (!user_mode(regs))
+		goto trace_syscall_end;
+
+	if (ltt_get_trace_config(&use_depth,
+				 &use_bounds,
+				 &seek_depth,
+				 (void*)&lower_bound,
+				 (void*)&upper_bound) < 0)
+		goto trace_syscall_end;
+
+	/* Heuristic that might work:
+	 * (BUT DOESN'T WORK for any of the cases I tested...) zzz
+	 * Search through stack until a value is found that is within the
+	 * range start_code .. end_code.  (This is looking for a return
+	 * pointer to where a shared library was called from.)  If a stack
+	 * variable contains a valid code address then an incorrect
+	 * result will be generated.
+	 */
+	if ((use_depth == 1) || (use_bounds == 1)) {
+		stack       = (unsigned long*) regs->regs[29];
+		end_code    = current->mm->end_code;
+		start_code  = current->mm->start_code;
+		start_stack = (unsigned long *)current->mm->start_stack;
+
+		while ((stack <= start_stack) && (!__get_user(addr, stack))) {
+			if ((addr > start_code) && (addr < end_code)) {
+				if (((use_depth  == 1) && (depth == seek_depth)) ||
+				    ((use_bounds == 1) && (addr > lower_bound) && (addr < upper_bound))) {
+					trace_syscall_event.address = addr;
+					goto trace_syscall_end;
+				} else {
+					depth++;
+				}
+			}
+		stack++;
+		}
+	}
+
+trace_syscall_end:
+	ltt_log_event(LTT_EV_SYSCALL_ENTRY, &trace_syscall_event);
+}
+
+asmlinkage void trace_real_syscall_exit(void)
+{
+        ltt_log_event(LTT_EV_SYSCALL_EXIT, NULL);
+}
+
+#endif /* (CONFIG_LTT) */

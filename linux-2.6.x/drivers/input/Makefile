@@ -8,6 +8,7 @@ obj-$(CONFIG_INPUT)		+= input.o
 obj-$(CONFIG_INPUT_MOUSEDEV)	+= mousedev.o
 obj-$(CONFIG_INPUT_JOYDEV)	+= joydev.o
 obj-$(CONFIG_INPUT_EVDEV)	+= evdev.o
+obj-$(CONFIG_INPUT_TSLIBDEV)	+= tslibdev.o
 obj-$(CONFIG_INPUT_TSDEV)	+= tsdev.o
 obj-$(CONFIG_INPUT_POWER)	+= power.o
 obj-$(CONFIG_INPUT_EVBUG)	+= evbug.o

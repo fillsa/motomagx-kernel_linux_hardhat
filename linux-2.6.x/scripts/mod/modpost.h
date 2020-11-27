@@ -7,7 +7,11 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
+#ifdef __CYGWIN__
+#include <libelf.h>
+#else
 #include <elf.h>
+#endif
 
 #include "elfconfig.h"
 

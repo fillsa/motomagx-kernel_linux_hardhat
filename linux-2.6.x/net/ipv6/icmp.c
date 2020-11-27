@@ -67,6 +67,10 @@
 #include <asm/uaccess.h>
 #include <asm/system.h>
 
+#ifdef CONFIG_IPV6_MIP6
+#include <net/mip6.h>
+#endif
+
 DEFINE_SNMP_STAT(struct icmpv6_mib, icmpv6_statistics);
 
 /*
@@ -176,7 +180,11 @@ static inline int icmpv6_xrlim_allow(struct sock *sk, int type,
 	 */
 	dst = ip6_route_output(sk, fl);
 	if (dst->error) {
+#ifdef CONFIG_IPV6_STATISTICS
+		IP6_INC_STATS((((struct rt6_info *)dst)->rt6i_idev), IPSTATS_MIB_OUTNOROUTES);
+#else
 		IP6_INC_STATS(IPSTATS_MIB_OUTNOROUTES);
+#endif
 	} else if (dst->dev && (dst->dev->flags&IFF_LOOPBACK)) {
 		res = 1;
 	} else {
@@ -269,6 +277,34 @@ static int icmpv6_getfrag(void *from, char *to, int offset, int len, int odd, st
 	return 0;
 }
 
+#ifdef CONFIG_IPV6_MIP6
+static inline void mip6_addr_swap(struct sk_buff *skb)
+{
+	struct ipv6hdr *iph = skb->nh.ipv6h;
+	struct inet6_skb_parm *opt = (struct inet6_skb_parm *)skb->cb;
+	struct in6_addr tmp;
+	struct rt2_hdr *rt2h = NULL;
+	struct destopt_hao *hao = NULL;
+
+	if (opt->srcrt2) {
+		rt2h = (struct rt2_hdr *)(skb->nh.raw + opt->srcrt2);
+		rt2h->rt_hdr.segments_left++;
+		ipv6_addr_copy(&tmp, &iph->daddr);
+		ipv6_addr_copy(&iph->daddr, &rt2h->addr);
+		ipv6_addr_copy(&rt2h->addr, &tmp);
+	}
+	if (opt->hao) {
+		hao = (struct destopt_hao *)(skb->nh.raw + opt->hao);
+		ipv6_addr_copy(&tmp, &iph->saddr);
+		ipv6_addr_copy(&iph->saddr, &hao->addr);
+		ipv6_addr_copy(&hao->addr, &tmp);
+	}
+}
+#else
+static inline void mip6_addr_swap(struct sk_buff *skb) {}
+#endif
+
+
 /*
  *	Send an ICMP message in response to a packet in error
  */
@@ -346,12 +382,15 @@ void icmpv6_send(struct sk_buff *skb, int type, int code, __u32 info,
 		return;
 	}
 
+	mip6_addr_swap(skb);
+
 	memset(&fl, 0, sizeof(fl));
 	fl.proto = IPPROTO_ICMPV6;
 	ipv6_addr_copy(&fl.fl6_dst, &hdr->saddr);
 	if (saddr)
 		ipv6_addr_copy(&fl.fl6_src, saddr);
 	fl.oif = iif;
+	fl.iif = loopback_dev.ifindex;
 	fl.fl_icmp_type = type;
 	fl.fl_icmp_code = code;
 
@@ -372,8 +411,11 @@ void icmpv6_send(struct sk_buff *skb, int type, int code, __u32 info,
 	err = ip6_dst_lookup(sk, &dst, &fl);
 	if (err)
 		goto out;
-	if ((err = xfrm_lookup(&dst, &fl, sk, 0)) < 0)
+
+	if ((err = xfrm_lookup(&dst, &fl, sk, 0)) < 0) {
+		err = -ENETUNREACH;
 		goto out_dst_release;
+	}
 
 	if (hlimit < 0) {
 		if (ipv6_addr_is_multicast(&fl.fl6_dst))
@@ -382,6 +424,8 @@ void icmpv6_send(struct sk_buff *skb, int type, int code, __u32 info,
 			hlimit = np->hop_limit;
 		if (hlimit < 0)
 			hlimit = dst_metric(dst, RTAX_HOPLIMIT);
+		if (hlimit < 0)
+			hlimit = ipv6_get_hoplimit(dst->dev);
 	}
 
 	msg.skb = skb;
@@ -460,8 +504,10 @@ static void icmpv6_echo_reply(struct sk_buff *skb)
 	err = ip6_dst_lookup(sk, &dst, &fl);
 	if (err)
 		goto out;
-	if ((err = xfrm_lookup(&dst, &fl, sk, 0)) < 0)
+	if ((err = xfrm_lookup(&dst, &fl, sk, 0)) < 0) {
+		err = -ENETUNREACH;
 		goto out_dst_release;
+	}
 
 	if (hlimit < 0) {
 		if (ipv6_addr_is_multicast(&fl.fl6_dst))
@@ -470,6 +516,8 @@ static void icmpv6_echo_reply(struct sk_buff *skb)
 			hlimit = np->hop_limit;
 		if (hlimit < 0)
 			hlimit = dst_metric(dst, RTAX_HOPLIMIT);
+		if (hlimit < 0)
+			hlimit = ipv6_get_hoplimit(dst->dev);
 	}
 
 	idev = in6_dev_get(skb->dev);

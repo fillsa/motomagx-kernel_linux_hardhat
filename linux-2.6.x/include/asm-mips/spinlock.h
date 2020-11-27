@@ -9,23 +9,25 @@
 #ifndef _ASM_SPINLOCK_H
 #define _ASM_SPINLOCK_H
 
+#include <asm/atomic.h>
+#include <asm/page.h>
+
+#include <linux/config.h>
+#include <linux/list.h>
+#include <linux/compiler.h>
 #include <asm/war.h>
 
 /*
  * Your basic SMP spinlocks, allowing only a single CPU anywhere
  */
+#define __RAW_SPIN_LOCK_UNLOCKED { 0 }
+#define RAW_SPIN_LOCK_UNLOCKED (raw_spinlock_t) __RAW_SPIN_LOCK_UNLOCKED
+#define __raw_spin_lock_init(x)        do { *(x) = RAW_SPIN_LOCK_UNLOCKED; } while(0)
 
-typedef struct {
-	volatile unsigned int lock;
-} spinlock_t;
-
-#define SPIN_LOCK_UNLOCKED (spinlock_t) { 0 }
-
-#define spin_lock_init(x)	do { (x)->lock = 0; } while(0)
-
-#define spin_is_locked(x)	((x)->lock != 0)
-#define spin_unlock_wait(x)	do { barrier(); } while ((x)->lock)
-#define _raw_spin_lock_flags(lock, flags) _raw_spin_lock(lock)
+#define __raw_spin_is_locked(x)        ((x)->lock != 0)
+#define __raw_spin_unlock_wait(x) \
+	do { barrier(); } while (__raw_spin_is_locked(x))
+#define __raw_spin_lock_flags(lock, flags) __raw_spin_lock(lock)
 
 /*
  * Simple spin lock operations.  There are two variants, one clears IRQ's
@@ -34,7 +36,7 @@ typedef struct {
  * We make no fairness assumptions.  They have a cost.
  */
 
-static inline void _raw_spin_lock(spinlock_t *lock)
+static inline void __raw_spin_lock(raw_spinlock_t *lock)
 {
 	unsigned int tmp;
 
@@ -68,7 +70,7 @@ static inline void _raw_spin_lock(spinlock_t *lock)
 	}
 }
 
-static inline void _raw_spin_unlock(spinlock_t *lock)
+static inline void __raw_spin_unlock(raw_spinlock_t *lock)
 {
 	__asm__ __volatile__(
 	"	.set	noreorder	# _raw_spin_unlock	\n"
@@ -80,7 +82,7 @@ static inline void _raw_spin_unlock(spinlock_t *lock)
 	: "memory");
 }
 
-static inline unsigned int _raw_spin_trylock(spinlock_t *lock)
+static inline unsigned int __raw_spin_trylock(raw_spinlock_t *lock)
 {
 	unsigned int temp, res;
 
@@ -116,26 +118,16 @@ static inline unsigned int _raw_spin_trylock(spinlock_t *lock)
 	return res == 0;
 }
 
-/*
- * Read-write spinlocks, allowing multiple readers but only one writer.
- *
- * NOTE! it is quite common to have readers in interrupts but no interrupt
- * writers. For those circumstances we can "mix" irq-safe locks - any writer
- * needs to get a irq-safe write-lock, but readers can get non-irqsafe
- * read-locks.
- */
+#define __RAW_RW_LOCK_UNLOCKED { 0 }
+#define RAW_RW_LOCK_UNLOCKED (raw_rwlock_t) __RAW_RW_LOCK_UNLOCKED
+ 
+#define __raw_rwlock_init(x) do { *(x) = RAW_RW_LOCK_UNLOCKED; } while(0)
+#define __raw_rwlock_is_locked(x)      ((x)->lock)
 
-typedef struct {
-	volatile unsigned int lock;
-} rwlock_t;
+#define __raw_read_can_lock(rw)		((rw)->lock >= 0)
+#define __raw_write_can_lock(rw)	(!(rw)->lock)
 
-#define RW_LOCK_UNLOCKED (rwlock_t) { 0 }
-
-#define rwlock_init(x)  do { *(x) = RW_LOCK_UNLOCKED; } while(0)
-
-#define rwlock_is_locked(x) ((x)->lock)
-
-static inline void _raw_read_lock(rwlock_t *rw)
+static inline void __raw_read_lock(rwlock_t *rw)
 {
 	unsigned int tmp;
 
@@ -172,7 +164,7 @@ static inline void _raw_read_lock(rwlock_t *rw)
 /* Note the use of sub, not subu which will make the kernel die with an
    overflow exception if we ever try to unlock an rwlock that is already
    unlocked or is being held by a writer.  */
-static inline void _raw_read_unlock(rwlock_t *rw)
+static inline void __raw_read_unlock(raw_rwlock_t *rw)
 {
 	unsigned int tmp;
 
@@ -201,7 +193,7 @@ static inline void _raw_read_unlock(rwlock_t *rw)
 	}
 }
 
-static inline void _raw_write_lock(rwlock_t *rw)
+static inline void __raw_write_lock(raw_rwlock_t *rw)
 {
 	unsigned int tmp;
 
@@ -236,7 +228,7 @@ static inline void _raw_write_lock(rwlock_t *rw)
 	}
 }
 
-static inline void _raw_write_unlock(rwlock_t *rw)
+static inline void __raw_write_unlock(raw_rwlock_t *rw)
 {
 	__asm__ __volatile__(
 	"	sync			# _raw_write_unlock	\n"
@@ -246,7 +238,9 @@ static inline void _raw_write_unlock(rwlock_t *rw)
 	: "memory");
 }
 
-static inline int _raw_write_trylock(rwlock_t *rw)
+#define __raw_read_trylock(lock) generic_raw_read_trylock(lock)
+
+static inline int __raw_write_trylock(raw_rwlock_t *rw)
 {
 	unsigned int tmp;
 	int ret;

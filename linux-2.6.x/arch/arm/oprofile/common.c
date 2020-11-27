@@ -32,6 +32,7 @@ static struct oprofile_operations pmu_ops = {
 	.stop		= pmu_stop,
 };
 
+#undef CONFIG_PM
 #ifdef CONFIG_PM
 static struct sys_device device_oprofile = {
 	.id		= 0,

@@ -3,15 +3,24 @@
  *
  * Copyright (C) 2001-2003 Red Hat, Inc.
  *
- * Created by David Woodhouse <dwmw2@redhat.com>
+ * Created by David Woodhouse <dwmw2@infradead.org>
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: file.c,v 1.98 2004/03/19 16:41:09 dwmw2 Exp $
+ * $Id: file.c,v 1.101 2005/05/20 15:26:45 gleixner Exp $
  *
  */
 
-#include <linux/version.h>
+
+
+/*
+ * Copyright (C) 2007 Motorola, Inc.
+ * ChangeLog:
+ * (mm-dd-yyyy) Author    Comment
+ * 11-06-2007   Motorola  Upmerge from 6.1. (Change inode information when update)
+ */
+
+
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/fs.h>
@@ -25,6 +34,11 @@
 extern int generic_file_open(struct inode *, struct file *) __attribute__((weak));
 extern loff_t generic_file_llseek(struct file *file, loff_t offset, int origin) __attribute__((weak));
 
+static int jffs2_commit_write (struct file *filp, struct page *pg,
+			       unsigned start, unsigned end);
+static int jffs2_prepare_write (struct file *filp, struct page *pg,
+				unsigned start, unsigned end);
+static int jffs2_readpage (struct file *filp, struct page *pg);
 
 int jffs2_fsync(struct file *filp, struct dentry *dentry, int datasync)
 {
@@ -46,9 +60,7 @@ struct file_operations jffs2_file_operations =
 	.ioctl =	jffs2_ioctl,
 	.mmap =		generic_file_readonly_mmap,
 	.fsync =	jffs2_fsync,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,5,29)
 	.sendfile =	generic_file_sendfile
-#endif
 };
 
 /* jffs2_file_inode_operations */
@@ -65,7 +77,7 @@ struct address_space_operations jffs2_file_address_operations =
 	.commit_write =	jffs2_commit_write
 };
 
-int jffs2_do_readpage_nolock (struct inode *inode, struct page *pg)
+static int jffs2_do_readpage_nolock (struct inode *inode, struct page *pg)
 {
 	struct jffs2_inode_info *f = JFFS2_INODE_INFO(inode);
 	struct jffs2_sb_info *c = JFFS2_SB_INFO(inode->i_sb);
@@ -74,8 +86,7 @@ int jffs2_do_readpage_nolock (struct inode *inode, struct page *pg)
 
 	D2(printk(KERN_DEBUG "jffs2_do_readpage_nolock(): ino #%lu, page at offset 0x%lx\n", inode->i_ino, pg->index << PAGE_CACHE_SHIFT));
 
-	if (!PageLocked(pg))
-                PAGE_BUG(pg);
+	BUG_ON(!PageLocked(pg));
 
 	pg_buf = kmap(pg);
 	/* FIXME: Can kmap fail? */
@@ -105,7 +116,7 @@ int jffs2_do_readpage_unlock(struct inode *inode, struct page *pg)
 }
 
 
-int jffs2_readpage (struct file *filp, struct page *pg)
+static int jffs2_readpage (struct file *filp, struct page *pg)
 {
 	struct jffs2_inode_info *f = JFFS2_INODE_INFO(pg->mapping->host);
 	int ret;
@@ -116,7 +127,8 @@ int jffs2_readpage (struct file *filp, struct page *pg)
 	return ret;
 }
 
-int jffs2_prepare_write (struct file *filp, struct page *pg, unsigned start, unsigned end)
+static int jffs2_prepare_write (struct file *filp, struct page *pg,
+				unsigned start, unsigned end)
 {
 	struct inode *inode = pg->mapping->host;
 	struct jffs2_inode_info *f = JFFS2_INODE_INFO(inode);
@@ -185,6 +197,7 @@ int jffs2_prepare_write (struct file *filp, struct page *pg, unsigned start, uns
 		}
 		jffs2_complete_reservation(c);
 		inode->i_size = pageofs;
+                inode->i_blocks = (inode->i_size + 511) >> 9;
 		up(&f->sem);
 	}
 	
@@ -198,7 +211,8 @@ int jffs2_prepare_write (struct file *filp, struct page *pg, unsigned start, uns
 	return ret;
 }
 
-int jffs2_commit_write (struct file *filp, struct page *pg, unsigned start, unsigned end)
+static int jffs2_commit_write (struct file *filp, struct page *pg,
+			       unsigned start, unsigned end)
 {
 	/* Actually commit the write from the page cache page we're looking at.
 	 * For now, we write the full page out each time. It sucks, but it's simple
@@ -261,11 +275,13 @@ int jffs2_commit_write (struct file *filp, struct page *pg, unsigned start, unsi
 	if (writtenlen) {
 		if (inode->i_size < (pg->index << PAGE_CACHE_SHIFT) + start + writtenlen) {
 			inode->i_size = (pg->index << PAGE_CACHE_SHIFT) + start + writtenlen;
-			inode->i_blocks = (inode->i_size + 511) >> 9;
-			
-			inode->i_ctime = inode->i_mtime = ITIME(je32_to_cpu(ri->ctime));
 		}
 	}
+
+          /* update inode information accordingly */
+        inode->i_blocks = (inode->i_size + 511) >> 9;
+        inode->i_ctime = inode->i_mtime = ITIME(je32_to_cpu(ri->ctime));
+
 
 	jffs2_free_raw_inode(ri);
 
@@ -278,6 +294,6 @@ int jffs2_commit_write (struct file *filp, struct page *pg, unsigned start, unsi
 		ClearPageUptodate(pg);
 	}
 
-	D1(printk(KERN_DEBUG "jffs2_commit_write() returning %d\n",writtenlen?writtenlen:ret));
-	return writtenlen?writtenlen:ret;
+	D1(printk(KERN_DEBUG "jffs2_commit_write() returning %d\n",start+writtenlen==end?0:ret));
+	return start+writtenlen==end?0:ret;
 }

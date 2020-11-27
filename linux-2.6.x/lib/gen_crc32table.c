@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include "crc32defs.h"
+#ifndef __CYGWIN__
 #include <inttypes.h>
+#endif
 
 #define ENTRIES_PER_LINE 4
 

@@ -16,6 +16,7 @@
 #include <linux/tty.h>
 #include <linux/highmem.h>
 #include <linux/time.h>
+#include <linux/mc146818rtc.h>
 
 #include <asm/semaphore.h>
 #include <asm/processor.h>
@@ -34,7 +35,6 @@
 #include <asm/kdebug.h>
 
 extern void dump_thread(struct pt_regs *, struct user *);
-extern spinlock_t rtc_lock;
 
 /* This is definitely a GPL-only symbol */
 EXPORT_SYMBOL_GPL(cpu_gdt_table);
@@ -75,7 +75,6 @@ EXPORT_SYMBOL_GPL(kernel_fpu_begin);
 EXPORT_SYMBOL(__ioremap);
 EXPORT_SYMBOL(ioremap_nocache);
 EXPORT_SYMBOL(iounmap);
-EXPORT_SYMBOL(probe_irq_mask);
 EXPORT_SYMBOL(kernel_thread);
 EXPORT_SYMBOL(pm_idle);
 EXPORT_SYMBOL(pm_power_off);
@@ -83,10 +82,12 @@ EXPORT_SYMBOL(get_cmos_time);
 EXPORT_SYMBOL(cpu_khz);
 EXPORT_SYMBOL(apm_info);
 
-EXPORT_SYMBOL(__down_failed);
-EXPORT_SYMBOL(__down_failed_interruptible);
-EXPORT_SYMBOL(__down_failed_trylock);
-EXPORT_SYMBOL(__up_wakeup);
+#ifdef CONFIG_ASM_SEMAPHORES
+EXPORT_SYMBOL(__compat_down_failed);
+EXPORT_SYMBOL(__compat_down_failed_interruptible);
+EXPORT_SYMBOL(__compat_down_failed_trylock);
+EXPORT_SYMBOL(__compat_up_wakeup);
+#endif
 /* Networking helper routines. */
 EXPORT_SYMBOL(csum_partial_copy_generic);
 /* Delay loops */
@@ -138,8 +139,10 @@ EXPORT_SYMBOL(cpu_sibling_map);
 EXPORT_SYMBOL(cpu_data);
 EXPORT_SYMBOL(cpu_online_map);
 EXPORT_SYMBOL(cpu_callout_map);
+#ifdef CONFIG_ASM_SEMAPHORES
 EXPORT_SYMBOL(__write_lock_failed);
 EXPORT_SYMBOL(__read_lock_failed);
+#endif
 
 /* Global SMP stuff */
 EXPORT_SYMBOL(smp_call_function);
@@ -174,17 +177,19 @@ EXPORT_SYMBOL(memcmp);
 
 EXPORT_SYMBOL(register_die_notifier);
 #ifdef CONFIG_HAVE_DEC_LOCK
-EXPORT_SYMBOL(_atomic_dec_and_lock);
+EXPORT_SYMBOL(_atomic_dec_and_raw_spin_lock);
 #endif
 
 EXPORT_SYMBOL(__PAGE_KERNEL);
 
 #ifdef CONFIG_HIGHMEM
 EXPORT_SYMBOL(kmap);
+EXPORT_SYMBOL(kmap_to_page);
 EXPORT_SYMBOL(kunmap);
-EXPORT_SYMBOL(kmap_atomic);
-EXPORT_SYMBOL(kunmap_atomic);
-EXPORT_SYMBOL(kmap_atomic_to_page);
+EXPORT_SYMBOL(__kmap_atomic);
+EXPORT_SYMBOL(__kunmap_atomic);
+EXPORT_SYMBOL(kunmap_virt);
+EXPORT_SYMBOL(__kmap_atomic_to_page);
 #endif
 
 #if defined(CONFIG_X86_SPEEDSTEP_SMI) || defined(CONFIG_X86_SPEEDSTEP_SMI_MODULE)

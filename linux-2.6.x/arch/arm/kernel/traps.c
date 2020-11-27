@@ -1,6 +1,7 @@
 /*
  *  linux/arch/arm/kernel/traps.c
  *
+ *  Copyright Motorola 2006-2007
  *  Copyright (C) 1995-2002 Russell King
  *  Fragments that appear the same as linux/arch/i386/kernel/traps.c (C) Linus Torvalds
  *
@@ -11,6 +12,16 @@
  *  'traps.c' handles hardware exceptions after we have saved some state in
  *  'linux/arch/arm/lib/traps.S'.  Mostly a debugging aid, but will probably
  *  kill the offending process.
+ *
+ * Revision History:
+ *
+ * Date         Author    Comment
+ * ----------   --------  ---------------------
+ * 10/06/2006   Motorola  Added app dump functionality
+ * 12/01/2006	Motorola  Add panic on oops support
+ * 02/19/2007   Motorola  Add panic PC output
+ * 03/09/2007   Motorola  Fixed panic PC output
+ *
  */
 #include <linux/config.h>
 #include <linux/module.h>
@@ -20,6 +31,7 @@
 #include <linux/ptrace.h>
 #include <linux/kallsyms.h>
 #include <linux/init.h>
+#include <linux/ltt-events.h>
 
 #include <asm/atomic.h>
 #include <asm/cacheflush.h>
@@ -31,8 +43,25 @@
 
 #include "ptrace.h"
 
+#ifdef CONFIG_MOT_FEAT_PRINT_PC_ON_PANIC
+extern int aprdataprinted;
+#endif
 extern void c_backtrace (unsigned long fp, int pmode);
 extern void show_pte(struct mm_struct *mm, unsigned long addr);
+#ifdef CONFIG_MOT_FEAT_APP_DUMP
+volatile int (*core_print)(const char *fmt, ...) = NULL;
+DECLARE_RWSEM(core_print_lock);
+#define CORE_PRINT(...) \
+	if (core_print != NULL) { \
+		down_read(&core_print_lock); \
+		if (core_print != NULL) { \
+			core_print(__VA_ARGS__); \
+		} \
+		up_read(&core_print_lock); \
+	}
+EXPORT_SYMBOL(core_print);
+EXPORT_SYMBOL(core_print_lock);
+#endif /* CONFIG_MOT_FEAT_APP_DUMP */
 
 const char *processor_modes[]=
 { "USER_26", "FIQ_26" , "IRQ_26" , "SVC_26" , "UK4_26" , "UK5_26" , "UK6_26" , "UK7_26" ,
@@ -61,8 +90,15 @@ void dump_backtrace_entry(unsigned long where, unsigned long from)
 	print_symbol("(%s) ", where);
 	printk("from [<%08lx>] ", from);
 	print_symbol("(%s)\n", from);
+#ifdef CONFIG_MOT_FEAT_APP_DUMP
+	CORE_PRINT("[<%08lx>] ", where);
+	CORE_PRINT("from [<%08lx>] ", from);
+#endif /* CONFIG_MOT_FEAT_APP_DUMP */
 #else
 	printk("Function entered at [<%08lx>] from [<%08lx>]\n", where, from);
+#ifdef CONFIG_MOT_FEAT_APP_DUMP
+	CORE_PRINT("Function entered at [<%08lx>] from [<%08lx>]\n", where, from);
+#endif /* CONFIG_MOT_FEAT_APP_DUMP */
 #endif
 }
 
@@ -200,7 +236,81 @@ void show_stack(struct task_struct *tsk, unsigned long *sp)
 	barrier();
 }
 
-spinlock_t die_lock = SPIN_LOCK_UNLOCKED;
+DEFINE_RAW_SPINLOCK(die_lock);
+
+#if (CONFIG_LTT)
+asmlinkage void trace_real_syscall_entry(int scno,struct pt_regs * regs)
+{
+	int			depth = 0;
+	unsigned long           end_code;
+	unsigned long		*fp;			/* frame pointer */
+	unsigned long		lower_bound;
+	unsigned long		lr;			/* link register */
+	unsigned long		*prev_fp;
+	int			seek_depth;
+	unsigned long           start_code;
+	unsigned long           *start_stack;
+	ltt_syscall_entry	trace_syscall_event;
+	unsigned long		upper_bound;
+	int			use_bounds;
+	int			use_depth;
+
+	/* The caller didn't bother checking for a valid syscall number... */
+	if ((scno & 0x00f00000) != __NR_SYSCALL_BASE)
+		return;
+
+	/* Set the MSB of the LTT syscall ID to mark the ARM private syscalls */
+	if ((scno & 0x00ff0000) == __ARM_NR_BASE)
+		scno |= 0x00008000;
+
+	trace_syscall_event.syscall_id = scno;
+	trace_syscall_event.address    = instruction_pointer(regs);
+	
+	if (! (user_mode(regs) ))
+		goto trace_syscall_end;
+
+	if (ltt_get_trace_config(&use_depth,
+				 &use_bounds,
+				 &seek_depth,
+				 (void*)&lower_bound,
+				 (void*)&upper_bound) < 0)
+		goto trace_syscall_end;
+
+	if ((use_depth == 1) || (use_bounds == 1)) {
+		fp          = (unsigned long *)regs->ARM_fp;
+		end_code    = current->mm->end_code;
+		start_code  = current->mm->start_code;
+		start_stack = (unsigned long *)current->mm->start_stack;
+
+		while (!__get_user(lr, (unsigned long *)(fp - 1))) {
+			if ((lr > start_code) && (lr < end_code)) {
+				if (((use_depth == 1) && (depth >= seek_depth)) ||
+				    ((use_bounds == 1) && (lr > lower_bound) && (lr < upper_bound))) {
+					trace_syscall_event.address = lr;
+					goto trace_syscall_end;
+				} else {
+					depth++;
+				}
+			}
+
+			if ((__get_user((unsigned long)prev_fp, (fp - 3))) ||
+			    (prev_fp > start_stack) ||
+			    (prev_fp <= fp)) {
+				goto trace_syscall_end;
+			}
+			fp = prev_fp;
+		}
+	}
+
+trace_syscall_end:
+	ltt_log_event(LTT_EV_SYSCALL_ENTRY, &trace_syscall_event);
+}
+
+asmlinkage void trace_real_syscall_exit(void)
+{
+	ltt_log_event(LTT_EV_SYSCALL_EXIT, NULL);
+}
+#endif /* (CONFIG_LTT) */
 
 /*
  * This function is protected against re-entrancy.
@@ -217,6 +327,13 @@ NORET_TYPE void die(const char *str, struct pt_regs *regs, int err)
 	printk("Internal error: %s: %x [#%d]\n", str, err, ++die_counter);
 	print_modules();
 	printk("CPU: %d\n", smp_processor_id());
+#ifdef CONFIG_MOT_FEAT_PRINT_PC_ON_PANIC
+	if (aprdataprinted == 0) {
+		printk (KERN_ERR "[APR]PanicPC: %p\n",
+		         (void *) instruction_pointer(regs));
+		aprdataprinted = 1;
+	}
+#endif
 	show_regs(regs);
 	printk("Process %s (pid: %d, stack limit = 0x%p)\n",
 		tsk->comm, tsk->pid, tsk->thread_info + 1);
@@ -229,6 +346,9 @@ NORET_TYPE void die(const char *str, struct pt_regs *regs, int err)
 
 	bust_spinlocks(0);
 	spin_unlock_irq(&die_lock);
+#ifdef CONFIG_MOT_FEAT_PANIC_ON_OOPS
+	panic("Fatal exception");
+#endif /* CONFIG_MOT_FEAT_PANIC_ON_OOPS */
 	do_exit(SIGSEGV);
 }
 
@@ -241,7 +361,7 @@ void die_if_kernel(const char *str, struct pt_regs *regs, int err)
 }
 
 static LIST_HEAD(undef_hook);
-static spinlock_t undef_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_RAW_SPINLOCK(undef_lock);
 
 void register_undef_hook(struct undef_hook *hook)
 {
@@ -263,6 +383,7 @@ asmlinkage void do_undefinstr(struct pt_regs *regs)
 	unsigned int instr;
 	struct undef_hook *hook;
 	siginfo_t info;
+	mm_segment_t fs;
 	void __user *pc;
 
 	/*
@@ -272,12 +393,15 @@ asmlinkage void do_undefinstr(struct pt_regs *regs)
 	 */
 	regs->ARM_pc -= correction;
 
+	fs = get_fs();
+	set_fs(KERNEL_DS);
 	pc = (void __user *)instruction_pointer(regs);
 	if (thumb_mode(regs)) {
 		get_user(instr, (u16 __user *)pc);
 	} else {
 		get_user(instr, (u32 __user *)pc);
 	}
+	set_fs(fs);
 
 	spin_lock_irq(&undef_lock);
 	list_for_each_entry(hook, &undef_hook, node) {
@@ -307,7 +431,9 @@ asmlinkage void do_undefinstr(struct pt_regs *regs)
 	info.si_code  = ILL_ILLOPC;
 	info.si_addr  = pc;
 
+	ltt_ev_trap_entry(current->thread.trap_no, (uint32_t)pc);
 	force_sig_info(SIGILL, &info, current);
+	ltt_ev_trap_exit();
 
 	die_if_kernel("Oops - undefined instruction", regs, 0);
 }
@@ -393,9 +519,10 @@ do_cache_op(unsigned long start, unsigned long end, int flags)
 #define NR(x) ((__ARM_NR_##x) - __ARM_NR_BASE)
 asmlinkage int arm_syscall(int no, struct pt_regs *regs)
 {
+	struct thread_info *thread = current_thread_info();
 	siginfo_t info;
 
-	if ((no >> 16) != 0x9f)
+	if ((no >> 16) != (__ARM_NR_BASE>> 16))
 		return bad_syscall(no, regs);
 
 	switch (no & 0xffff) {
@@ -444,6 +571,21 @@ asmlinkage int arm_syscall(int no, struct pt_regs *regs)
 			break;
 		regs->ARM_cpsr |= MODE32_BIT;
 		return regs->ARM_r0;
+
+	case NR(set_tls):
+		thread->tp_value = regs->ARM_r0;
+#ifdef CONFIG_HAS_TLS_REG
+		asm ("mcr p15, 0, %0, c13, c0, 3" : : "r" (regs->ARM_r0) );
+#else
+		/*
+		 * User space must never try to access this directly.
+		 * Expect your app to break eventually if you do so.
+		 * The user helper at 0xffff0fe0 must be used instead.
+		 * (see entry-armv.S for details)
+		 */
+		*((unsigned int *)0xffff0ff0) = regs->ARM_r0;
+#endif
+		return 0;
 
 	default:
 		/* Calls 9f00xx..9f07ff are defined to return -ENOSYS
@@ -512,7 +654,10 @@ baddataabort(int code, unsigned long instr, struct pt_regs *regs)
 	info.si_code  = ILL_ILLOPC;
 	info.si_addr  = (void __user *)addr;
 
+	ltt_ev_trap_entry(18, addr);    /* machine check */
 	force_sig_info(SIGILL, &info, current);
+	ltt_ev_trap_exit();
+
 	die_if_kernel("unknown data abort code", regs, instr);
 }
 
@@ -565,6 +710,13 @@ void abort(void)
 EXPORT_SYMBOL(abort);
 
 void __init trap_init(void)
+#if	defined(CONFIG_KGDB)
+{
+	return;
+}
+
+void __init early_trap_init(void)
+#endif
 {
 	extern void __trap_init(void);
 

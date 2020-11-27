@@ -103,6 +103,7 @@
 #define FB_ACCEL_SIS_GLAMOUR_2  40	/* SiS 315, 650, 740		*/
 #define FB_ACCEL_SIS_XABRE      41	/* SiS 330 ("Xabre")		*/
 #define FB_ACCEL_I830           42      /* Intel 830M/845G/85x/865G     */
+#define FB_ACCEL_OMAP1610       42	/* TI OMAP16xx */
 
 #define FB_ACCEL_NEOMAGIC_NM2070 90	/* NeoMagic NM2070              */
 #define FB_ACCEL_NEOMAGIC_NM2090 91	/* NeoMagic NM2090              */
@@ -129,6 +130,7 @@
 #define FB_ACCEL_SUPERSAVAGE    0x8c    /* S3 Supersavage               */
 #define FB_ACCEL_PROSAVAGE_DDR  0x8d	/* S3 ProSavage DDR             */
 #define FB_ACCEL_PROSAVAGE_DDRK 0x8e	/* S3 ProSavage DDR-K           */
+#define FB_ACCEL_PXA27X         0x8f    /* PXA27X                       */
 
 struct fb_fix_screeninfo {
 	char id[16];			/* identification string eg "TT Builtin" */

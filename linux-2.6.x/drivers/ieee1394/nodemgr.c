@@ -114,7 +114,7 @@ struct host_info {
 	struct hpsb_host *host;
 	struct list_head list;
 	struct completion exited;
-	struct semaphore reset_sem;
+	struct compat_semaphore reset_sem;
 	int pid;
 	char daemon_name[15];
 	int kill_me;

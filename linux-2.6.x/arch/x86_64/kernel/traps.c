@@ -28,6 +28,7 @@
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
+#include <linux/kgdb.h>
 
 #include <asm/system.h>
 #include <asm/uaccess.h>
@@ -74,7 +75,7 @@ asmlinkage void spurious_interrupt_bug(void);
 asmlinkage void call_debug(void);
 
 struct notifier_block *die_chain;
-static spinlock_t die_notifier_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(die_notifier_lock);
 
 int register_die_notifier(struct notifier_block *nb)
 {
@@ -140,7 +141,7 @@ unsigned long *in_exception_stack(int cpu, unsigned long stack)
  * Check and process them in order.
  */
 
-void show_trace(unsigned long *stack)
+void show_trace(struct task_struct *task, unsigned long *stack)
 {
 	unsigned long addr;
 	unsigned long *irqstack, *irqstack_end, *estack_end;
@@ -209,6 +210,7 @@ void show_trace(unsigned long *stack)
 		}
 	}
 	printk("\n");
+	print_traces(task);
 }
 
 void show_stack(struct task_struct *tsk, unsigned long * rsp)
@@ -244,7 +246,7 @@ void show_stack(struct task_struct *tsk, unsigned long * rsp)
 			printk("\n       ");
 		printk("%016lx ", *stack++);
 	}
-	show_trace((unsigned long *)rsp);
+	show_trace(tsk, (unsigned long *)rsp);
 }
 
 /*
@@ -253,7 +255,7 @@ void show_stack(struct task_struct *tsk, unsigned long * rsp)
 void dump_stack(void)
 {
 	unsigned long dummy;
-	show_trace(&dummy);
+	show_trace(current, &dummy);
 }
 
 EXPORT_SYMBOL(dump_stack);
@@ -324,7 +326,7 @@ void out_of_line_bug(void)
 	BUG(); 
 } 
 
-static spinlock_t die_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_RAW_SPINLOCK(die_lock);
 static int die_owner = -1;
 
 void oops_begin(void)
@@ -691,6 +693,9 @@ asmlinkage void *do_debug(struct pt_regs * regs, unsigned long error_code)
 
 	/* Mask out spurious TF errors due to lazy TF clearing */
 	if (condition & DR_STEP) {
+		if (notify_die(DIE_DEBUGSTEP, "debugstep", regs, condition,
+					1, SIGTRAP) == NOTIFY_STOP)
+			goto spurious_squashed;
 		/*
 		 * The TF error should be masked out only if the current
 		 * process is not traced and if the TRAP flag has been set
@@ -705,6 +710,7 @@ asmlinkage void *do_debug(struct pt_regs * regs, unsigned long error_code)
 		if ((tsk->ptrace & (PT_DTRACE|PT_PTRACED)) == PT_DTRACE)
 			goto clear_TF;
 	}
+spurious_squashed:
 
 	/* Ok, finally something we can handle */
 	tsk->thread.trap_no = 1;
@@ -910,7 +916,7 @@ void __init trap_init(void)
 	set_intr_gate(0,&divide_error);
 	set_intr_gate_ist(1,&debug,DEBUG_STACK);
 	set_intr_gate_ist(2,&nmi,NMI_STACK);
-	set_intr_gate(3,&int3);
+	set_system_gate(3,&int3);
 	set_system_gate(4,&overflow);	/* int4-5 can be called from all */
 	set_system_gate(5,&bounds);
 	set_intr_gate(6,&invalid_op);
@@ -940,6 +946,14 @@ void __init trap_init(void)
 	 * Should be a barrier for any external CPU state.
 	 */
 	cpu_init();
+
+#ifdef CONFIG_KGDB
+	/*
+	 * Has KGDB been told to break as soon as possible?
+	 */
+	if (kgdb_initialized == -1)
+		tasklet_schedule(&kgdb_tasklet_breakpoint);
+#endif
 }
 
 

@@ -43,7 +43,13 @@
 #include <asm/mpc85xx.h>
 #include <asm/irq.h>
 #include <asm/immap_85xx.h>
-#include <asm/ocp.h>
+
+#ifdef CONFIG_MTD
+#include <linux/mtd/partitions.h>
+#include <linux/mtd/physmap.h>
+#include <linux/mtd/mtd.h>
+#include <linux/mtd/map.h>
+#endif
 
 #include <mm/mmu_decl.h>
 
@@ -52,6 +58,24 @@
 #ifndef CONFIG_PCI
 unsigned long isa_io_base = 0;
 unsigned long isa_mem_base = 0;
+#endif
+
+#ifdef CONFIG_MTD
+static struct mtd_partition mpc85xx_ads_partitions[] = {
+	{
+		.name =   "fs",
+		.offset = 0,
+		.size =   0xf80000,
+	},
+	{
+		.name =   "firmware",
+		.offset = 0xf80000,
+		.size =   0x80000,
+		.mask_flags = MTD_WRITEABLE,  /* force read-only */
+	}
+};
+
+#define number_partitions       (sizeof(mpc85xx_ads_partitions)/sizeof(struct mtd_partition))
 #endif
 
 extern unsigned long total_memory;	/* in mm/init */
@@ -234,3 +258,15 @@ mpc85xx_exclude_device(u_char bus, u_char devfn)
 }
 
 #endif /* CONFIG_PCI */
+
+#ifdef CONFIG_MTD
+void
+mpc85xx_ads_mtd_setup()
+{
+	/*
+	 * Support for MTD on MPC85xx ADS. Use the generic physmap driver
+	 */
+	physmap_configure(0xff000000, 0x1000000, 4, NULL);
+	physmap_set_partitions(mpc85xx_ads_partitions, number_partitions);
+}
+#endif

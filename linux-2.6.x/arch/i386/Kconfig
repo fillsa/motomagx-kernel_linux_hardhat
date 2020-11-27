@@ -363,16 +363,6 @@ config X86_L1_CACHE_SHIFT
 	default "5" if MWINCHIP3D || MWINCHIP2 || MWINCHIPC6 || MCRUSOE || MEFFICEON || MCYRIXIII || MK6 || MPENTIUMIII || MPENTIUMII || M686 || M586MMX || M586TSC || M586 || MVIAC3_2
 	default "6" if MK7 || MK8 || MPENTIUMM
 
-config RWSEM_GENERIC_SPINLOCK
-	bool
-	depends on M386
-	default y
-
-config RWSEM_XCHGADD_ALGORITHM
-	bool
-	depends on !M386
-	default y
-
 config X86_PPRO_FENCE
 	bool
 	depends on M686 || M586MMX || M586TSC || M586 || M486 || M386
@@ -425,13 +415,24 @@ config X86_USE_PPRO_CHECKSUM
 
 config X86_USE_3DNOW
 	bool
-	depends on MCYRIXIII || MK7
+	depends on (MCYRIXIII || MK7) && !PREEMPT_RT
 	default y
 
 config X86_OOSTORE
 	bool
 	depends on (MWINCHIP3D || MWINCHIP2 || MWINCHIPC6) && MTRR
 	default y
+
+choice
+	prompt "Clock & Timer Selection"
+	default LEGACY_TIMER
+	help
+	  You may have either HPET, High Resolution, or Legacy timer support.
+
+config LEGACY_TIMER
+	bool "Legacy Timer Support"
+	help
+	  This chooses the legacy 8254 (PIT) for timer support.
 
 config HPET_TIMER
 	bool "HPET Timer Support"
@@ -442,11 +443,164 @@ config HPET_TIMER
 	  activated if the platform and the BIOS support this feature.
 	  Otherwise the 8254 will be used for timing services.
 
-	  Choose N to continue using the legacy 8254 timer.
+config HIGH_RES_TIMERS
+	bool "High Resolution Timer Support"
+	help
+	  This option enables high resolution POSIX clocks and timers with 
+	  resolution of at least 1 microsecond.  High resolution timers are not
+	  free, a small overhead is incurred each time a timer that does not
+	  expire on a 1/HZ tick boundary is used.  If no such timers are used
+	  the overhead is nil.  
+
+	  The POSIX clocks CLOCK_REALTIME and CLOCK_MONOTONIC are available by 
+	  default.  This option enables two additional clocks, CLOCK_REALTIME_HR
+	  and CLOCK_MONOTONIC_HR.  Note that this option does not change the
+	  resolution of CLOCK_REALTIME or CLOCK_MONOTONIC, which remain at 1/HZ
+	  resolution.
+
+endchoice
+
+choice
+	prompt "High Resolution Timer clock source"
+	depends on HIGH_RES_TIMERS
+	default HIGH_RES_TIMER_TSC
+	help 
+	  This option allows you to choose the wall clock timer for your
+	  system.  With high resolution timers on the x86 platforms it
+	  is best to keep the interrupt-generating timer separate from
+	  the time-keeping timer.  On x86 platforms there are two
+	  possible sources implemented for the wall clock.  These are:
+ 
+	  <timer>				<resolution>
+	  ACPI power management (pm) timer	~280 nanoseconds
+	  TSC (Time Stamp Counter)		1/CPU clock
+
+	  The PIT is always used to generate clock interrupts, but in
+	  SMP systems the APIC timers are used to drive the timer list
+	  code.  This means that in SMP systems the PIT will not be
+	  programmed to generate arch_cycle events and can give
+	  reasonable service as the clock interrupt. In non-SMP (UP)
+	  systems it will be programmed to interrupt when the next timer
+	  is to expire or on the next 1/HZ tick.
+
+	  The TSC runs at the CPU clock rate (i.e. its resolution is
+	  1/CPU clock) and it has a very low access time.  However, it
+	  is subject, in some (incorrect) processors, to throttling to
+	  cool the CPU, and to other slowdowns during power management.
+	  If your system has power managment code active these changes
+	  are tracked by the TSC timer code.  If your CPU is correct and
+	  does not change the TSC frequency for throttling or power
+	  management outside of the power managment kernel code, this is
+	  the best clock timer.
+
+	  The ACPI pm timer is available on systems with Advanced
+	  Configuration and Power Interface support.  The pm timer is
+	  available on these systems even if you don't use or enable
+	  ACPI in the software or the BIOS (but see Default ACPI pm
+	  timer address).  The timer has a resolution of about 280
+	  nanoseconds, however, the access time is a bit higher than
+	  that of the TSC.  Since it is part of ACPI it is intended to
+	  keep track of time while the system is under power management,
+	  thus it is not subject to the power management problems of the
+	  TSC.
+
+	  If you enable the ACPI pm timer and it cannot be found, it is
+	  possible that your BIOS is not producing the ACPI table or
+	  that your machine does not support ACPI.  In the former case,
+	  see "Default ACPI pm timer address".  If the timer is not
+	  found the boot will fail when trying to calibrate the 'delay'
+	  loop.
+
+config HIGH_RES_TIMER_ACPI_PM
+	bool "ACPI-pm-timer"
+	
+config HIGH_RES_TIMER_TSC
+	bool "Time-stamp-counter/TSC"
+	depends on X86_TSC
+	  
+endchoice
+
+config HIGH_RES_RESOLUTION
+	int "High Resolution Timer resolution (nanoseconds)"
+	depends on HIGH_RES_TIMERS
+	default 1000
+	help
+	  This sets the resolution in nanoseconds of the CLOCK_REALTIME_HR and
+	  CLOCK_MONOTONIC_HR timers.  Too fine a resolution (small a number)
+	  will usually not be observable due to normal system latencies.  For an
+          800 MHz processor about 10,000 (10 microseconds) is recommended as a
+	  finest resolution.  If you don't need that sort of resolution,
+	  larger values may generate less overhead.
+
+config HIGH_RES_TIMER_ACPI_PM_ADD
+	int "Default ACPI pm timer address"
+	depends on HIGH_RES_TIMER_ACPI_PM
+	default 0
+	help
+	  This option is available for use on systems where the BIOS
+	  does not generate the ACPI tables if ACPI is not enabled.  For
+	  example some BIOSes will not generate the ACPI tables if APM
+	  is enabled.  The ACPI pm timer is still available but cannot
+	  be found by the software.  This option allows you to supply
+	  the needed address.  When the high resolution timers code
+	  finds a valid ACPI pm timer address it reports it in the boot
+	  messages log (look for lines that begin with
+	  "High-res-timers:").  You can turn on the ACPI support in the
+	  BIOS, boot the system and find this value.  You can then enter
+	  it at configure time.  Both the report and the entry are in
+	  decimal.
 
 config HPET_EMULATE_RTC
 	bool "Provide RTC interrupt"
 	depends on HPET_TIMER && RTC=y
+
+config VST
+	bool "Provide Variable idle Sleep Time"
+        depends on X86_GOOD_APIC
+	help
+
+	  CONFIG_VST: This option causes a scan of the timer list when
+	  ever the system is about to go idle.  If no "immediate" timers
+	  are pending, the tick interrupt is turned off and an interrupt
+	  is scheduled for when the next timer expires.  Thus an idle
+	  system is not interrupted by useless timer ticks.  The
+	  definition of "immediate" and other useful information is
+	  available at /proc/sys/kernel/vst.
+
+          The system boots with VST enabled and it can be disabled by:
+	  "echo 0 > /proc/sys/kernel/vst/enable".
+
+config VST_STATS
+	bool "Provide VST timer info via /proc"
+	depends on VST && PROC_FS
+	help
+
+	  CONFIG_VST_STATS: This option turns on code that collects
+	  information in a circular buffer on timers which are incurred
+	  while entering, or attempting to enter the VST state.  This
+	  information is useful if you are trying to figure out why the
+	  system is not entering the VST state.  See
+	  Documentation/vst.txt for more information on what is
+	  displayed and how to interpret the information.  Say NO here
+	  unless you are trying to optimize VST entry.
+
+config IDLE
+	bool "Provide IDLE call back functions"
+ 	help
+
+	  CONFIG_IDLE: This option provides the IDLE notify facility.
+	  Registered functions will be called when ever the system is
+	  about to go idle and when the system exits the idle task.  It
+	  is expected that callers may change timers and other such
+	  things so as to more fully use the VST capability (see above).
+
+	  The system boots with IDLE notify disabled.  It can be enabled
+	  by "echo 1 > /proc/sys/kernel/idle/enable".  Other information
+	  is also available at /proc/sys/kernel/idle/*.
+
+	  This capability does not affect the system unless it is
+	  enabled AND one or more functions have registered to be
+	  called.
 
 config SMP
 	bool "Symmetric multi-processing support"
@@ -501,17 +655,22 @@ config SCHED_SMT
 	  cost of slightly increased overhead in some places. If unsure say
 	  N here.
 
-config PREEMPT
-	bool "Preemptible Kernel"
-	help
-	  This option reduces the latency of the kernel when reacting to
-	  real-time or interactive events by allowing a low priority process to
-	  be preempted even if it is in kernel mode executing a system call.
-	  This allows applications to run more reliably even when the system is
-	  under load.
+source "lib/Kconfig.RT"
+ 
+config RWSEM_GENERIC_SPINLOCK
+	bool
+	depends on M386 || PREEMPT_RT
+	default y
 
-	  Say Y here if you are building a kernel for a desktop, embedded
-	  or real-time system.  Say N if you are unsure.
+config ASM_SEMAPHORES
+	bool
+#     depends on !PREEMPT_RT
+	default y
+
+config RWSEM_XCHGADD_ALGORITHM
+	bool
+	depends on !RWSEM_GENERIC_SPINLOCK && !PREEMPT_RT
+	default y
 
 config X86_UP_APIC
 	bool "Local APIC support on uniprocessors" if !SMP
@@ -552,6 +711,16 @@ config X86_IO_APIC
 	bool
 	depends on !SMP && X86_UP_IOAPIC
 	default y
+
+config X86_IOAPIC_FAST
+	bool "enhanced IO-APIC support"
+	depends on X86_IO_APIC
+	default y
+	help
+	  this option will activate further optimizations in the IO-APIC
+	  code. NOTE: this is experimental code, and disabled by default.
+	  Symptoms of non-working systems are boot-time lockups, stray or
+	  screaming interrupts and other interrupt related weirdnesses.
 
 config X86_TSC
 	bool
@@ -882,6 +1051,8 @@ menu "Power management options (ACPI, APM)"
 
 source kernel/power/Kconfig
 
+source "drivers/evb/Kconfig"
+
 source "drivers/acpi/Kconfig"
 
 menu "APM (Advanced Power Management) BIOS Support"
@@ -1033,6 +1204,7 @@ config APM_REAL_MODE_POWER_OFF
 endmenu
 
 source "arch/i386/kernel/cpu/cpufreq/Kconfig"
+source "arch/i386/kernel/cpu/dpm/Kconfig"
 
 endmenu
 
@@ -1191,6 +1363,8 @@ source "drivers/Kconfig"
 source "fs/Kconfig"
 
 source "arch/i386/oprofile/Kconfig"
+
+source "ktools/Kconfig"
 
 source "arch/i386/Kconfig.debug"
 

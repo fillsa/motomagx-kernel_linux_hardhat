@@ -4,11 +4,21 @@
  *  By Ross Biro 1/23/92
  * edited by Linus Torvalds
  * ARM modifications Copyright (C) 2000 Russell King
+ * 
+ * Copyright Motorola 2006
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Revision History:
+ *
+ * Date         Author    Comment
+ * ----------   --------  ---------------------
+ * 10/06/2006   Motorola  Remove ptrace support 
+ *
  */
+#include <linux/config.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
 #include <linux/mm.h>
@@ -239,6 +249,15 @@ get_branch_address(struct task_struct *child, unsigned long pc, unsigned long in
 		 * data processing
 		 */
 		long aluop1, aluop2, ccbit;
+
+	        if ((insn & 0x0fffffd0) == 0x012fff10) {
+		        /*
+			 * bx or blx
+			 */
+			alt = get_user_reg(child, insn & 15);
+			break;
+		}
+
 
 		if ((insn & 0xf000) != 0xf000)
 			break;
@@ -521,6 +540,7 @@ static int __init ptrace_break_init(void)
 
 core_initcall(ptrace_break_init);
 
+#ifndef CONFIG_MOT_FEAT_NO_PTRACE
 /*
  * Read the word at offset "off" into the "struct user".  We
  * actually access the pt_regs stored on the kernel stack.
@@ -607,6 +627,44 @@ static int ptrace_setfpregs(struct task_struct *tsk, void __user *ufp)
 	return copy_from_user(&thread->fpstate, ufp,
 			      sizeof(struct user_fp)) ? -EFAULT : 0;
 }
+
+#ifdef CONFIG_IWMMXT
+
+/*
+ * Get the child iWMMXt state.
+ */
+static int ptrace_getwmmxregs(struct task_struct *tsk, void __user *ufp)
+{
+	struct thread_info *thread = tsk->thread_info;
+	void *ptr = &thread->fpstate;
+
+	if (!test_ti_thread_flag(thread, TIF_USING_IWMMXT))
+		return -ENODATA;
+	iwmmxt_task_disable(thread);  /* force it to ram */
+	/* The iWMMXt state is stored doubleword-aligned.  */
+	if (((long) ptr) & 4)
+		ptr += 4;
+	return copy_to_user(ufp, ptr, 0x98) ? -EFAULT : 0;
+}
+
+/*
+ * Set the child iWMMXt state.
+ */
+static int ptrace_setwmmxregs(struct task_struct *tsk, void __user *ufp)
+{
+	struct thread_info *thread = tsk->thread_info;
+	void *ptr = &thread->fpstate;
+
+	if (!test_ti_thread_flag(thread, TIF_USING_IWMMXT))
+		return -EACCES;
+	iwmmxt_task_release(thread);  /* force a reload */
+	/* The iWMMXt state is stored doubleword-aligned.  */
+	if (((long) ptr) & 4)
+		ptr += 4;
+	return copy_from_user(ptr, ufp, 0x98) ? -EFAULT : 0;
+}
+
+#endif
 
 static int do_ptrace(int request, struct task_struct *child, long addr, long data)
 {
@@ -719,6 +777,21 @@ static int do_ptrace(int request, struct task_struct *child, long addr, long dat
 			ret = ptrace_setfpregs(child, (void __user *)data);
 			break;
 
+#ifdef CONFIG_IWMMXT
+		case PTRACE_GETWMMXREGS:
+			ret = ptrace_getwmmxregs(child, (void __user *)data);
+			break;
+
+		case PTRACE_SETWMMXREGS:
+			ret = ptrace_setwmmxregs(child, (void __user *)data);
+			break;
+#endif
+
+		case PTRACE_GET_THREAD_AREA:
+			ret = put_user(child->thread_info->tp_value,
+				       (unsigned long __user *) data);
+			break;
+
 		default:
 			ret = ptrace_request(child, request, addr, data);
 			break;
@@ -726,9 +799,13 @@ static int do_ptrace(int request, struct task_struct *child, long addr, long dat
 
 	return ret;
 }
+#endif /* CONFIG_MOT_FEAT_NO_PTRACE */
 
 asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 {
+#ifdef CONFIG_MOT_FEAT_NO_PTRACE
+	return -EPERM;
+#else /* CONFIG_MOT_FEAT_NO_PTRACE */
 	struct task_struct *child;
 	int ret;
 
@@ -772,6 +849,7 @@ out_tsk:
 out:
 	unlock_kernel();
 	return ret;
+#endif /* CONFIG_MOT_FEAT_NO_PTRACE */
 }
 
 asmlinkage void syscall_trace(int why, struct pt_regs *regs)

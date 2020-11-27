@@ -77,6 +77,7 @@
 #define IRQ_LEVEL2			(1<<0)
 #define IRQ_KEYBOARD			(1<<1)
 #define IRQ_UART2			(1<<15)
+#define IRQ_WAKE_UP_REQ                 (1<<(46%32))
 
 #define PDE_BIT				0x08
 #define PWD_EN_BIT			0x04

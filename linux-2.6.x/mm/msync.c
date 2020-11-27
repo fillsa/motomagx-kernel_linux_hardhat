@@ -2,6 +2,13 @@
  *	linux/mm/msync.c
  *
  * Copyright (C) 1994-1999  Linus Torvalds
+ * Copyright (C) 2007, Motorola, Inc.
+ */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 13-Jul-2007  Motorola        Fix the bug about st_ctime, and st_mtime field
+ *                              of a mapped region, and msync()
  */
 
 /*
@@ -93,8 +100,8 @@ static inline int filemap_sync_pmd_range(pgd_t * pgd,
 	return error;
 }
 
-static int filemap_sync(struct vm_area_struct * vma, unsigned long address,
-	size_t size, unsigned int flags)
+static int __filemap_sync(struct vm_area_struct *vma, unsigned long address,
+			size_t size, unsigned int flags)
 {
 	pgd_t * dir;
 	unsigned long end = address + size;
@@ -132,6 +139,31 @@ static int filemap_sync(struct vm_area_struct * vma, unsigned long address,
 	return error;
 }
 
+#ifdef CONFIG_PREEMPT
+static int filemap_sync(struct vm_area_struct *vma, unsigned long address,
+			size_t size, unsigned int flags)
+{
+	const size_t chunk = 64 * 1024;	/* bytes */
+	int error = 0;
+
+	while (size) {
+		size_t sz = min(size, chunk);
+
+		error |= __filemap_sync(vma, address, sz, flags);
+		cond_resched();
+		address += sz;
+		size -= sz;
+	}
+	return error;
+}
+#else
+static int filemap_sync(struct vm_area_struct *vma, unsigned long address,
+			size_t size, unsigned int flags)
+{
+	return __filemap_sync(vma, address, size, flags);
+}
+#endif
+
 /*
  * MS_SYNC syncs the entire file - including mappings.
  *
@@ -159,17 +191,25 @@ static int msync_interval(struct vm_area_struct * vma,
 			struct address_space *mapping = file->f_mapping;
 			int err;
 
-			down(&mapping->host->i_sem);
 			ret = filemap_fdatawrite(mapping);
 			if (file->f_op && file->f_op->fsync) {
+				/*
+				 * We don't take i_sem here because mmap_sem
+				 * is already held.
+				 */
 				err = file->f_op->fsync(file,file->f_dentry,1);
 				if (err && !ret)
 					ret = err;
 			}
 			err = filemap_fdatawait(mapping);
+			
+#ifdef CONFIG_MOT_WFN484
+			if (test_and_clear_bit(AS_MCTIME, &mapping->flags))
+					    inode_update_time(mapping->host, 1); 
+#endif
+			
 			if (!ret)
 				ret = err;
-			up(&mapping->host->i_sem);
 		}
 	}
 	return ret;
@@ -180,6 +220,9 @@ asmlinkage long sys_msync(unsigned long start, size_t len, int flags)
 	unsigned long end;
 	struct vm_area_struct * vma;
 	int unmapped_error, error = -EINVAL;
+
+	if (flags & MS_SYNC)
+		current->flags |= PF_SYNCWRITE;
 
 	down_read(&current->mm->mmap_sem);
 	if (flags & ~(MS_ASYNC | MS_INVALIDATE | MS_SYNC))
@@ -231,5 +274,6 @@ asmlinkage long sys_msync(unsigned long start, size_t len, int flags)
 	}
 out:
 	up_read(&current->mm->mmap_sem);
+	current->flags &= ~PF_SYNCWRITE;
 	return error;
 }

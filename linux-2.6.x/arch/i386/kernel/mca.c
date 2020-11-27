@@ -62,7 +62,7 @@ static unsigned char which_scsi = 0;
  *
  * Yes - Alan
  */
-spinlock_t mca_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(mca_lock);
 
 /* Build the status info for the adapter */
 

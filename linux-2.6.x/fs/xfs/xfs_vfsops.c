@@ -1851,6 +1851,8 @@ xfs_showargs(
 		{ XFS_MOUNT_OSYNCISOSYNC,	"," MNTOPT_OSYNCISOSYNC },
 		{ XFS_MOUNT_NOLOGFLUSH,		"," MNTOPT_NOLOGFLUSH },
 		{ XFS_MOUNT_IDELETE,		"," MNTOPT_NOIKEEP },
+		{ XFS_UQUOTA_ACTIVE,		"," "usrquota" },
+		{ XFS_GQUOTA_ACTIVE,		"," "grpquota" },
 		{ 0, NULL }
 	};
 	struct proc_xfs_info	*xfs_infop;

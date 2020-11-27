@@ -49,9 +49,9 @@
 
 /* Definition for rcupdate control block. */
 struct rcu_ctrlblk rcu_ctrlblk = 
-	{ .cur = -300, .completed = -300 , .lock = SEQCNT_ZERO };
+	{ .cur = -300, .completed = -300 };
 struct rcu_ctrlblk rcu_bh_ctrlblk =
-	{ .cur = -300, .completed = -300 , .lock = SEQCNT_ZERO };
+	{ .cur = -300, .completed = -300 };
 
 /* Bookkeeping of the progress of the grace period */
 struct rcu_state {
@@ -185,10 +185,13 @@ static void rcu_start_batch(struct rcu_ctrlblk *rcp, struct rcu_state *rsp,
 			rcp->completed == rcp->cur) {
 		/* Can't change, since spin lock held. */
 		cpus_andnot(rsp->cpumask, cpu_online_map, nohz_cpu_mask);
-		write_seqcount_begin(&rcp->lock);
+
 		rcp->next_pending = 0;
+		/* next_pending == 0 must be visible in __rcu_process_callbacks()
+		 * before it can see new value of cur.
+		 */
+		smp_wmb();
 		rcp->cur++;
-		write_seqcount_end(&rcp->lock);
 	}
 }
 
@@ -216,9 +219,9 @@ static void rcu_check_quiescent_state(struct rcu_ctrlblk *rcp,
 			struct rcu_state *rsp, struct rcu_data *rdp)
 {
 	if (rdp->quiescbatch != rcp->cur) {
-		/* new grace period: record qsctr value. */
+		/* start new grace period: */
 		rdp->qs_pending = 1;
-		rdp->last_qsctr = rdp->qsctr;
+		rdp->passed_quiesc = 0;
 		rdp->quiescbatch = rcp->cur;
 		return;
 	}
@@ -231,11 +234,10 @@ static void rcu_check_quiescent_state(struct rcu_ctrlblk *rcp,
 		return;
 
 	/* 
-	 * Races with local timer interrupt - in the worst case
-	 * we may miss one quiescent state of that CPU. That is
-	 * tolerable. So no need to disable interrupts.
+	 * Was there a quiescent state since the beginning of the grace
+	 * period? If no, then exit and wait for the next call.
 	 */
-	if (rdp->qsctr == rdp->last_qsctr)
+	if (!rdp->passed_quiesc)
 		return;
 	rdp->qs_pending = 0;
 
@@ -319,8 +321,6 @@ static void __rcu_process_callbacks(struct rcu_ctrlblk *rcp,
 
 	local_irq_disable();
 	if (rdp->nxtlist && !rdp->curlist) {
-		int next_pending, seq;
-
 		rdp->curlist = rdp->nxtlist;
 		rdp->curtail = rdp->nxttail;
 		rdp->nxtlist = NULL;
@@ -330,14 +330,15 @@ static void __rcu_process_callbacks(struct rcu_ctrlblk *rcp,
 		/*
 		 * start the next batch of callbacks
 		 */
-		do {
-			seq = read_seqcount_begin(&rcp->lock);
-			/* determine batch number */
-			rdp->batch = rcp->cur + 1;
-			next_pending = rcp->next_pending;
-		} while (read_seqcount_retry(&rcp->lock, seq));
 
-		if (!next_pending) {
+		/* determine batch number */
+		rdp->batch = rcp->cur + 1;
+		/* see the comment and corresponding wmb() in
+		 * the rcu_start_batch()
+		 */
+		smp_rmb();
+
+		if (!rcp->next_pending) {
 			/* and start it/schedule start if it's a new batch */
 			spin_lock(&rsp->lock);
 			rcu_start_batch(rcp, rsp, 1);
@@ -467,3 +468,38 @@ module_param(maxbatch, int, 0);
 EXPORT_SYMBOL(call_rcu);
 EXPORT_SYMBOL(call_rcu_bh);
 EXPORT_SYMBOL(synchronize_kernel);
+
+#ifdef CONFIG_PREEMPT_RCU
+
+void rcu_read_lock(void)
+{
+	if (current->rcu_read_lock_nesting++ == 0) {
+		current->rcu_data = &get_cpu_var(rcu_data);
+		atomic_inc(&current->rcu_data->active_readers);
+		smp_mb__after_atomic_inc();
+		put_cpu_var(rcu_data);
+	}
+}
+EXPORT_SYMBOL(rcu_read_lock);
+
+void rcu_read_unlock(void)
+{
+	int cpu;
+
+	if (--current->rcu_read_lock_nesting == 0) {
+		atomic_dec(&current->rcu_data->active_readers);
+		smp_mb__after_atomic_dec();
+		/*
+		 * Check whether we have reached quiescent state.
+		 * Note! This is only for the local CPU, not for
+		 * current->rcu_data's CPU [which typically is the
+		 * current CPU, but may also be another CPU].
+		 */
+		cpu = get_cpu();
+		rcu_qsctr_inc(cpu);
+		put_cpu();
+	}
+}
+EXPORT_SYMBOL(rcu_read_unlock);
+
+#endif

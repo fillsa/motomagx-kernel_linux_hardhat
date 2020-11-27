@@ -229,7 +229,7 @@ struct net_local {
 	                              struct hh_cache *hh);
 	spinlock_t lock;
 	atomic_t kill_timer;
-	struct semaphore killed_timer_sem;
+	struct compat_semaphore killed_timer_sem;
 };
 
 inline static void enable_parport_interrupts (struct net_device *dev)

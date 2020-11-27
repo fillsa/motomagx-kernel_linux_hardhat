@@ -106,7 +106,7 @@ typedef struct siginfo32 {
 
 #define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
 
-extern asmlinkage int do_signal32(sigset_t *oldset, struct pt_regs *regs);
+extern int do_signal32(sigset_t *oldset, struct pt_regs *regs);
 
 /* 32-bit compatibility types */
 
@@ -192,6 +192,7 @@ static inline int get_sigset(sigset_t *kbuf, const compat_sigset_t *ubuf)
 /*
  * Atomically swap in the new signal mask, and wait for a signal.
  */
+
 save_static_function(sys32_sigsuspend);
 __attribute_used__ noinline static int
 _sys32_sigsuspend(nabi_no_regargs struct pt_regs regs)
@@ -333,8 +334,7 @@ asmlinkage int sys32_sigaltstack(nabi_no_regargs struct pt_regs regs)
 	return ret;
 }
 
-static asmlinkage int restore_sigcontext32(struct pt_regs *regs,
-					   struct sigcontext32 *sc)
+static int restore_sigcontext32(struct pt_regs *regs, struct sigcontext32 *sc)
 {
 	int err = 0;
 
@@ -363,8 +363,6 @@ static asmlinkage int restore_sigcontext32(struct pt_regs *regs,
 
 	err |= __get_user(current->used_math, &sc->sc_used_math);
 
-	preempt_disable();
-
 	if (current->used_math) {
 		/* restore fpu context if we have used it before */
 		own_fpu();
@@ -373,8 +371,6 @@ static asmlinkage int restore_sigcontext32(struct pt_regs *regs,
 		/* signal handler may have used FPU.  Give it up. */
 		lose_fpu();
 	}
-
-	preempt_enable();
 
 	return err;
 }
@@ -440,7 +436,9 @@ static int copy_siginfo_to_user32(siginfo_t32 *to, siginfo_t *from)
 	return err;
 }
 
-asmlinkage void sys32_sigreturn(nabi_no_regargs struct pt_regs regs)
+save_static_function(sys32_sigreturn);
+__attribute_used__ noinline static void
+_sys32_sigreturn(nabi_no_regargs struct pt_regs regs)
 {
 	struct sigframe *frame;
 	sigset_t blocked;
@@ -476,7 +474,9 @@ badframe:
 	force_sig(SIGSEGV, current);
 }
 
-asmlinkage void sys32_rt_sigreturn(nabi_no_regargs struct pt_regs regs)
+save_static_function(sys32_rt_sigreturn);
+__attribute_used__ noinline static void
+_sys32_rt_sigreturn(nabi_no_regargs struct pt_regs regs)
 {
 	struct rt_sigframe32 *frame;
 	sigset_t set;
@@ -561,15 +561,11 @@ static inline int setup_sigcontext32(struct pt_regs *regs,
 	 * Save FPU state to signal context.  Signal handler will "inherit"
 	 * current FPU state.
 	 */
-	preempt_disable();
-
 	if (!is_fpu_owner()) {
 		own_fpu();
 		restore_fp(current);
 	}
 	err |= save_fp_context32(sc);
-
-	preempt_enable();
 
 out:
 	return err;
@@ -759,12 +755,16 @@ static inline void handle_signal(unsigned long sig, siginfo_t *info,
 	}
 }
 
-asmlinkage int do_signal32(sigset_t *oldset, struct pt_regs *regs)
+int do_signal32(sigset_t *oldset, struct pt_regs *regs)
 {
 	struct k_sigaction ka;
 	siginfo_t info;
 	int signr;
 
+#ifdef CONFIG_PREEMPT_RT
+	local_irq_enable();
+	preempt_check_resched();
+#endif
 	/*
 	 * We want the common case to go fast, which is why we may in certain
 	 * cases get here from kernel mode. Just return without doing anything

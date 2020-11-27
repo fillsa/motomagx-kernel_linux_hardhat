@@ -13,10 +13,26 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
    */
+/*
+ * Copyright 2004 Freescale Semiconductor, Inc. All Rights Reserved.
+ */
+
+/*!
+ * @defgroup CS8900A CS8900A Ethernet Driver
+ */
+/*!
+ * @file cs89x0.h
+ * @brief Driver for CS8900A Ethernet LAN Controller Chip.
+ *
+ * This driver is ported to MXC Boards.
+ *
+ * @ingroup CS8900A
+ *
+ */
 
 #include <linux/config.h>
 
-#ifdef CONFIG_ARCH_IXDP2X01
+#if defined(CONFIG_ARCH_IXDP2X01)
 /* IXDP2401/IXDP2801 uses dword-aligned register addressing */
 #define CS89x0_PORT(reg) ((reg) * 2)
 #else

@@ -131,6 +131,15 @@ struct mtd_info *cfi_cmdset_0020(struct map_info *map, int primary)
 		if (!extp)
 			return NULL;
 
+		if (extp->MajorVersion != '1' ||
+		    (extp->MinorVersion < '0' || extp->MinorVersion > '3')) {
+			printk(KERN_ERR "  Unknown ST Microelectronics"
+			       " Extended Query version %c.%c.\n",
+			       extp->MajorVersion, extp->MinorVersion);
+			kfree(extp);
+			return NULL;
+		}
+
 		/* Do some byteswapping if necessary */
 		extp->FeatureSupport = cfi32_to_cpu(extp->FeatureSupport);
 		extp->BlkStatusRegMask = cfi32_to_cpu(extp->BlkStatusRegMask);
@@ -788,7 +797,7 @@ retry:
 	chip->state = FL_ERASING;
 	
 	spin_unlock_bh(chip->mutex);
-	schedule_timeout(HZ);
+	msleep(1000);
 	spin_lock_bh(chip->mutex);
 
 	/* FIXME. Use a timer to check this, and return immediately. */
@@ -1087,7 +1096,7 @@ retry:
 	chip->state = FL_LOCKING;
 	
 	spin_unlock_bh(chip->mutex);
-	schedule_timeout(HZ);
+	msleep(1000);
 	spin_lock_bh(chip->mutex);
 
 	/* FIXME. Use a timer to check this, and return immediately. */
@@ -1236,7 +1245,7 @@ retry:
 	chip->state = FL_UNLOCKING;
 	
 	spin_unlock_bh(chip->mutex);
-	schedule_timeout(HZ);
+	msleep(1000);
 	spin_lock_bh(chip->mutex);
 
 	/* FIXME. Use a timer to check this, and return immediately. */

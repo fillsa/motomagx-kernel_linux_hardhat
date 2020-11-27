@@ -389,8 +389,6 @@ int INFTL_formatblock(struct INFTLrecord *inftl, int block)
 	struct erase_info *instr = &inftl->instr;
 	int physblock;
 
-	instr->mtd = inftl->mbd.mtd;
-
 	DEBUG(MTD_DEBUG_LEVEL3, "INFTL: INFTL_formatblock(inftl=%p,"
 		"block=%d)\n", inftl, block);
 
@@ -400,6 +398,7 @@ int INFTL_formatblock(struct INFTLrecord *inftl, int block)
 	   _first_? */
 
 	/* Use async erase interface, test return code */
+	instr->mtd = inftl->mbd.mtd;
 	instr->addr = block * inftl->EraseSize;
 	instr->len = inftl->mbd.mtd->erasesize;
 	/* Erase one physical eraseblock at a time, even though the NAND api

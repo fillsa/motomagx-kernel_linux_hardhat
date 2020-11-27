@@ -43,12 +43,15 @@
 #include <linux/tty.h>
 #include <linux/tty_flip.h>
 #include <linux/serial_core.h>
+#include <linux/dpm.h>
+#ifdef CONFIG_KGDB_CONSOLE
+#include <linux/kgdb.h>
+#endif
 
 #include <asm/io.h>
 #include <asm/hardware.h>
 #include <asm/irq.h>
 #include <asm/arch/pxa-regs.h>
-
 
 struct uart_pxa_port {
 	struct uart_port        port;
@@ -58,6 +61,8 @@ struct uart_pxa_port {
 	unsigned int            lsr_break_flag;
 	unsigned int		cken;
 	char			*name;
+        unsigned int		isConsole;/*set if UART is assigned to console*/
+        unsigned int		consoleBaud;/*valid if isConsole only*/
 };
 
 static inline unsigned int serial_in(struct uart_pxa_port *up, int offset)
@@ -501,6 +506,8 @@ serial_pxa_set_termios(struct uart_port *port, struct termios *termios,
 	 */
 	spin_lock_irqsave(&up->port.lock, flags);
 
+	up->isConsole=1;/*this is our serial console now!*/
+	up->consoleBaud=baud;/*remember baud rate for future use in fscale*/
 	/*
 	 * Ensure the port will be enabled.
 	 * This is required especially for serial console.
@@ -716,6 +723,8 @@ serial_pxa_console_init(void)
 console_initcall(serial_pxa_console_init);
 
 #define PXA_CONSOLE	&serial_pxa_console
+#elif defined(CONFIG_KGDB_CONSOLE)
+#define PXA_CONSOLE     &kgdbcons
 #else
 #define PXA_CONSOLE	NULL
 #endif
@@ -754,6 +763,7 @@ static struct uart_pxa_port serial_pxa_ports[] = {
 		.fifosize	= 64,
 		.ops		= &serial_pxa_pops,
 		.line		= 0,
+		.lock		= SPIN_LOCK_UNLOCKED,
 	},
   }, {	/* BTUART */
 	.name	= "BTUART",
@@ -768,6 +778,7 @@ static struct uart_pxa_port serial_pxa_ports[] = {
 		.fifosize	= 64,
 		.ops		= &serial_pxa_pops,
 		.line		= 1,
+		.lock		= SPIN_LOCK_UNLOCKED,
 	},
   }, {	/* STUART */
 	.name	= "STUART",
@@ -782,6 +793,7 @@ static struct uart_pxa_port serial_pxa_ports[] = {
 		.fifosize	= 64,
 		.ops		= &serial_pxa_pops,
 		.line		= 2,
+		.lock		= SPIN_LOCK_UNLOCKED,
 	},
   }
 };
@@ -816,6 +828,48 @@ static int serial_pxa_resume(struct device *_dev, u32 level)
 
         return 0;
 }
+
+#ifdef CONFIG_DPM
+static int serial_pxa_scale(struct notifier_block *self, unsigned long level,
+	void *newop){
+        int n=0;int i=0;
+	int ccsr=CCSR;
+	n=sizeof(serial_pxa_ports)/sizeof(struct uart_pxa_port);
+
+	for(i=0;i<n;++i){
+		struct uart_pxa_port *up = (struct uart_pxa_port *) &serial_pxa_ports[i];
+		if(up->isConsole){
+			unsigned int quot;
+			if ((ccsr & (1<<30))){
+				if (up->port.uartclk == 13000000)
+					return 0;
+
+				/*if PPLL is Off (clocking with 13MHz now)*/
+				up->port.uartclk	= 13000000;
+			}else{
+				if (up->port.uartclk == 921600 * 16)
+					return 0;
+				
+				/*clocking with 14.7456 MHz*/
+				up->port.uartclk	= 921600 * 16;
+			}
+
+			quot = uart_get_divisor(&up->port, up->consoleBaud);
+
+			serial_out(up, UART_LCR, up->lcr | UART_LCR_DLAB);/* set DLAB */
+			serial_out(up, UART_DLL, quot & 0xff);	  /* LS of divisor */
+			serial_out(up, UART_DLM, quot >> 8);		/* MS of divisor */
+			serial_out(up, UART_LCR, up->lcr);		/* reset DLAB */
+		}
+	}
+
+	return 0;
+}
+
+static struct notifier_block nb = {
+	.notifier_call = serial_pxa_scale,
+};
+#endif
 
 static int serial_pxa_probe(struct device *_dev)
 {
@@ -861,6 +915,9 @@ int __init serial_pxa_init(void)
 	if (ret != 0)
 		uart_unregister_driver(&serial_pxa_reg);
 
+#ifdef CONFIG_DPM
+	dpm_register_scale(&nb, SCALE_POSTCHANGE);
+#endif
 	return ret;
 }
 
@@ -868,6 +925,9 @@ void __exit serial_pxa_exit(void)
 {
         driver_unregister(&serial_pxa_driver);
 	uart_unregister_driver(&serial_pxa_reg);
+#ifdef CONFIG_DPM
+	dpm_unregister_scale(&nb, SCALE_POSTCHANGE);
+#endif
 }
 
 module_init(serial_pxa_init);

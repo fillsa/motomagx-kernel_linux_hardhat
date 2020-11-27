@@ -1,5 +1,5 @@
 /*
- * $Id: nftl-user.h,v 1.1 2004/05/05 14:44:57 dwmw2 Exp $
+ * $Id$
  *
  * Parts of NFTL headers shared with userspace 
  *

@@ -79,14 +79,13 @@ void put_driver(struct device_driver * drv)
  *	since most of the things we have to do deal with the bus
  *	structures.
  *
- *	The one interesting aspect is that we initialize @drv->unload_sem
- *	to a locked state here. It will be unlocked when the driver
- *	reference count reaches 0.
+ *	We init the completion strcut here. When the reference 
+ *	count reaches zero, complete() is called from bus_release().
  */
 int driver_register(struct device_driver * drv)
 {
 	INIT_LIST_HEAD(&drv->devices);
-	init_MUTEX_LOCKED(&drv->unload_sem);
+	init_completion(&drv->unload_done);
 	return bus_add_driver(drv);
 }
 
@@ -97,18 +96,16 @@ int driver_register(struct device_driver * drv)
  *
  *	Again, we pass off most of the work to the bus-level call.
  *
- *	Though, once that is done, we attempt to take @drv->unload_sem.
- *	This will block until the driver refcount reaches 0, and it is
- *	released. Only modular drivers will call this function, and we
+ *	Though, once that is done, we wait until the driver refcount 
+ *	reaches 0, and complete() is called in bus_release().
+ *	Only modular drivers will call this function, and we
  *	have to guarantee that it won't complete, letting the driver
  *	unload until all references are gone.
  */
-
 void driver_unregister(struct device_driver * drv)
 {
 	bus_remove_driver(drv);
-	down(&drv->unload_sem);
-	up(&drv->unload_sem);
+	wait_for_completion(&drv->unload_done);
 }
 
 /**

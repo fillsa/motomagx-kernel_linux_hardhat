@@ -15,6 +15,8 @@
 #include <linux/seq_file.h>
 #include <linux/interrupt.h>
 #include <linux/kernel_stat.h>
+#include <linux/ilatency.h>
+#include <linux/ltt-events.h>
 
 #ifndef CONFIG_X86_LOCAL_APIC
 /*
@@ -45,7 +47,7 @@ static union irq_ctx *softirq_ctx[NR_CPUS];
  * SMP cross-CPU interrupts have their own specific
  * handlers).
  */
-fastcall unsigned int do_IRQ(struct pt_regs *regs)
+fastcall notrace unsigned int do_IRQ(struct pt_regs *regs)
 {	
 	/* high bits used in ret_from_ code */
 	int irq = regs->orig_eax & 0xff;
@@ -53,8 +55,12 @@ fastcall unsigned int do_IRQ(struct pt_regs *regs)
 	union irq_ctx *curctx, *irqctx;
 	u32 *isp;
 #endif
+	
+	ltt_ev_irq_entry(irq, !(user_mode(regs)));
 
+	interrupt_overhead_start();
 	irq_enter();
+	trace_special(regs->eip, irq, 0);
 #ifdef CONFIG_DEBUG_STACKOVERFLOW
 	/* Debugging check for stack overflow: is there less than 1KB free? */
 	{
@@ -63,7 +69,7 @@ fastcall unsigned int do_IRQ(struct pt_regs *regs)
 		__asm__ __volatile__("andl %%esp,%0" :
 					"=r" (esp) : "0" (THREAD_SIZE - 1));
 		if (unlikely(esp < (sizeof(struct thread_info) + STACK_WARN))) {
-			printk("do_IRQ: stack overflow: %ld\n",
+			printk("BUG: do_IRQ: stack overflow: %ld\n",
 				esp - sizeof(struct thread_info));
 			dump_stack();
 		}
@@ -97,11 +103,15 @@ fastcall unsigned int do_IRQ(struct pt_regs *regs)
 			:  "0" (irq),   "1" (regs),  "2" (isp)
 			: "memory", "cc", "ecx"
 		);
+		interrupt_overhead_stop();
 	} else
 #endif
 		__do_IRQ(irq, regs);
 
 	irq_exit();
+	latency_check();
+
+	ltt_ev_irq_exit();
 
 	return 1;
 }
@@ -231,6 +241,7 @@ int show_interrupts(struct seq_file *p, void *v)
 
 		for (action=action->next; action; action = action->next)
 			seq_printf(p, ", %s", action->name);
+		seq_printf(p, "  %d/%d", irq_desc[i].irqs_unhandled, irq_desc[i].irq_count);
 
 		seq_putc(p, '\n');
 skip:

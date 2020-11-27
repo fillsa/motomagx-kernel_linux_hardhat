@@ -23,6 +23,11 @@ struct plat_serial8250_port {
 	unsigned char	regshift;	/* register shift */
 	unsigned char	iotype;		/* UPIO_* */
 	unsigned int	flags;		/* UPF_* flags */
+	unsigned int	line;		/* uart # */
+
+	/* per-port pm hook */
+	void			(*pm)(struct uart_port *port,
+				      unsigned int state, unsigned int old);
 };
 
 #endif

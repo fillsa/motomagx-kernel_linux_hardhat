@@ -936,9 +936,13 @@ static void poll_vortex(struct net_device *dev)
 	struct vortex_private *vp = (struct vortex_private *)dev->priv;
 	unsigned long flags;
 	local_save_flags(flags);
+#ifndef CONFIG_PREEMPT_RT
 	local_irq_disable();
+#endif
 	(vp->full_bus_master_rx ? boomerang_interrupt:vortex_interrupt)(dev->irq,dev,NULL);
+#ifndef CONFIG_PREEMPT_RT
 	local_irq_restore(flags);
+#endif
 } 
 #endif
 
@@ -1953,12 +1957,16 @@ static void vortex_tx_timeout(struct net_device *dev)
 			 * Block interrupts because vortex_interrupt does a bare spin_lock()
 			 */
 			unsigned long flags;
+#ifndef CONFIG_PREEMPT_RT
 			local_irq_save(flags);
+#endif
 			if (vp->full_bus_master_tx)
 				boomerang_interrupt(dev->irq, dev, NULL);
 			else
 				vortex_interrupt(dev->irq, dev, NULL);
+#ifndef CONFIG_PREEMPT_RT
 			local_irq_restore(flags);
+#endif
 		}
 	}
 

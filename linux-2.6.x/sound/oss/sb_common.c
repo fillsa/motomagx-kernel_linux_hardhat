@@ -67,7 +67,7 @@ void *smw_free;
 
 static int jazz16_base;			/* Not detected */
 static unsigned char jazz16_bits;	/* I/O relocation bits */
-static spinlock_t jazz16_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(jazz16_lock);
 
 /*
  * Logitech Soundman Wave specific initialization code
@@ -521,7 +521,7 @@ int sb_dsp_detect(struct address_info *hw_config, int pci, int pciio, struct sb_
 	
 	DDB(printk("sb_dsp_detect(%x) entered\n", hw_config->io_base));
 
-	devc->lock = SPIN_LOCK_UNLOCKED;
+	spin_lock_init(&devc->lock);
 	devc->type = hw_config->card_subtype;
 
 	devc->base = hw_config->io_base;

@@ -20,6 +20,16 @@
    ALL LIABILITY, INCLUDING LIABILITY FOR INFRINGEMENT OF ANY PATENTS, 
    COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS 
    SOFTWARE IS DISCLAIMED.
+
+
+   Copyright (C) 2006 - Motorola
+
+   Date         Author           Comment
+   -----------  --------------   --------------------------------
+   2006-May-17  Motorola         Adding support for HCI Suspend/Resume.  
+   2006-Sep-07  Motorola         Changed suspend/resume to call uart_pm_functions.
+
+
 */
 
 /*
@@ -27,9 +37,19 @@
  *
  * $Id: hci_ldisc.c,v 1.5 2002/10/02 18:37:20 maxk Exp $    
  */
+
+/*
+   The Bluetooth word mark and logos are owned by Bluetooth SIG, Inc. and any use of such marks by Motorola
+   is under license. Other trademarks and trade names are those of their respective owners.
+
+*/
+
 #define VERSION "2.1"
 
 #include <linux/config.h>
+#ifdef MODKCONFIG
+#include "modkconfig/config.h"
+#endif
 #include <linux/module.h>
 
 #include <linux/kernel.h>
@@ -248,6 +268,47 @@ static void hci_uart_destruct(struct hci_dev *hdev)
 	kfree(hu);
 }
 
+static int hci_uart_suspend(struct hci_dev *hdev)
+{
+	struct tty_struct *tty;
+	struct hci_uart *hu;
+
+	if (!hdev) {
+		BT_ERR("Suspend request for unknown device (hdev=NULL)");
+		return -ENODEV;
+	}
+
+	hu = (struct hci_uart *) hdev->driver_data;
+	tty = hu->tty;
+
+	BT_DBG("hdev %s tty %s", hdev->name, tty->driver->name);
+
+	uart_pm_functions(tty, TIOCPMSUSPEND, TIOC_PMSYNC);
+
+	return 0;
+}
+                                                                                                                                            
+static int hci_uart_resume(struct hci_dev *hdev)
+{
+	struct tty_struct *tty;
+	struct hci_uart *hu;
+
+	if (!hdev) {
+		BT_ERR("Resume request for unknown device (hdev=NULL)");
+		return -ENODEV;
+	}
+         
+	hu = (struct hci_uart *) hdev->driver_data;
+	tty = hu->tty;
+
+	BT_DBG("hdev %s tty %s", hdev->name, tty->driver->name);
+
+	uart_pm_functions(tty, TIOCPMRESUME, NULL); 
+        
+	return 0;
+}
+
+
 /* ------ LDISC part ------ */
 /* hci_uart_tty_open
  * 
@@ -410,6 +471,8 @@ static int hci_uart_register_dev(struct hci_uart *hu)
 	hdev->flush = hci_uart_flush;
 	hdev->send  = hci_uart_send_frame;
 	hdev->destruct = hci_uart_destruct;
+        hdev->suspend = hci_uart_suspend;
+        hdev->resume = hci_uart_resume;
 
 	hdev->owner = THIS_MODULE;
 	

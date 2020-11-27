@@ -37,12 +37,12 @@
 enum { MR_NONE, MR_ACCESS, MR_UPDATE };
 
 typedef struct {
-	struct rw_semaphore	mr_lock;
-	int			mr_writer;
+	struct compat_rw_semaphore	mr_lock;
+	int				mr_writer;
 } mrlock_t;
 
 #define mrinit(mrp, name)	\
-	( (mrp)->mr_writer = 0, init_rwsem(&(mrp)->mr_lock) )
+	do { (mrp)->mr_writer = 0; init_rwsem(&(mrp)->mr_lock); } while (0)
 #define mrlock_init(mrp, t,n,s)	mrinit(mrp, n)
 #define mrfree(mrp)		do { } while (0)
 #define mraccess(mrp)		mraccessf(mrp, 0)

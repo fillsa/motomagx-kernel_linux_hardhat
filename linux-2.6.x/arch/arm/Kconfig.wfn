@@ -1,0 +1,446 @@
+#
+# Copyright (C) 2006-2007 Motorola, Inc.
+#
+# This Program is distributed in the hope that it will
+# be useful, but WITHOUT ANY WARRANTY;
+# without even the implied warranty of
+# MERCHANTIBILITY or FITNESS FOR A
+# PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.                                                                          
+#
+# This program is free software; you can redistribute it
+# and/or modify it under the terms of the GNU General
+# Public License as published by the Free Software
+# Foundation; either version 2 of the License, or (at
+# your option) any later version.  You should have
+# received a copy of the GNU General Public License
+# along with this program; if not, write to the Free
+# Software Foundation, Inc., 675 Mass Ave,
+# Cambridge, MA 02139, USA
+#
+# Changelog:
+# Date               Author           Comment
+# -----------------------------------------------------------------------------
+# 12/12/2006         Motorola         Initial creation.
+# 01/02/2007         Motorola         For BP Watermark issue 6.3
+# 01/24/2007         Motorola         Change local_irq_enable/disable in MPM to local_irq_save/restore.
+# 07/27/2007         Motorola         Fix the problem that long file name in UTF8 containing can cause WDOG or Panic.
+# 08/18/2007         Motorola         Add comments.
+#
+# For a description of the syntax of this configuration file,
+# see Documentation/kbuild/kconfig-language.txt.
+#
+#
+# This file contains only bug fixes that are generic to Motorola. Every config
+# option in this file should start with MOT_Wxxx.
+#
+
+menu "Motorola Bug Fixes"
+
+config MOT_WFN244
+	bool "MXC UART Driver Bug"
+	default n
+	help
+		MXC UART driver hangs at open coincident with printks to same
+                port.
+
+config MOT_WFN248
+    bool "KGDB module debugging support"
+    depends on ARCH_MXC91231
+    default n
+    help
+        MontaVista mobilinux doesn't support module debugging in kgdb.
+
+config MOT_WFN349
+	bool "MU driver bug fixes for locking and suspend_flag"
+	default n
+	help
+		There are a few potential problems in the MU driver that are
+		fixed under this config. The suspend_flag in the resume
+		function is cleared after the MU has been restored instead of
+		before. Also AS_MUMCR was not protected by locks in all cases.
+
+config MOT_WFN374
+	bool "MXC MU driver poll implementation"
+	default n
+	help
+		The MU poll functionality was previously inadequate. This
+		change implements poll and allows the users to check
+		for read and write capabilities.
+
+config MOT_WFN377
+	bool "MU driver implementation of byte swapping ioctl()'s"
+	default n
+	help
+		The mxc_mu.c driver previously performed byteswapping 
+		unconditionally on channel 2. Byte swapping now has
+		ioctl()'s to dynamically enable byte swapping on any channel.
+
+config MOT_WFN379
+	bool "Manages MU control register more carefully"
+        depends on MXC_IPC
+	default n
+	help
+		MontaVista (or Freescale) made too many assumptions about
+		the ability to blindly set the value of the MU control
+		register.  This change takes more care about making such
+		settings.
+
+config MOT_WFN381
+	bool "MXC nand driver read status implementation"
+	default n
+	help
+		The NAND MXC/MTD drivers issue a read status command at the
+                end of read access.  The read status command is only needed
+                after erase and write operations.  This redundant read status
+                operation could cause the performance impact.
+
+config MOT_WFN389
+	bool "SDMA should not go through ARM to reach external ROM"
+	default n
+	help
+		The HW path used by SDMA to access SDRAM is changed to not
+                go through ARM. This prevents the SDMA from racing for the
+                ARM to wake up after sleep.
+
+config MOT_WFN394
+	bool "Framebuffer allocation based on bytes per pixel"
+	default n
+	help
+	  This is a MontaVista bugfix where the MXCFB driver statically 
+	  allocates 4 bytes per pixel, even when a 24 bit-per-pixel 
+	  (3 bytes per pixel) framebuffer is used.  
+
+config MOT_WFN396
+        bool "SPBA bug causes lock of IOMUX when SIM is started for ArgonLV"
+        depends on ARCH_MXC91321
+        default n
+        help
+                The SPBA device assignments for ArgonLV in mxc91321.h are
+                incorrect for ArgonLV. When the SIM is started on ArgonLV,
+                IOMUX lockx and crashes the BP.
+
+config MOT_WFN403
+    bool "Fix MU driver so userspace writes of only valid size are accepted"
+    default n
+    help
+        A write to the MU can only succeed if it is a multiple of the MU
+        channel size. However, the MU would return a non-multiple number
+        of bytes written if the write buffer was near full capacity. This
+        change corrects the problem so only a valid sized write will
+        be performed.
+
+config MOT_WFN404
+        bool "Forces all the data written to an MU channel to be sent on close"
+        default n
+        help
+            Applications writting to an MU device have no way of verifying the
+            data they wrote has actually been sent. To correct this problem,
+            when the application calls close, that close will block until the
+            data has been delivered.
+
+config MOT_WFN406
+	bool "Manages Super Block traverse more carefully during DSM operations"
+	default n
+	help
+		MontaVista (or Freescale) does not prevent a race condition 
+                during a umount of a file system during deep sleep mode
+                operations.  This change checks for corruption and rescans the
+		super block list.
+
+config MOT_WFN407
+	bool "fix bug on NAND Device IDs lookup table"
+	default n
+	help
+		Rmoving the duplicated entries in NAND Device IDs lookup table,
+		which causes the NAND driver pickup a wrong device id during 
+		initialization.
+
+config MOT_WFN408
+	bool "Conditionally compile module_nb_t index type"
+	default n
+	help
+		This will conditionally compile the module_nb_t index type, 
+		based on CONFIG_SPI_NB_MAX, which defines the length of the
+		arrays its used to index.  This corrects a number of Klocwork
+		errors.
+
+config MOT_WFN409
+	bool "Enable the ability to stop a SDMA transfer"
+	default n
+	help
+		MontaVista (or Freescale) should either adopt our version
+		of mxc_dma_reset() function or provide their own, in order
+		to support the feature of stopping SDMA transfers.
+
+config MOT_WFN414
+        bool "Add __KERNEL__ ifdefs in mxc_mu.h"
+        depends on MXC_MU
+        default n
+        help
+                Montavista (or Freescale) did not enclose definitions that 
+                should only be used in kernel space within ifdef __KERNEL__ 
+                blocks.
+
+config MOT_WFN418
+	bool "Ability to configure IPU ADC display 2 clock polarity"
+	default n
+	help
+	  This MontaVista bugfix adds the ability to control the IPU ADC
+	  display 2 serial clock polarity. 
+
+config MOT_WFN419
+	bool "Enable setting of RTC alarms for more than a day in the future"
+	depends on MXC_RTC
+	default n
+	help
+		Montavista (or Freescale) should update the MXC RTC driver
+		to allow setting of alarms for more than a day in the future.
+
+config MOT_WFN420
+	bool "Fix PLL calculation overflow"
+	default n
+	help
+	  The calculation used for the PLL rate calculation will overflow
+	  for large integer values used in the numerator calculation.
+          Setting this configuration prevents the overflow.
+
+config MOT_WFN421
+	bool "Decrease the AP_DELAY for switching from lower to higher frequency"
+	default n
+	help
+	  This setting configures a timer logic in the DFS block to a number
+	  of CKIL (~32.786KHz) cycles that the AP should wait before switching 
+	  from lower to higher frequency. 
+
+config MOT_WFN423
+	bool "ArgonLV 1.2 Support"
+	default n
+	help
+		This adds support for ArgonLV version 1.2 to the Bute
+		platform.
+
+config MOT_WFN424
+	bool "Enable bounds checking on minor numbers for drivers/block/rd.c"
+	default n
+	help
+		Minor numbers are not checked in rd.c when a file operation
+		is performed. This enable bounds checking on an open().
+
+config MOT_WFN428
+	bool "SIM2_BASE_ADDR incorrectly defined in mxc91321.h"
+	default n
+	help
+		Freescale has incorrectly defined the base address for SIM2
+                support on ArgonLV as 0x50000000.  This WSAN correctly defines
+                the base address as 0x50030000, according to the ArgonLV DTS.
+
+config MOT_WFN429
+	bool "IOCTL definition for MXCFB_WAIT_FOR_VSYNC"
+	default n
+	help
+	    This MontaVista bug fix reverts the IOCTL definition of
+            MXCFB_WAIT_FOR_VSYNC to _IO('M', 2). The definition of this IOCTL
+            was changed under the May 12th drop. 
+
+config MOT_WFN430
+	bool "IPU Internal memory address and size are not defined in mxc91231.h"
+	default n
+	help
+	  With the MVL 5/12 drop, the file include/asm-arm/arch-mxc/mxc91231.h 
+	  is missing the IPU internal memory options, and has extraneous 
+	  options for IPU_MEM_BASE_ADDR and MAX_S0_BASE_ADDR.
+
+config MOT_WFN431
+        bool "Work around SPI read/write problems"
+        default n
+        depends on MXC_SPI
+        help
+                Works around SPI read/write problems.
+
+config MOT_WFN432
+	bool "Defining EPIT1_AP_BASE_ADDR in mxc.h"
+	default n
+	help
+	    This bug fix defines EPIT1_AP_BASE_ADDR as EPIT1_BASE_ADDR
+	    for machines that do not have it defined.
+
+config MOT_WFN435
+	bool "Defining SIM1_BASE_ADDR in mxc91231.h and mxc91131.h"
+	default n
+	help
+	    This bug fix defines SIM1_BASE_ADDR for MXC91231 based products
+	    in order to remain consistent with MXC91321, which defines both
+	    SIM1_BASE_ADDR and SIM2_BASE_ADDR.
+
+config MOT_WFN436
+        bool "Hold off MU write callback until data is read"
+        default n
+        help
+          Freescale should update the mxc_ipc.c (Unified API) driver to
+          delay calling the MU write callback until after the recipient has
+          read the data.
+
+config MOT_WFN439
+    bool "Large Page NAND support on yaffs2" 
+    default n
+    depends on MOT_FEAT_LPNAND_SUPPORT
+    help
+      MontaVista mobilinux doesn't support the Large Page NAND on the
+      yaffs2 filesystem.
+
+config MOT_WFN440
+	bool "Fix type casting bug in ipt_get_target() function, inside ip_tables.h"
+	default n
+	help
+		MontaVista (or Freescale) should fix the type casting being
+                used for the return value of ipt_get_target() function, for
+                both user and kernel space versions of ip_tables.h.
+
+config MOT_WFN441
+	bool "Fix mxc_get_clocks function"
+	default n
+	help
+	  The calculation used for the some of the clock rate calculation are
+          incorrect.  Other calculations are missing.  Setting this
+          configuration fixes the problem for the SIM clock.
+
+config MOT_WFN443
+	bool "Enable fix for array overflow error in mtdcore.c"
+	default n
+	help
+        Montavista needs to address an off-by-one error that could 
+        cause a buffer overflow in mtdcore.c. 
+
+config MOT_WFN444
+	bool "IPC/SDMA fixes to allow correct BP datalogging"
+	default n
+	help
+		This addresses several IPC/SDMA issues that prevented
+                BP datalogging from functioning correctly. Fixes for high
+                speed USB and Linkdriver PM are also included.
+
+config MOT_WFN445
+	bool "Off by 1 error in SDMA driver"
+	default n
+	help
+		The mxc_request_dma function has a for loop that incorrectly
+                runs through a channel index that doesn't exist.
+
+config MOT_WFN446
+	bool "Fix klocwork errors in the spi driver"
+	default n
+	help
+		The spi driver has some issues with potential buffer overruns
+		in the code.
+
+config MOT_WFN452
+	bool "Use the alternate PLL when changing the PLL0 frequency"
+	default n
+	help
+	  This allows for temporarily switching to PLL2 when changes are 
+          made on PLL0 so that the delay waiting for PLL lock is
+          eliminated.
+
+config MOT_WFN453
+        bool "Fix mxc_irq_init"
+        default n
+        help
+                A logic error in mxc_irq_init causes IRQ 63 to remain
+                uninitialized on Zeus, Argon, and SCM-A11.
+
+config MOT_WFN454
+	bool "Return the ENOSPC value on a yaffs filesystem when the end space is reached"
+	default n
+	help
+	  This setting configures applies the yaffs patch to return the end of
+	  space value if a yaffs write runs out of space on the device, 
+	  otherwise -1 is returned. 
+	  
+config MOT_WFN455
+	bool "HW bug on Toshiba Large Page NAND chip - block erase failed under stress test"
+	default n
+	help
+	  With this bugfix, the software will retry the block erase command
+          (up to 10 times) after the HW did incorrectly in first try.
+
+config MOT_WFN456
+       bool "Setup process for VFP RunFast mode to avoid ARM VFP errata"
+       default n
+       help
+	  Sets up processes for VFP RunFast mode to avoid an ARM errata
+	  with VFP exceptions.  (ARM errata 395242)
+
+config MOT_WFN457
+	bool "nand_prepare_oobbuf bug - oob data missplaced in this->oobbuf"
+	default n
+	help
+	  With this bugfix, oob data placed in internal nand this->oobbuf does
+          not meet the request for nand_write_ecc or nand_write_page on oob
+          data structure.
+
+config MOT_WFN458
+        bool "Fix the IPC & IAPI driver to have less Incorrect logger blocks"
+        default n
+        help
+          This bugfix corrects race conditions present in mxc_ipc.c and the
+          iapi driver which were causing corrupted logger data blocks.
+
+config MOT_WFN461
+	bool "Stop doesn't appear on i2c bus due to chip going to sleep before stop can be transmitted"
+	default n
+	help
+	  With this bugfix, a delay is added at the end of the stop function
+          to allow time for the stop to actually appear on the bus. Once this
+          function exits, the clocks can be turned off and the stop will not
+          appear on the bus.
+
+config MOT_WFN462
+	bool "ARM errata 380532: Load Multiple to the PC can be corrupted or result in deadlock"
+	default n
+	help
+                ARM errata 380532 can cause a load multiple request to the PC
+                to be corrupted or deadlock.  Load multiple is used extensively
+                in function call returns and also context switching.  There is
+                a known workaround for this problem in Rev0, however, we are
+                using Rev1. This option expands the workaround to cover Rev1
+                chips as well. 
+
+config MOT_WFN465
+	bool "Reads from i2c bus do not check for ACK during slave addressing phase of transfer"
+	default n
+	help
+	  With this bugfix, a non-acked read will return an error instead of a
+          garbage value.
+
+config MOT_WFN476
+        bool "Non-initialized values loaded into the SDMA registers"
+        default n
+        help
+           This bugfix prevents loading non-initialized values into the SDMA 
+           registers.
+
+config MOT_WFN478
+	bool "mxc_pm_lowpower should save IRQ state"
+	default n
+	help
+	  mxc_pm_lowpower for Zeus, Argon, and SCM-A11 uses local_irq_enable
+	  and local_irq_disable.  It should save and restore the IRQ state
+	  instead of overriding the previous setting.
+
+config MOT_WFN494
+	bool "Fix UTF8 decoding buffer overflow"
+	default n
+	help
+		This will fix a bug that causes a watchdog reset if a long filename
+		with a mix of single-byte and double-byte characters is decoded.
+config MOT_WFN495
+	bool "Bug in kernel implementation of semaphore release: up()"
+	default n
+	help
+        	Some of the assembly code in the semaphore implementation do not set
+ 		the V flag which will be relied on by other instructions later.
+
+comment 'End of Motorola Bug Fixes'
+
+endmenu

@@ -112,6 +112,7 @@
 #include <linux/wireless.h>		/* Note : will define WIRELESS_EXT */
 #include <net/iw_handler.h>
 #endif	/* CONFIG_NET_RADIO */
+#include <linux/ltt-events.h>
 #include <asm/current.h>
 
 /* This define, if set, will randomly drop a packet when congestion
@@ -154,7 +155,7 @@
  *		86DD	IPv6
  */
 
-static spinlock_t ptype_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(ptype_lock);
 static struct list_head ptype_base[16];	/* 16 way hashed list */
 static struct list_head ptype_all;		/* Taps */
 
@@ -184,7 +185,7 @@ static struct timer_list samp_timer = TIMER_INITIALIZER(sample_queue, 0, 0);
  */
 struct net_device *dev_base;
 struct net_device **dev_tail = &dev_base;
-rwlock_t dev_base_lock = RW_LOCK_UNLOCKED;
+DEFINE_RWLOCK(dev_base_lock);
 
 EXPORT_SYMBOL(dev_base);
 EXPORT_SYMBOL(dev_base_lock);
@@ -1245,6 +1246,8 @@ int dev_queue_xmit(struct sk_buff *skb)
 	      	if (skb_checksum_help(skb, 0))
 	      		goto out_kfree_skb;
 
+	ltt_ev_network(LTT_EV_NETWORK_PACKET_OUT, skb->protocol);
+
 	/* Disable soft irqs for various locks below. Also 
 	 * stops preemption for RCU. 
 	 */
@@ -1292,10 +1295,16 @@ int dev_queue_xmit(struct sk_buff *skb)
 	   Either shot noqueue qdisc, it is even simpler 8)
 	 */
 	if (dev->flags & IFF_UP) {
-		int cpu = smp_processor_id(); /* ok because BHs are off */
+		int cpu = _smp_processor_id(); /* ok because BHs are off */
 
+		/*
+		 * No need to check for recursion with threaded interrupts:
+		 */
+#ifdef CONFIG_PREEMPT_RT
+		if (1) {
+#else
 		if (dev->xmit_lock_owner != cpu) {
-
+#endif
 			HARD_TX_LOCK(dev, cpu);
 
 			if (!netif_queue_stopped(dev)) {
@@ -1487,7 +1496,7 @@ int netif_rx_ni(struct sk_buff *skb)
 	preempt_disable();
 	err = netif_rx(skb);
 	if (softirq_pending(smp_processor_id()))
-		do_softirq();
+		raise_softirq(NET_RX_SOFTIRQ);
 	preempt_enable();
 
 	return err;
@@ -1523,6 +1532,11 @@ static void net_tx_action(struct softirq_action *h)
 
 			BUG_TRAP(!atomic_read(&skb->users));
 			__kfree_skb(skb);
+			/*
+			 * Safe to reschedule - the list is private
+			 * at this point.
+			 */
+			cond_resched_all();
 		}
 	}
 
@@ -1545,10 +1559,17 @@ static void net_tx_action(struct softirq_action *h)
 				qdisc_run(dev);
 				spin_unlock(&dev->queue_lock);
 			} else {
-				netif_schedule(dev);
+				/*
+				 * Dont re-kick the queue here, it will cause
+				 * excessive scheduling of ksoftirqd due
+				 * to retry. When the queue is released
+				 * it will be completed anyway.
+				 */
+//				netif_schedule(dev);
 			}
 		}
 	}
+
 }
 
 static __inline__ int deliver_skb(struct sk_buff *skb,
@@ -1641,6 +1662,8 @@ int netif_receive_skb(struct sk_buff *skb)
 	skb_bond(skb);
 
 	__get_cpu_var(netdev_rx_stat).total++;
+
+	ltt_ev_network(LTT_EV_NETWORK_PACKET_IN, skb->protocol);
 
 	skb->h.raw = skb->nh.raw = skb->data;
 	skb->mac_len = skb->nh.raw - skb->mac.raw;
@@ -1763,12 +1786,13 @@ job_done:
 
 static void net_rx_action(struct softirq_action *h)
 {
-	struct softnet_data *queue = &__get_cpu_var(softnet_data);
+	struct softnet_data *queue;
 	unsigned long start_time = jiffies;
 	int budget = netdev_max_backlog;
 
 	
 	local_irq_disable();
+	queue = &__get_cpu_var(softnet_data);
 
 	while (!list_empty(&queue->poll_list)) {
 		struct net_device *dev;
@@ -1778,10 +1802,16 @@ static void net_rx_action(struct softirq_action *h)
 
 		local_irq_enable();
 
+		if (unlikely(cond_resched_all())) {
+			local_irq_disable();
+			continue;
+		}
 		dev = list_entry(queue->poll_list.next,
 				 struct net_device, poll_list);
 
+
 		if (dev->quota <= 0 || dev->poll(dev, &budget)) {
+
 			local_irq_disable();
 			list_del(&dev->poll_list);
 			list_add_tail(&dev->poll_list, &queue->poll_list);
@@ -1799,8 +1829,10 @@ out:
 	return;
 
 softnet_break:
+	preempt_disable();
 	__get_cpu_var(netdev_rx_stat).time_squeeze++;
 	__raise_softirq_irqoff(NET_RX_SOFTIRQ);
+	preempt_enable();
 	goto out;
 }
 
@@ -2674,7 +2706,7 @@ static int dev_new_index(void)
 static int dev_boot_phase = 1;
 
 /* Delayed registration/unregisteration */
-static spinlock_t net_todo_list_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(net_todo_list_lock);
 static struct list_head net_todo_list = LIST_HEAD_INIT(net_todo_list);
 
 static inline void net_set_todo(struct net_device *dev)

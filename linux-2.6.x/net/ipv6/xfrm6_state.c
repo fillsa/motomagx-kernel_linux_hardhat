@@ -27,9 +27,9 @@ __xfrm6_init_tempsel(struct xfrm_state *x, struct flowi *fl,
 	 * to current session. */
 	ipv6_addr_copy((struct in6_addr *)&x->sel.daddr, &fl->fl6_dst);
 	ipv6_addr_copy((struct in6_addr *)&x->sel.saddr, &fl->fl6_src);
-	x->sel.dport = fl->fl_ip_dport;
+	x->sel.dport = xfrm_flowi_dport(fl);
 	x->sel.dport_mask = ~0;
-	x->sel.sport = fl->fl_ip_sport;
+	x->sel.sport = xfrm_flowi_sport(fl);
 	x->sel.sport_mask = ~0;
 	x->sel.prefixlen_d = 128;
 	x->sel.prefixlen_s = 128;
@@ -45,6 +45,36 @@ __xfrm6_init_tempsel(struct xfrm_state *x, struct flowi *fl,
 	x->props.reqid = tmpl->reqid;
 	x->props.family = AF_INET6;
 }
+
+#ifdef CONFIG_XFRM_ENHANCEMENT
+static struct xfrm_state *
+__xfrm6_state_lookup_byaddr(xfrm_address_t *daddr, xfrm_address_t *saddr,
+			    u8 proto)
+{
+	struct xfrm_state *x = NULL;
+	u32 spi;
+	unsigned h;
+
+#ifdef CONFIG_INET6_TUNNEL
+	spi = xfrm6_tunnel_spi_lookup(saddr);
+	if (!spi)
+		return NULL;
+#endif
+
+	h = __xfrm6_spi_hash(daddr, spi, proto);
+	list_for_each_entry(x, xfrm6_state_afinfo.state_byspi+h, byspi) {
+		if (x->props.family == AF_INET6 &&
+		    spi == x->id.spi &&
+		    !ipv6_addr_cmp((struct in6_addr *)daddr, (struct in6_addr *)x->id.daddr.a6) &&
+		    !ipv6_addr_cmp((struct in6_addr *)saddr, (struct in6_addr *)x->props.saddr.a6) &&
+		    proto == x->id.proto) {
+			xfrm_state_hold(x);
+			return x;
+		}
+	}
+	return NULL;
+}
+#endif
 
 static struct xfrm_state *
 __xfrm6_state_lookup(xfrm_address_t *daddr, u32 spi, u8 proto)
@@ -121,6 +151,9 @@ static struct xfrm_state_afinfo xfrm6_state_afinfo = {
 	.lock			= RW_LOCK_UNLOCKED,
 	.init_tempsel		= __xfrm6_init_tempsel,
 	.state_lookup		= __xfrm6_state_lookup,
+#ifdef CONFIG_XFRM_ENHANCEMENT
+	.state_lookup_byaddr	= __xfrm6_state_lookup_byaddr,
+#endif
 	.find_acq		= __xfrm6_find_acq,
 };
 
@@ -129,7 +162,7 @@ void __init xfrm6_state_init(void)
 	xfrm_state_register_afinfo(&xfrm6_state_afinfo);
 }
 
-void __exit xfrm6_state_fini(void)
+void xfrm6_state_fini(void)
 {
 	xfrm_state_unregister_afinfo(&xfrm6_state_afinfo);
 }

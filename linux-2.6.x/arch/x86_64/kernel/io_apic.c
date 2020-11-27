@@ -42,7 +42,7 @@
 
 int sis_apic_bug; /* not actually supported, dummy for compile */
 
-static spinlock_t ioapic_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_RAW_SPINLOCK(ioapic_lock);
 
 /*
  * # of IRQ routing registers
@@ -112,6 +112,9 @@ static void add_pin_to_irq(unsigned int irq, int apic, int pin)
 		reg = io_apic_read(entry->apic, 0x10 + R + pin*2);	\
 		reg ACTION;						\
 		io_apic_modify(entry->apic, reg);			\
+		 /* Force POST flush by reading: */			\
+		reg = io_apic_read(entry->apic, 0x10 + R + pin*2);	\
+									\
 		if (!entry->next)					\
 			break;						\
 		entry = irq_2_pin + entry->next;			\
@@ -124,10 +127,8 @@ static void add_pin_to_irq(unsigned int irq, int apic, int pin)
 	static void name##_IO_APIC_irq (unsigned int irq)		\
 	__DO_ACTION(R, ACTION, FINAL)
 
-DO_ACTION( __mask,             0, |= 0x00010000, io_apic_sync(entry->apic) )
-						/* mask = 1 */
-DO_ACTION( __unmask,           0, &= 0xfffeffff, )
-						/* mask = 0 */
+DO_ACTION( __mask,             0, |= 0x00010000, ) /* mask = 1 */
+DO_ACTION( __unmask,           0, &= 0xfffeffff, ) /* mask = 0 */
 
 static void mask_IO_APIC_irq (unsigned int irq)
 {
@@ -1059,7 +1060,6 @@ void print_all_local_APICs (void)
 
 void __apicdebuginit print_PIC(void)
 {
-	extern spinlock_t i8259A_lock;
 	unsigned int v;
 	unsigned long flags;
 
@@ -1310,10 +1310,47 @@ static unsigned int startup_level_ioapic_irq (unsigned int irq)
 	return 0; /* don't check for pending */
 }
 
+/*
+ * In the preemptible case mask the IRQ first then handle it and ack it.
+ *
+ * (In the non-preemptible case we keep the IRQ unacked in the local APIC
+ * and dont need to do the masking, because the code executes atomically.)
+ */
+#ifdef CONFIG_PREEMPT_HARDIRQS
+
+static void mask_and_ack_level_ioapic_irq(unsigned int irq)
+{
+	mask_IO_APIC_irq(irq);
+	ack_APIC_irq();
+}
+
+static void end_level_ioapic_irq(unsigned int irq)
+{
+	if (!(irq_desc[irq].status & IRQ_INPROGRESS))
+		unmask_IO_APIC_irq(irq);
+}
+
+static void enable_level_ioapic_irq(unsigned int irq)
+{
+	unmask_IO_APIC_irq(irq);
+}
+
+#else /* !CONFIG_PREEMPT_HARDIRQS */
+
+static void mask_and_ack_level_ioapic_irq(unsigned int irq)
+{
+}
+
 static void end_level_ioapic_irq (unsigned int irq)
 {
 	ack_APIC_irq();
 }
+
+static void enable_level_ioapic_irq(unsigned int irq)
+{
+	unmask_IO_APIC_irq(irq);
+}
+#endif /* !CONFIG_PREEMPT_HARDIRQS */
 
 static void set_ioapic_affinity_irq(unsigned int irq, cpumask_t mask)
 {
@@ -1354,11 +1391,23 @@ static unsigned int startup_level_ioapic_vector (unsigned int vector)
 	return startup_level_ioapic_irq (irq);
 }
 
+static void mask_and_ack_level_ioapic_vector (unsigned int vector)
+{
+	int irq = vector_to_irq(vector);
+
+	mask_and_ack_level_ioapic_irq(irq);
+}
+
 static void end_level_ioapic_vector (unsigned int vector)
 {
 	int irq = vector_to_irq(vector);
 
 	end_level_ioapic_irq(irq);
+}
+
+static void enable_level_ioapic_vector(unsigned int vector)
+{
+	enable_level_ioapic_irq(vector_to_irq(vector));
 }
 
 static void mask_IO_APIC_vector (unsigned int vector)

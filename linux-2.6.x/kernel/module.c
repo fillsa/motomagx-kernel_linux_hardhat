@@ -1,6 +1,7 @@
 /* Rewritten by Rusty Russell, on the backs of many others...
    Copyright (C) 2002 Richard Henderson
    Copyright (C) 2001 Rusty Russell, 2002 Rusty Russell IBM.
+   Copyright (C) 2006-2008 Motorola, Inc.
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -15,6 +16,11 @@
     You should have received a copy of the GNU General Public License
     along with this program; if not, write to the Free Software
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
+    Date         Author          Comment
+    10/2006      Motorola        Added secure module loading support 
+    03/2007      Motorola        Applied GCOV 2.6.16 patch
+    06/2008  	 Motorola	 Hash whole ELF file in secure module loading
 */
 #include <linux/config.h>
 #include <linux/module.h>
@@ -35,9 +41,16 @@
 #include <linux/notifier.h>
 #include <linux/stop_machine.h>
 #include <linux/device.h>
+#include <linux/smp_lock.h>
 #include <asm/uaccess.h>
 #include <asm/semaphore.h>
 #include <asm/cacheflush.h>
+#include <linux/gcov.h>
+#ifdef CONFIG_MOT_FEAT_SECURE_MODULE
+#include <linux/crypto.h>
+#include <asm/scatterlist.h>
+#include <linux/mount.h>
+#endif /* CONFIG_MOT_FEAT_SECURE_MODULE */
 
 #if 0
 #define DEBUGP printk
@@ -53,7 +66,7 @@
 #define INIT_OFFSET_MASK (1UL << (BITS_PER_LONG-1))
 
 /* Protects module list */
-static spinlock_t modlist_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(modlist_lock);
 
 /* List of modules, protected by module_mutex AND modlist_lock */
 static DECLARE_MUTEX(module_mutex);
@@ -96,6 +109,16 @@ static inline int strong_try_module_get(struct module *mod)
  */
 void __module_put_and_exit(struct module *mod, long code)
 {
+	/*
+	 * Release the kernel lock if held:
+	 */
+	if (current->lock_depth >= 0) {
+		printk("BUG: module %s holds the BKL [%d] at exit time!\n",
+			mod->name, current->lock_depth);
+		dump_stack();
+		while (current->lock_depth >= 0)
+			unlock_kernel();
+	}
 	module_put(mod);
 	do_exit(code);
 }
@@ -379,7 +402,7 @@ static void module_unload_init(struct module *mod)
 	for (i = 0; i < NR_CPUS; i++)
 		local_set(&mod->ref[i].count, 0);
 	/* Hold reference count during initialization. */
-	local_set(&mod->ref[smp_processor_id()].count, 1);
+	local_set(&mod->ref[_smp_processor_id()].count, 1);
 	/* Backwards compatibility macros put refcount during init. */
 	mod->waiter = current;
 }
@@ -579,6 +602,12 @@ sys_delete_module(const char __user *name_user, unsigned int flags)
 	if (ret != 0)
 		goto out;
 
+	down(&notify_mutex);
+	notifier_call_chain(&module_notify_list, MODULE_STATE_GOING,
+        			mod);
+	up(&notify_mutex);
+
+
 	/* Never wait if forced. */
 	if (!forced && module_refcount(mod) != 0)
 		wait_for_zero_refcount(mod);
@@ -590,6 +619,11 @@ sys_delete_module(const char __user *name_user, unsigned int flags)
 		down(&module_mutex);
 	}
 	free_module(mod);
+
+	down(&notify_mutex);
+	notifier_call_chain(&module_notify_list, MODULE_STATE_GONE,
+			NULL);
+	up(&notify_mutex);
 
  out:
 	up(&module_mutex);
@@ -1108,6 +1142,16 @@ static void free_module(struct module *mod)
 	/* Arch-specific cleanup. */
 	module_arch_cleanup(mod);
 
+#ifdef CONFIG_KGDB
+	/* kgdb info */
+	vfree(mod->mod_sections);
+#endif
+
+#ifdef CONFIG_GCOV_PROFILE
+	if (mod->ctors_start && mod->ctors_end)
+		remove_bb_link(mod);
+#endif
+
 	/* Module unload stuff */
 	module_unload_free(mod);
 
@@ -1325,6 +1369,31 @@ static char *get_modinfo(Elf_Shdr *sechdrs,
 	return NULL;
 }
 
+#ifdef CONFIG_KGDB
+int add_modsects (struct module *mod, Elf_Ehdr *hdr, Elf_Shdr *sechdrs, const
+                char *secstrings)
+{
+        int i;
+
+        mod->num_sections = hdr->e_shnum - 1;
+        mod->mod_sections = vmalloc((hdr->e_shnum - 1)*
+		sizeof (struct mod_section));
+
+        if (mod->mod_sections == NULL) {
+                return -ENOMEM;
+        }
+
+        for (i = 1; i < hdr->e_shnum; i++) {
+                mod->mod_sections[i - 1].address = (void *)sechdrs[i].sh_addr;
+                strncpy(mod->mod_sections[i - 1].name, secstrings +
+                                sechdrs[i].sh_name, MAX_SECTNAME);
+                mod->mod_sections[i - 1].name[MAX_SECTNAME] = '\0';
+	}
+
+	return 0;
+}
+#endif
+
 #ifdef CONFIG_KALLSYMS
 int is_exported(const char *name, const struct module *mod)
 {
@@ -1410,6 +1479,104 @@ static inline void add_kallsyms(struct module *mod,
 }
 #endif /* CONFIG_KALLSYMS */
 
+#ifdef CONFIG_MOT_FEAT_SECURE_MODULE
+static void module_hash_update(struct crypto_tfm * tfm, 
+            struct scatterlist * sg, uint8_t * data, unsigned int size)
+{
+        unsigned int size_in_page;
+        unsigned int offset;
+        
+        /* Loop through page segmented chunks of data, because it
+           might be larger than a page in non-contiguous memory */
+        do {
+            offset = offset_in_page(data);
+            size_in_page = min(size, ((unsigned int)(PAGE_SIZE)) - offset);
+            /* populate scatterlist to use for the cryptoapi */
+            sg->page = virt_to_page(data);
+            sg->offset = offset;
+            sg->length = size_in_page;
+
+            /* Update the sha1 hash with the data */
+            crypto_digest_update(tfm, sg, 1);
+
+            size -= size_in_page; 
+            data += size_in_page;
+        } while (size > 0);
+}
+
+static int module_hash_verify(uint8_t * digest)
+{
+    char digest_ascii[41];
+    extern dev_t ROOT_DEV;
+    struct file * hashfile;
+    int correct_dev, i, j, in_hash;
+    char comp_char;
+    mm_segment_t orig_fs;
+
+    /* store the digest in ascii for comparison */
+    for(i=0, j=0; i < 20; i++, j+=2) {
+        sprintf((digest_ascii+j), "%02x", digest[i]);
+    }
+    digest_ascii[40] = '\0';
+
+    /* Open up hash file for comparison */
+    hashfile = filp_open("/etc/modules.hash", O_RDONLY, 0);
+    if(IS_ERR(hashfile) || (hashfile == NULL)) {
+        printk(KERN_WARNING "Cannot open /etc/modules.hash\n");
+        return -EPERM;
+    }
+
+    /* Make sure this file is on the correct device  */
+    spin_lock(&vfsmount_lock);
+    correct_dev = (hashfile->f_vfsmnt->mnt_sb->s_dev == ROOT_DEV);
+    spin_unlock(&vfsmount_lock);
+    if(!correct_dev) { 
+        printk(KERN_WARNING "Invalid mount point for /etc/modules.hash\n");
+        filp_close(hashfile, NULL);
+        return -EPERM;
+    } 
+
+    /* Allow read to modify the addr_limit to read into kernel space */
+    orig_fs = get_fs();
+    set_fs(KERNEL_DS); 
+
+    i = 0;
+    in_hash = 1;
+    /* Read the hashes from list of trusted hashes 
+     * /etc/modules.hash has lines of the format:
+     * <40 hex char digest> <filepath of module>\n */
+    while(hashfile->f_op->read(hashfile, &comp_char, 1, &(hashfile->f_pos))) {
+        /* If we just read a new line, start in new hash */
+        if(comp_char == '\n') {
+            in_hash = 1;
+            i = 0;
+            continue;
+        } 
+        if(!in_hash) {
+            continue;
+        }
+        /* Check if still matching and increment search offset */
+        if(comp_char != digest_ascii[i]) {
+            i = 0;          /* Reset our search offset */
+            in_hash = 0;    /* No longer in possible matching hash */
+            continue;
+        }
+        /* If we just compared the final character and it matched */
+        if(i == 39) {
+            set_fs(orig_fs);
+            filp_close(hashfile, NULL);
+            return 0; /* Return, we have found a matching hash */
+        }
+        i++;
+    }
+    /* If no matches it is an untrusted module */
+    printk( KERN_WARNING "Untrusted module, correct hash must be listed in /etc/modules.hash\n");
+    set_fs(orig_fs);
+    filp_close(hashfile, NULL);
+    return -EPERM;
+}         
+#endif /* CONFIG_MOT_FEAT_SECURE_MODULE */
+
 /* Allocate and load the module: note that size of section 0 is always
    zero, and we rely on this for optional sections. */
 static struct module *load_module(void __user *umod,
@@ -1428,6 +1595,13 @@ static struct module *load_module(void __user *umod,
 	void *percpu = NULL, *ptr = NULL; /* Stops spurious gcc warning */
 	struct exception_table_entry *extable;
 
+#ifdef CONFIG_MOT_FEAT_SECURE_MODULE
+    /* Structures for module hashing */
+    struct crypto_tfm * tfm;
+    struct scatterlist * sg;
+    uint8_t digest[20];
+#endif /* CONFIG_MOT_FEAT_SECURE_MODULE */
+
 	DEBUGP("load_module: umod=%p, len=%lu, uargs=%p\n",
 	       umod, len, uargs);
 	if (len < sizeof(*hdr))
@@ -1441,6 +1615,44 @@ static struct module *load_module(void __user *umod,
 		err = -EFAULT;
 		goto free_hdr;
 	}
+
+#ifdef CONFIG_MOT_FEAT_SECURE_MODULE /* Hash the whole ELF */
+    /* Allocate sha1 transform  */
+    tfm = crypto_alloc_tfm("sha1", 0);
+    if (!tfm) {
+        printk("Couldn't load module - SHA1 transform unavailable\n");
+        return ERR_PTR(-EPERM);
+    }
+
+    /* Init the digest */
+    crypto_digest_init(tfm);
+
+    /* Allocate scatterlist for hash update */
+    sg = kmalloc(sizeof(struct scatterlist), GFP_KERNEL);
+    if (!sg) {
+        printk("Couldn't get memory for scatterlist\n");
+        err = -ENOMEM;
+        crypto_free_tfm(tfm);
+        goto free_hdr;
+    }
+    
+    module_hash_update(tfm, sg, (uint8_t *)hdr, len);
+
+    /* Free the scatterlist */
+    kfree(sg);
+
+    /* Finalize the transform and verify the digest,  
+       this will return an error if the digest does not match */
+    /* Store the final digest */
+    crypto_digest_final(tfm, digest);
+    /* Free the transform */
+    crypto_free_tfm(tfm);
+    /* Verify the module hash with hash from file */ 
+    err = module_hash_verify(digest);
+    if(err) {
+       goto free_hdr; 
+    }
+#endif /* CONFIG_MOT_FEAT_SECURE_MODULE */
 
 	/* Sanity checks against insmoding binaries or wrong arch,
            weird elf version */
@@ -1599,7 +1811,7 @@ static struct module *load_module(void __user *umod,
 	memset(ptr, 0, mod->init_size);
 	mod->module_init = ptr;
 
-	/* Transfer each section which specifies SHF_ALLOC */
+	/* Transfer and hash each section which specifies SHF_ALLOC */
 	DEBUGP("final section addresses:\n");
 	for (i = 0; i < hdr->e_shnum; i++) {
 		void *dest;
@@ -1613,15 +1825,26 @@ static struct module *load_module(void __user *umod,
 		else
 			dest = mod->module_core + sechdrs[i].sh_entsize;
 
-		if (sechdrs[i].sh_type != SHT_NOBITS)
+		if (sechdrs[i].sh_type != SHT_NOBITS) {
 			memcpy(dest, (void *)sechdrs[i].sh_addr,
 			       sechdrs[i].sh_size);
-		/* Update sh_addr to point to copy in image. */
+        }
+		
+        /* Update sh_addr to point to copy in image. */
 		sechdrs[i].sh_addr = (unsigned long)dest;
 		DEBUGP("\t0x%lx %s\n", sechdrs[i].sh_addr, secstrings + sechdrs[i].sh_name);
+
 	}
+
 	/* Module has been moved. */
 	mod = (void *)sechdrs[modindex].sh_addr;
+
+#ifdef CONFIG_GCOV_PROFILE
+	modindex = find_sec(hdr, sechdrs, secstrings, ".init_array");
+	mod->ctors_start = (char *)sechdrs[modindex].sh_addr;
+	mod->ctors_end   = (char *)(mod->ctors_start +
+				sechdrs[modindex].sh_size);
+#endif
 
 	/* Now we've moved module, initialize linked lists, etc. */
 	module_unload_init(mod);
@@ -1687,6 +1910,12 @@ static struct module *load_module(void __user *umod,
 
 	add_kallsyms(mod, sechdrs, symindex, strindex, secstrings);
 
+#ifdef CONFIG_KGDB
+        if ((err = add_modsects(mod, hdr, sechdrs, secstrings)) < 0) {
+                goto nomodsectinfo;
+        }
+#endif
+
 	err = module_finalize(hdr, sechdrs, mod);
 	if (err < 0)
 		goto cleanup;
@@ -1731,6 +1960,11 @@ static struct module *load_module(void __user *umod,
  arch_cleanup:
 	module_arch_cleanup(mod);
  cleanup:
+
+#ifdef CONFIG_KGDB
+nomodsectinfo:
+       vfree(mod->mod_sections);
+#endif
 	module_unload_free(mod);
 	module_free(mod, mod->module_init);
  free_core:
@@ -1796,6 +2030,14 @@ sys_init_module(void __user *umod,
 	notifier_call_chain(&module_notify_list, MODULE_STATE_COMING, mod);
 	up(&notify_mutex);
 
+#ifdef CONFIG_GCOV_PROFILE
+	if (mod->ctors_start && mod->ctors_end) {
+		do_global_ctors((ctor_t *) mod->ctors_start,
+			(mod->ctors_end - mod->ctors_start) / sizeof(ctor_t),
+			 mod);
+	}
+#endif
+
 	/* Start the module */
 	if (mod->init != NULL)
 		ret = mod->init();
@@ -1803,6 +2045,10 @@ sys_init_module(void __user *umod,
 		/* Init routine failed: abort.  Try to protect us from
                    buggy refcounters. */
 		mod->state = MODULE_STATE_GOING;
+		down(&notify_mutex);
+		notifier_call_chain(&module_notify_list, MODULE_STATE_GOING,
+				mod);
+		up(&notify_mutex);
 		synchronize_kernel();
 		if (mod->unsafe)
 			printk(KERN_ERR "%s: module is now stuck!\n",
