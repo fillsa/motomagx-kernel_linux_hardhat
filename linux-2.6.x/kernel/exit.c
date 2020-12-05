@@ -8,6 +8,7 @@
 /* Date         Author          Comment
  * ===========  ==============  ==============================================
  * 26-Sep-2008  Motorola        Dump out the exit process infomation in do_exit()
+ * 06-12-2020	fill.sa		Delet Dump out the exit process infomation in do_exit()
  */
 
 #include <linux/config.h>
@@ -802,8 +803,10 @@ fastcall NORET_TYPE void do_exit(long code)
 	fsh_task_detach(tsk);
 #endif
 
+#ifdef DEBUG
 	printk("do_exit: process:%s pid:[%d], code:[%d]\n",
                                 tsk->comm, tsk->pid, code);
+#endif
 
 	profile_task_exit(tsk);
 
