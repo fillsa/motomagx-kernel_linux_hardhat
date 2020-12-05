@@ -46,11 +46,11 @@
 #include <asm/semaphore.h>
 #include <asm/cacheflush.h>
 #include <linux/gcov.h>
-#ifdef CONFIG_MOT_FEAT_SECURE_MODULE
+//#ifdef CONFIG_MOT_FEAT_SECURE_MODULE
 #include <linux/crypto.h>
 #include <asm/scatterlist.h>
 #include <linux/mount.h>
-#endif /* CONFIG_MOT_FEAT_SECURE_MODULE */
+//#endif /* CONFIG_MOT_FEAT_SECURE_MODULE */
 
 #if 0
 #define DEBUGP printk

@@ -27,6 +27,7 @@
 # 03/2008      Motorola        Added MOT_FEAT_LOG_SCHEDULE_EVENTS
 # 04/2008      Motorola        Added MOT_FEAT_GETTIMEOFFSET_2618
 # 04/2008      Motorola        Added MOT_FEAT_DISPLAY_EPSON
+# 07/2008      Motorola        Added MOT_FEAT_MSS_XL_SPAIN
 # 07/2008      Motorola        Added MOT_FEAT_FLUSH_LOCKED_TLB
 # 07/2008      Motorola        Added MOT_FEAT_APP_COREDUMP_DISPLAY
 # 07/2008      Motorola        Added MOT_FEAT_32_BIT_DISPLAY
