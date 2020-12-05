@@ -75,6 +75,12 @@ config MOT_FEAT_DOWN_TIMEOUT
 	help
 	  This enables semaphore down services with timeout parameter.
 
+config FEAT_MXC31_CORE_OVERCLOCK_740
+	bool "freq 636 and 740"
+	default n
+	help
+	  add mcu core overclock freq 636 and 740
+	  
 config MOT_FEAT_POWERUP_LOGO
 	bool "Powerup LOGO Feature"
 	depends on MOT_FEAT_BOOTINFO

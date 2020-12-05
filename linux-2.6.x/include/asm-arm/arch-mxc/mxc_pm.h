@@ -292,12 +292,20 @@ int mxc_pm_dvfs(unsigned long armfreq, long ahbfreq, long ipfreq);
 #define CORE_FREQ_266 266
 #define CORE_FREQ_399 399
 #define CORE_FREQ_532 532
+#ifdef CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740
+#define CORE_FREQ_636 636
+#define CORE_FREQ_740 740
+#endif
 
 /*!
  * Define the maximum operating frequency of the cpu. This value is then
  * used to optimally configure the cpu's L2 cache. 
  */
-#define CORE_MAX_FREQ CORE_FREQ_532
+#ifdef CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740
+	#define CORE_MAX_FREQ CORE_FREQ_740
+#else
+	#define CORE_MAX_FREQ CORE_FREQ_532
+#endif
 
 #define NUM_PLL                 3
 
@@ -317,7 +325,13 @@ typedef enum {
         INDX_266 =    1,
         INDX_399 =    2,
         INDX_532 =    3,
+#ifdef CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740
+        INDX_636 =    4,
+        INDX_740 =    5,
+        NUM_DVFSOP_INDEXES = 6,
+#else
         NUM_DVFSOP_INDEXES = 4,
+#endif
 } dvfs_op_point_index_t;
 
 /*!
