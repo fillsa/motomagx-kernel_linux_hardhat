@@ -17,15 +17,15 @@
  * ----------   --------  ------------------------
  * 10/06/2006   Motorola  Power management support 
  * 11/10/2006   Motorola  Add PLL current drain optimization.
- * 12/14/2006   Motorola  Change DVFS(Dynamic Voltage Frequency Scaling) frequency code.
+ * 12/14/2006   Motorola  Change DVFS frequency code.
  * 12/25/2006   Motorola  Changed local_irq_disable/local_irq_enable to
  *                        local_irq_save/local_irq_restore.
- * 01/08/2007   Motorola  Implemented MGPER fix for crash after WFI(Wait-For-Instruction).
- * 01/16/2007   Motorola  Reset DSM(Deep Sleep Mode) state machine upon wakeup.
+ * 01/08/2007   Motorola  Implemented MGPER fix for crash after WFI.
+ * 01/16/2007   Motorola  Reset DSM state machine upon wakeup.
  * 01/19/2007   Motorola  Resolved issue with 133Mhz operating point
  *                        and its divider ratios.
- * 02/14/2007   Motorola  Add code for DSM(Deep Sleep Mode) statistics gathering.
- * 02/26/2007   Motorola  Make DSM(Deep Sleep Mode) change dividers in two steps for 133.
+ * 02/14/2007   Motorola  Add code for DSM statistics gathering.
+ * 02/26/2007   Motorola  Make DSM change dividers in two steps for 133.
  * 02/15/2007   Motorola  Cache optimization changes
  * 04/30/2007   Motorola  Wait for end of dithering cycle before
  *                        changing PLL settings.
@@ -45,7 +45,7 @@
  * @file mxc_pm.c
  *
  * @brief This file provides all the kernel level and user level API
- * definitions for the CRM_AP, DPLL and DSM(Deep Sleep Mode) modules.
+ * definitions for the CRM_AP, DPLL and DSM modules.
  *
  * @ingroup LPMD
  */
@@ -105,7 +105,7 @@ static DEFINE_RAW_SPINLOCK(dvfs_lock);
 #endif
 #define MXC91231_PASS_2_OR_GREATER()      (system_rev >= CHIP_REV_2_0)
 
-/*!
+/*
  * Voltage Levels
  */
 #define LO_VOLT                 0
@@ -137,7 +137,7 @@ static DEFINE_RAW_SPINLOCK(dvfs_lock);
 
 
 /*
- * The following options used for DSM(Deep Sleep Mode)
+ * The following options used for DSM
  */
 #define COUNT32_RESET           1
 #define COUNT32_NOT_RESET       0
@@ -229,7 +229,7 @@ static DEFINE_RAW_SPINLOCK(dvfs_lock);
 #define DP_HFS_MFN                              0x00000003
 
 /*
- * Timer & Counter values for various DSM(Deep Sleep Mode) registers
+ * Timer & Counter values for various DSM registers
  */
 #define SLEEP_TIME                              0x00000002
 
@@ -252,13 +252,13 @@ static DEFINE_RAW_SPINLOCK(dvfs_lock);
  */
 #ifndef CONFIG_MOT_FEAT_PM
 
-#define ARM_AHB_IPG_RATIO_266                   0x00000824
-#define ARM_AHB_IPG_RATIO_LO                    0x00000836
 #define ARM_AHB_IPG_RATIO_HI                    0x00000848
+#define ARM_AHB_IPG_RATIO_LO                    0x00000836
+#define ARM_AHB_IPG_RATIO_266                   0x00000824
 
-#define ARM_AHB_IPG_CRMRATIO_266                0x00000024
-#define ARM_AHB_IPG_CRMRATIO_399                0x00000036
 #define ARM_AHB_IPG_CRMRATIO_532                0x00000048
+#define ARM_AHB_IPG_CRMRATIO_399                0x00000036
+#define ARM_AHB_IPG_CRMRATIO_266                0x00000024
 
 #else  /* CONFIG_MOT_FEAT_PM */
 
@@ -301,7 +301,7 @@ static DEFINE_RAW_SPINLOCK(dvfs_lock);
 #endif /* CONFIG_MOT_FEAT_PM */
 
 /*!
- * Enumerations of scaling types - enabling or disabling DFS(Dynamic Frequency Scaling) dividers
+ * Enumerations of scaling types - enabling or disabling DFS dividers
  */
 typedef enum {
 	DFS_ENABLE = 0,
@@ -413,38 +413,38 @@ static ap_pll_mfn_values_t opinfo[NUM_DVFSOP_INDEXES] = {
 			* at least 160Mhz, so we choose 2:1:2 instead
 			* and set the PLL output clock at 266Mhz.
 			*/
-		       divider_ratio:       ARM_AHB_IPG_RATIO_212, // (x:266:133:266)
+		       divider_ratio:       ARM_AHB_IPG_RATIO_212, // (266:133:266)
                      },
         /* 266Mhz */ {
-                       ap_pll_dp_hfs_op:    0x00000050, // Writing 0 to PDF(divide by 1) and C to MFI(MFI = 5)
-                       ap_pll_dp_hfs_mfn:   0x003B13B1, // Writing MFN as 3871665
-                       ap_pll_dp_hfs_mfd:   0x01FFFFFE, // Writing MFD as 33554430
-		       divider_ratio:       ARM_AHB_IPG_RATIO_124, // (x:133:266:532)
+                       ap_pll_dp_hfs_op:    0x00000050,
+                       ap_pll_dp_hfs_mfn:   0x003B13B1,
+                       ap_pll_dp_hfs_mfd:   0x01FFFFFE,
+		       divider_ratio:       ARM_AHB_IPG_RATIO_124, // (133:266:532)
                      },
         /* 399Mhz */ {
-                       ap_pll_dp_hfs_op:    0x00000070, // Writing 0 to PDF(divide by 1) and C to MFI(MFI = 7)
-                       ap_pll_dp_hfs_mfn:   0x01589D89, // Writing MFN as 22584713
-                       ap_pll_dp_hfs_mfd:   0x01FFFFFE, // Writing MFD as 33554430
-		       divider_ratio:       ARM_AHB_IPG_RATIO_136, //(x:133:399:798) 
+                       ap_pll_dp_hfs_op:    0x00000070,
+                       ap_pll_dp_hfs_mfn:   0x01589D89,
+                       ap_pll_dp_hfs_mfd:   0x01FFFFFE,
+		       divider_ratio:       ARM_AHB_IPG_RATIO_136, //(133:399:798) 
                      },
         /* 532Mhz */ {
-                       ap_pll_dp_hfs_op:    0x000000A0, // Writing 0 to PDF(divide by 1) and C to MFI(MFI = 10)
-                       ap_pll_dp_hfs_mfn:   0x00762762, // Writing MFN as 7743330
-                       ap_pll_dp_hfs_mfd:   0x01FFFFFE, // Writing MFD as 33554430
-		       divider_ratio:       ARM_AHB_IPG_RATIO_148, //(x:133:532:1064)
+                       ap_pll_dp_hfs_op:    0x000000A0,
+                       ap_pll_dp_hfs_mfn:   0x00762762,
+                       ap_pll_dp_hfs_mfd:   0x01FFFFFE,
+		       divider_ratio:       ARM_AHB_IPG_RATIO_148, //(133:399:798)
                      },
 #ifdef CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740
         /* 636Mhz */ {
-                       ap_pll_dp_hfs_op:    0x000000C0, // Writing 0 to PDF(divide by 1) and C to MFI(MFI = 12)
-                       ap_pll_dp_hfs_mfn:   0x00762762, // Writing MFN as 7743330
-                       ap_pll_dp_hfs_mfd:   0x01FFFFFE, // Writing MFD as 33554430
-		       divider_ratio:       ARM_AHB_IPG_RATIO_148, //(x:133:532:1064)
+                       ap_pll_dp_hfs_op:    0x000000C0,
+                       ap_pll_dp_hfs_mfn:   0x00762762,
+                       ap_pll_dp_hfs_mfd:   0x01FFFFFE,
+		       divider_ratio:       ARM_AHB_IPG_RATIO_148,
                      },
         /* 740Mhz */ {
-                       ap_pll_dp_hfs_op:    0x000000E0, // Writing 0 to PDF(divide by 1) and E to MFI(MFI = 14)
-                       ap_pll_dp_hfs_mfn:   0x00762762, // Writing MFN as 7743330
-                       ap_pll_dp_hfs_mfd:   0x01FFFFFE, // Writing MFD as 33554430
-		       divider_ratio:       ARM_AHB_IPG_RATIO_148, //(x:133:532:1064)
+                       ap_pll_dp_hfs_op:    0x000000E0,
+                       ap_pll_dp_hfs_mfn:   0x00762762,
+                       ap_pll_dp_hfs_mfd:   0x01FFFFFE,
+		       divider_ratio:       ARM_AHB_IPG_RATIO_148,
                      },
 #endif /* CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740 */
 };
@@ -483,7 +483,7 @@ int mxc_pm_dither_control(int enable, enum plls pll_number);
 #define DPLL_MFN_TO_ABSOLUTE(val)  abs(SEXT(27,val))
 
 /*
- * Switching to PLL1 when the AP goes to DSM(Deep Sleep Mode) might cause some
+ * Switching to PLL1 when the AP goes to DSM might cause some
  * instability, so we're providing a means to disable this behavior
  * using pll0_on_in_ap_dsm in the Linux command line.  Add
  * "pll0_on_in_ap_dsm=on" to the command line to disable the behavior.
@@ -556,7 +556,7 @@ static int mxc_pm_chkvoltage(void)
  *
  * @return      DFS_ENABLE      Returns DFS_ENABLE indicating this bit
  *                              is set - implies Integer scaling is
- *                              enabled using DFS(Dynamic Frequency Scaling) dividers
+ *                              enabled using DFS dividers
  * @return      DFS_DISABLE     Returns DFS_DISABLE indicating this bit
  *                              is set - implies PLL(Phase Locked Loop)  scaling is used
  *
@@ -626,10 +626,10 @@ static void mxc_pm_chgvoltage(int val)
  * PLL(Phase Locked Loop) scaling by setting or clearing DFS_DIV_EN bit
  *
  * @param      dfs     DFS_ENABLE - Enables Integer scaling -
- *                     to use DFS(Dynamic Frequency Scaling) dividers by setting DFS_DIV_EN bit
+ *                     to use DFS dividers by setting DFS_DIV_EN bit
  *
  *                     DFS_DISABLE - Enables PLL scaling -
- *                     to not use DFS(Dynamic Frequency Scaling) dividers by clearing
+ *                     to not use DFS dividers by clearing
  *                     DFS_DIV_EN bit and also setting one of the
  *                     PLL scaling methods,
  *                     PLL using pat_ref or
@@ -651,12 +651,12 @@ static void mxc_pm_config_scale(dvfs_scale_t dfs)
 		     ~MXC_CRMAP_ADCR_DIV_BYP) & (~MXC_CRMAP_ADCR_ALT_PLL);
 		__raw_writel(adcr, MXC_CRMAP_ADCR);
 	} else if (dfs == DFS_DISABLE) {
-		/* Disable using DFS(Dynamic Frequency Scaling) divider to enable PLL scaling */
+		/* Disable using DFS divider to enable PLL scaling */
 
 #if defined (CONFIG_PLL_PATREF)
 		/*
 		 * pat_ref clock is used while PLL is relocking. Set CLK_ON bit to
-		 * use pat_ref. Also, set the DIV_BYP bit to bypass DFS(Dynamic Frequency Scaling) divider
+		 * use pat_ref. Also, set the DIV_BYP bit to bypass DFS divider
 		 * and clear ALT_PLL bit. Clear DFS_DIV_EN bit to select PLL scaling
 		 */
 		adcr =
@@ -695,7 +695,7 @@ static void mxc_pm_config_scale(dvfs_scale_t dfs)
 /*!
  * Setting possible LFDF value for Integer Scaling
  *
- * @param   value      The divider value to be set for the DFS(Dynamic Frequency Scaling) block.
+ * @param   value      The divider value to be set for the DFS block.
  *                     Possible values are 0,2,4,8.
  *                     This occurs during Integer scaling
  *
@@ -1020,8 +1020,8 @@ static void mxc_pm_chgfreq_common(dvfs_op_point_index_t dvfs_op_index)
  *                     CORE_532 - ARM desired to run @133MHz, HiV (1.6V)
  *                     The table or sequence os as follows where dividers
  *                     ratio includes, LFDF:ARM:AHB:IPG.
- *                          x ==> LFDF or DFS(Dynamic Frequency Scaling) dividers bypassed
- *                          Pass(revision) 1   Pass(revision) 2
+ *                          x ==> LFDF or DFS dividers bypassed
+ *                               Pass 1           Pass 2
  *                            PLL   Dividers    PLL   Dividers
  *                     133 =  266   x:2:2:4     532   4:1:1:2
  *                     266 =  266   x:1:2:4     532   2:1:2:4
@@ -1086,7 +1086,7 @@ static int mxc_pm_chgfreq(dvfs_op_point_t dvfs_op)
 
 		/*
 		 * There are two conditions,
-		 * 1. You have to be at Hi voltage to set DFS(Dynamic Frequency Scaling) dividers
+		 * 1. You have to be at Hi voltage to set DFS dividers
 		 * 2. If not at Hi voltage, then move to Hi voltage and
 		 * then set the dividers
 		 */
@@ -1099,7 +1099,7 @@ static int mxc_pm_chgfreq(dvfs_op_point_t dvfs_op)
 			mxc_pm_chgfreq(CORE_532);
 		}
 
-		/* Configure scaling type to Integer scaling - to use DFS(Dynamic Frequency Scaling) dividers */
+		/* Configure scaling type to Integer scaling - to use DFS dividers */
 		mxc_pm_config_scale(DFS_ENABLE);
 
 		/* Set LFDF to LFDF_4 so that LFDF:ARM:AHB:IPG is 4:1:1:2 */
@@ -1131,7 +1131,7 @@ static int mxc_pm_chgfreq(dvfs_op_point_t dvfs_op)
 
 		/*
 		 * There are two conditions,
-		 * 1. You have to be at Hi voltage to set DFS(Dynamic Frequency Scaling) dividers
+		 * 1. You have to be at Hi voltage to set DFS dividers
 		 * 2. If not at Hi voltage, then move to Hi voltage and
 		 * then set the dividers
 		 */
@@ -1140,7 +1140,7 @@ static int mxc_pm_chgfreq(dvfs_op_point_t dvfs_op)
 			mxc_pm_chgfreq(CORE_532);
 		}
 
-		/* Configure scaling type to Integer scaling - to use DFS(Dynamic Frequency Scaling) dividers */
+		/* Configure scaling type to Integer scaling - to use DFS dividers */
 		mxc_pm_config_scale(DFS_ENABLE);
 
 		/* Set LFDF to LFDF_2 so that LFDF:ARM:AHB:IPG is 2:1:2:4 */
@@ -1284,7 +1284,7 @@ static int mxc_pm_chgfreq(dvfs_op_point_t dvfs_op)
 			/* Now, raise the core voltage */
 			mxc_pm_chgvoltage(HI_VOLT);
 
-			/* Configure the scaling type - not use DFS(Dynamic Frequency Scaling) dividers */
+			/* Configure the scaling type - not use DFS dividers */
 			mxc_pm_config_scale(DFS_DISABLE);
 
 			/*
@@ -1411,7 +1411,7 @@ void mxc_pm_lowpower(int mode)
 
 	if ((__raw_readl(AVIC_VECTOR) & MXC_WFI_ENABLE) == 0) {
 		/*
-		 * If JTAG is connected then WFI(Wait-For-Instruction) is not enabled
+		 * If JTAG is connected then WFI is not enabled
 		 * So return
 		 */
 		return;
@@ -1465,9 +1465,9 @@ void mxc_pm_lowpower(int mode)
 	case DSM_MODE:
 		/*
 		 * High-Level Power Management should ensure all devices are
-		 * turned-off before entering DSM(Deep Sleep Mode) mode. This will ensure
-		 * that all acknowledgements (MXC_CRMAP_AMCR) are bypassed else DSM(Deep Sleep Mode) 
-		 * mode will not be entered
+		 * turned-off before entering DSM mode. This will ensure
+		 * that all acknowledgements (MXC_CRMAP_AMCR) are bypassed else DSM mode
+		 * will not be entered
 		 */
 
 #ifdef CONFIG_MOT_FEAT_PM
@@ -1510,7 +1510,7 @@ void mxc_pm_lowpower(int mode)
 
 			/*
 			 * Set PPD1 bit in CRM_COM CSCR to prevent
-			 * PLL1 off if BP only is in DSM(Deep Sleep Mode).
+			 * PLL1 off if BP only is in DSM.
 			 */
 			crmcom_cscr = __raw_readl(MXC_CRMCOM_CSCR);
 			__raw_writel((crmcom_cscr | CRM_COM_CSCR_PPD1), MXC_CRMCOM_CSCR);
@@ -1550,7 +1550,7 @@ void mxc_pm_lowpower(int mode)
 			 * it after we wake up.
 			 *
 			 * We are about to switch to PLL1 (DSPPLL)
-			 * while we are in DSM(Deep Sleep Mode) so we can turn off
+			 * while we are in DSM so we can turn off
 			 * PLL0 (MCUPLL).  We set the PLL dividers to
 			 * 1:2:4 because it satisfies the requirements
 			 * that SDRAM is <= 133Mhz and the SDRAM:IP
@@ -1590,7 +1590,7 @@ void mxc_pm_lowpower(int mode)
 			/*
 			 * Restore the CRM_COM CSCR.  This deasserts
 			 * the PPD1 bit in CRM_COM CSCR to allow PLL1
-			 * off if BP only is in DSM(Deep Sleep Mode).
+			 * off if BP only is in DSM.
 			 */
 			__raw_writel(crmcom_cscr, MXC_CRMCOM_CSCR);
 		}
@@ -1608,7 +1608,7 @@ void mxc_pm_lowpower(int mode)
 								MXC_DSM_CONTROL1);
 #endif /* CONFIG_MOT_FEAT_PM */
 
-		/* Enable DSM(Deep Sleep Mode) */
+		/* Enable DSM */
 		__raw_writel((__raw_readl(MXC_DSM_CONTROL0) |
 			      MXC_DSM_CONTROL0_MSTR_EN), MXC_DSM_CONTROL0);
 
@@ -1619,7 +1619,7 @@ void mxc_pm_lowpower(int mode)
 		__raw_writel(ctrl_slp, MXC_DSM_CONTROL1);
 
 #ifndef CONFIG_MOT_FEAT_PM
-		/* COUNT32 must not be reset between two DSM(Deep Sleep Mode) state machine transitions */
+		/* COUNT32 must not be reset between two DSM state machine transitions */
 		if (CONFIG_RESET_COUNT32) {
 			/* Set RST_COUNT32_EN bit */
 			__raw_writel((__raw_readl(MXC_DSM_CONTROL1) |
@@ -1635,7 +1635,7 @@ void mxc_pm_lowpower(int mode)
 
 #ifndef CONFIG_MOT_FEAT_PM
 		/* L1T is owned by BP => AP does not need to restart it */
-		/* AP DSM(Deep Sleep Mode) state machine looping between LOCKED and WAIT4SLEEP states */
+		/* AP DSM state machine looping between LOCKED and WAIT4SLEEP states */
 		/* Set RESTART bit */
 		__raw_writel((__raw_readl(MXC_DSM_CONTROL0) |
 			      MXC_DSM_CONTROL0_RESTART), MXC_DSM_CONTROL0);
@@ -1690,7 +1690,7 @@ void mxc_pm_lowpower(int mode)
 		break;
 
 	case DSM_MODE:
-                /* Reset DSM(Deep Sleep Mode) controller upon wakeup. */
+                /* Reset DSM controller upon wakeup. */
 
                 /* Clear sleep bit */
                 __raw_writel(__raw_readl(MXC_DSM_CONTROL1)
@@ -1712,7 +1712,7 @@ void mxc_pm_lowpower(int mode)
 	        __raw_writel(__raw_readl(MXC_DSM_MGPER)
                         & (~MXC_DSM_MGPER_EN_MGFX), MXC_DSM_MGPER);
 
-                /* End reset of DSM(Deep Sleep Mode) controller. */
+                /* End reset of DSM controller. */
 
 		/*** Current Drain Improvement ***/
 		/*** ONLY IF THE MEMORY IS NOT A DDRAM ***/
@@ -1769,7 +1769,7 @@ void mxc_pm_lowpower(int mode)
 
 			/*
 			 * Deassert PPD1 bit in CRM_COM CSCR to allow PLL1 off
-			 * if BP only is in DSM(Deep Sleep Mode)
+			 * if BP only is in DSM
 			 */
 			__raw_writel((__raw_readl(MXC_CRMCOM_CSCR) &
 						~CRM_COM_CSCR_PPD1), MXC_CRMCOM_CSCR);
@@ -1809,7 +1809,7 @@ void mxc_pm_lowpower(int mode)
 }
 
 /*!
- * Enables acknowledgement from module when entering stop or DSM(Deep Sleep Mode) mode.
+ * Enables acknowledgement from module when entering stop or DSM mode.
  *
  * @param   ack     The desired module acknowledgement to enable.
  *
@@ -1822,7 +1822,7 @@ void mxc_pm_lp_ack_enable(int ack)
 }
 
 /*!
- * Disables acknowledgement from module when entering stop or DSM(Deep Sleep Mode) mode.
+ * Disables acknowledgement from module when entering stop or DSM mode.
  *
  * @param   ack     The desired module acknowledgement to disable.
  *
@@ -1893,14 +1893,14 @@ static void mxc_pm_config_hfs(void)
 /*!
  * This function is used to synchronise HFSM bit and the LVS signal.
  * They are out of sync by default. So, moving to hi voltage
- * using Int DVFS(Dynamic Voltage Frequency Scaling) fixes this
+ * using Int DVFS fixes this
  *
  */
 static void mxc_pm_hfsm_sync(void)
 {
 	/*
 	 * HFSM bit gets synchronised with LVS after the initial low to high
-	 * Integer DVFS(Dynamic Voltage Frequency Scaling)
+	 * Integer DVFS
 	 */
 	unsigned long adcr_val;
 
@@ -1919,7 +1919,7 @@ static void mxc_pm_hfsm_sync(void)
 	/* Change voltage status */
 	mxc_pm_chgvoltage(HI_VOLT);
 
-	/* Reset to PLL Relock DVFS(Dynamic Voltage Frequency Scaling) at Hi voltage */
+	/* Reset to PLL Relock DVFS at Hi voltage */
 	adcr_val =
 	    (((__raw_readl(MXC_CRMAP_ADCR) | (MXC_CRMAP_ADCR_DIV_BYP)) &
 	      (~MXC_CRMAP_ADCR_DFS_DIVEN)) | (MXC_CRMAP_ADCR_CLK_ON)) &

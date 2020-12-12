@@ -537,7 +537,7 @@ static unsigned long mxc_get_clocks_pass1(enum mxc_clocks clk)
         switch (clk) {
         case CPU_CLK:
                 if ((adcr & MXC_CRMAP_ADCR_DIV_BYP) == 0) {
-                        // DFS(Dynamic Frequency Scaling) divider used
+                        // DFS divider used
                         lfdf = mxc_get_lfdf_value();
                 }
                 ret_val = ap_clk_pre_dfs / lfdf;
@@ -782,7 +782,7 @@ static unsigned long mxc_get_clocks_pass2(enum mxc_clocks clk)
         case CPU_CLK:
 		if (((adcr & MXC_CRMAP_ADCR_DIV_BYP) == 0) &&
 		    ((adcr & MXC_CRMAP_ADCR_VSTAT) != 0)) {
-                        // DFS(Dynamic Frequency Scaling) divider used
+                        // DFS divider used
                         lfdf = mxc_get_lfdf_value();
                 }
                 ret_val = ap_clk_pre_dfs / lfdf;
@@ -1503,7 +1503,7 @@ unsigned long mxc_set_dfm_clock(unsigned int freq)
 }
 
 /*!
- * This function returns the DFS(Dynamic Frequency Scaling) block divider - LFDF value
+ * This function returns the DFS block divider - LFDF value
  *
  * @return      Low Voltage frequency Divider Factor value
  */

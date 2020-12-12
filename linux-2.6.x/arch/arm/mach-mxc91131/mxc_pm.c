@@ -1220,8 +1220,7 @@ int mxc_pm_intscale(long armfreq, long ahbfreq, long ipfreq)
 
 	/*
 	 * If SDRAMC ratio issue and CRM issue exists, then AP_DIV may be 2.
-	 * So when doing Integer DVFS(Dynamic Voltage Frequency Scaling) ,
-	 * lfdf divider should be properly chosen to
+	 * So when doing Integer DVFS, lfdf divider should be properly chosen to
 	 * take this divide by 2 into account. The driver won't change the ARM
 	 * divider after LFDF divider is updated and voltage changes.
 	 */
@@ -1707,9 +1706,9 @@ static int __init mxc_pm_init_module(void)
 	 * Redboot will program both the Normal and HFS PLL registers
 	 * to 399 MHz and lock the PLL.
 	 *
-	 * We will do an Integer Scaling DVFS(Dynamic Voltage Frequency Scaling) 
-	 * transition to high voltage then a PLL Scaling transition 
-	 * to low voltage to synchronize the VSTAT and HFSM bits.
+	 * We will do an Integer Scaling DVFS transition to high voltage
+	 * then a PLL Scaling transition to low voltage to synchronize
+	 * the VSTAT and HFSM bits.
 	 */
 
 	mxc_pm_set_scaling_method(INTEGER_SCALING);
