@@ -3,7 +3,9 @@
 /*
  * Squashfs
  *
- * Copyright (c) 2002, 2003, 2004, 2005 Phillip Lougher <phillip@lougher.demon.co.uk>
+ * Copyright (c) 2002, 2003, 2004, 2005, 2006
+ * Phillip Lougher <phillip@lougher.org.uk>
+ * Copyright (C) 2007 Motorola Inc.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -27,22 +29,23 @@
  * 07-22-2005   Motorola  Applied patch to upmerge to version 2.2
  */
 
-typedef struct squashfs_inode_info {
-	unsigned int	start_block;
-	unsigned int	block_list_start;
+struct squashfs_inode_info {
+	long long	start_block;
 	unsigned int	offset;
 	union {
 		struct {
-			unsigned int	fragment_start_block;
+			long long	fragment_start_block;
 			unsigned int	fragment_size;
 			unsigned int	fragment_offset;
+			long long	block_list_start;
 		} s1;
 		struct {
-			unsigned int	directory_index_start;
+			long long	directory_index_start;
 			unsigned int	directory_index_offset;
 			unsigned int	directory_index_count;
+			unsigned int	parent_inode;
 		} s2;
 	} u;
 	struct inode	vfs_inode;
-	} squashfs_inode_info;
+};
 #endif
