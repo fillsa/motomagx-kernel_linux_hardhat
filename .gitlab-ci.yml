@@ -1,0 +1,81 @@
+# This file is a template, and might need editing before it works on your project.
+# use the official gcc image, based on debian
+# can use verions as well, like gcc:5.2
+# see https://hub.docker.com/_/gcc/
+stages:
+  - preparу
+  - preparу_build
+  - build
+  - test
+
+default: 
+  image: ubuntu:14.04
+  tags:
+    - gitlab-org #select gitlab ci runner
+
+variables:
+  SDK_TOOLCHAIN_LINK: https://github.com/fillsa/motomagx-SDK-toolchain
+  SDK_TOOLCHAIN_DIR: /opt/toolchain/motomagx/
+
+
+job_install_soft:
+  stage: preparу
+  before_script:
+    - echo "prebuild"
+  script: 
+    - apt update && apt install git wget -y
+
+
+job_get_toolchain:
+  stage: preparу_build
+  needs: [job_install_soft]
+  before_script:
+    - echo "get motomagx-toolchain."
+  script:
+    - mkdir -p /opt/toolchain/motomagx/ && cd /opt/toolchain/motomagx/
+    - git clone $SDK_TOOLCHAIN_LINK && mv motomagx-SDK-toolchain arm-eabi
+    - source /opt/toolchain/motomagx/set-env.sh
+    - echo `ls /opt/toolchain/motomagx/`
+
+
+job_get_platform_src:
+  stage: preparу_build
+  needs: [job_install_soft]
+  before_script:
+    - echo "get platform source."
+  script: 
+    - echo "get platform source"
+    - mkdir linuxjava && cd linuxjava
+    - wget https://sourceforge.net/projects/motozinezn5.motorola/files/MOTOZINE%20ZN5/R6637_G_81.11.2CR_128/platform-R6637_G_81.11.2CR_128.tgz/download -q -O- | tar -zxp
+    - echo `ls platform`
+    - cp -a ./platform/Makefile.top ./Makefile && sed -i 's/\/vobs\/jem\/cee4_lsp\/mobilinux\/devkit\/arm\/v6_vfp_le\/bin/\/opt\/toolchain\/motomagx\/bin/' ./Makefile
+    - echo `ls ./`
+
+job_get_and_build_src:
+  stage: build
+  needs:
+    - job: job_get_toolchain
+      optional: true
+    - job: job_install_soft
+      optional: true
+  before_script:
+    - echo "get hardhat source."
+  script: 
+    - echo "start build"
+    - echo `ls /opt/toolchain/motomagx/arm-eabi`
+    - git clone https://github.com/fillsa/motomagx-kernel_linux_hardhat
+    - echo `ls ./`
+    - make motomagx-kernel_linux_hardhat.dir
+#  only:
+#    - test-ci
+#    - if $CI_COMMIT_REF_NAME != $CI_DEFAULT_BRANCH
+#      when: on_success
+#  when: manual
+
+job_test 1:
+# run tests using the binary built before
+  stage: test
+  script:
+    - ./runmytests.sh
+  when: manual
+
