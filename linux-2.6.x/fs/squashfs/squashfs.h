@@ -1,8 +1,8 @@
 /*
  * Squashfs - a compressed read only filesystem for Linux
  *
- * Copyright (c) 2002, 2003, 2004, 2005, 2006
- * Phillip Lougher <phillip@lougher.org.uk>
+ * Copyright (c) 2002, 2003, 2004, 2005, 2006, 2007, 2008
+ * Phillip Lougher <phillip@lougher.demon.co.uk>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -49,19 +49,19 @@ static inline struct squashfs_inode_info *SQUASHFS_I(struct inode *inode)
 #define SQSH_EXTERN
 extern unsigned int squashfs_read_data(struct super_block *s, char *buffer,
 				long long index, unsigned int length,
-				long long *next_index);
-extern int squashfs_get_cached_block(struct super_block *s, char *buffer,
+				long long *next_index, int srclength);
+extern int squashfs_get_cached_block(struct super_block *s, void *buffer,
 				long long block, unsigned int offset,
 				int length, long long *next_block,
 				unsigned int *next_offset);
 extern void release_cached_fragment(struct squashfs_sb_info *msblk, struct
-					squashfs_fragment_cache *fragment);
-extern struct squashfs_fragment_cache *get_cached_fragment(struct super_block
+					squashfs_cache_entry *fragment);
+extern struct squashfs_cache_entry *get_cached_fragment(struct super_block
 					*s, long long start_block,
 					int length);
-extern struct address_space_operations squashfs_symlink_aops;
-extern struct address_space_operations squashfs_aops;
-extern struct address_space_operations squashfs_aops_4K;
+extern struct inode *squashfs_iget(struct super_block *s, squashfs_inode_t inode, unsigned int inode_number);
+extern /*const*/ struct address_space_operations squashfs_symlink_aops;
+extern /*const*/ struct address_space_operations squashfs_aops;
 extern struct inode_operations squashfs_dir_inode_ops;
 #else
 #define SQSH_EXTERN static
