@@ -4,8 +4,8 @@
 /*
  * Squashfs
  *
- * Copyright (c) 2002, 2003, 2004, 2005, 2006
- * Phillip Lougher <phillip@lougher.org.uk>
+ * Copyright (c) 2002, 2003, 2004, 2005, 2006, 2007, 2008
+ * Phillip Lougher <phillip@lougher.demon.co.uk>
  * Copyright (C) 2007 Motorola Inc.
  *
  * This program is free software; you can redistribute it and/or
@@ -34,16 +34,9 @@
 #define CONFIG_SQUASHFS_2_0_COMPATIBILITY
 #endif
 
-#ifdef	CONFIG_SQUASHFS_VMALLOC
-#define SQUASHFS_ALLOC(a)		vmalloc(a)
-#define SQUASHFS_FREE(a)		vfree(a)
-#else
-#define SQUASHFS_ALLOC(a)		kmalloc(a, GFP_KERNEL)
-#define SQUASHFS_FREE(a)		kfree(a)
-#endif
 #define SQUASHFS_CACHED_FRAGMENTS	CONFIG_SQUASHFS_FRAGMENT_CACHE_SIZE	
 #define SQUASHFS_MAJOR			3
-#define SQUASHFS_MINOR			0
+#define SQUASHFS_MINOR			1
 #define SQUASHFS_MAGIC			0x73717368
 #define SQUASHFS_MAGIC_SWAP		0x68737173
 #define SQUASHFS_START			0
@@ -53,10 +46,10 @@
 #define SQUASHFS_METADATA_LOG		13
 
 /* default size of data blocks */
-#define SQUASHFS_FILE_SIZE		65536
-#define SQUASHFS_FILE_LOG		16
+#define SQUASHFS_FILE_SIZE		131072
+#define SQUASHFS_FILE_LOG		17
 
-#define SQUASHFS_FILE_MAX_SIZE		65536
+#define SQUASHFS_FILE_MAX_SIZE		1048576
 
 /* Max number of uids and gids */
 #define SQUASHFS_UIDS			256
@@ -78,6 +71,7 @@
 #define SQUASHFS_NO_FRAG		4
 #define SQUASHFS_ALWAYS_FRAG		5
 #define SQUASHFS_DUPLICATE		6
+#define SQUASHFS_EXPORT			7
 
 #define SQUASHFS_BIT(flag, bit)		((flag >> bit) & 1)
 
@@ -99,13 +93,16 @@
 #define SQUASHFS_DUPLICATES(flags)		SQUASHFS_BIT(flags, \
 						SQUASHFS_DUPLICATE)
 
+#define SQUASHFS_EXPORTABLE(flags)		SQUASHFS_BIT(flags, \
+						SQUASHFS_EXPORT)
+
 #define SQUASHFS_CHECK_DATA(flags)		SQUASHFS_BIT(flags, \
 						SQUASHFS_CHECK)
 
 #define SQUASHFS_MKFLAGS(noi, nod, check_data, nof, no_frag, always_frag, \
-		duplicate_checking)	(noi | (nod << 1) | (check_data << 2) \
+		duplicate_checking, exportable)	(noi | (nod << 1) | (check_data << 2) \
 		| (nof << 3) | (no_frag << 4) | (always_frag << 5) | \
-		(duplicate_checking << 6))
+		(duplicate_checking << 6) | (exportable << 7))
 
 /* Max number of types and file types */
 #define SQUASHFS_DIR_TYPE		1
@@ -133,9 +130,8 @@
 
 #define SQUASHFS_COMPRESSED_BIT_BLOCK		(1 << 24)
 
-#define SQUASHFS_COMPRESSED_SIZE_BLOCK(B)	(((B) & \
-	~SQUASHFS_COMPRESSED_BIT_BLOCK) ? (B) & \
-	~SQUASHFS_COMPRESSED_BIT_BLOCK : SQUASHFS_COMPRESSED_BIT_BLOCK)
+#define SQUASHFS_COMPRESSED_SIZE_BLOCK(B)	((B) & \
+	~SQUASHFS_COMPRESSED_BIT_BLOCK)
 
 #define SQUASHFS_COMPRESSED_BLOCK(B)	(!((B) & SQUASHFS_COMPRESSED_BIT_BLOCK))
 
@@ -159,7 +155,7 @@
 #define SQUASHFS_MODE(a)		((a) & 0xfff)
 
 /* fragment and fragment table defines */
-#define SQUASHFS_FRAGMENT_BYTES(A)	(A * sizeof(struct squashfs_fragment_entry))
+#define SQUASHFS_FRAGMENT_BYTES(A)	((A) * sizeof(struct squashfs_fragment_entry))
 
 #define SQUASHFS_FRAGMENT_INDEX(A)	(SQUASHFS_FRAGMENT_BYTES(A) / \
 					SQUASHFS_METADATA_SIZE)
@@ -173,6 +169,22 @@
 
 #define SQUASHFS_FRAGMENT_INDEX_BYTES(A)	(SQUASHFS_FRAGMENT_INDEXES(A) *\
 						sizeof(long long))
+
+/* inode lookup table defines */
+#define SQUASHFS_LOOKUP_BYTES(A)	((A) * sizeof(squashfs_inode_t))
+
+#define SQUASHFS_LOOKUP_BLOCK(A)		(SQUASHFS_LOOKUP_BYTES(A) / \
+						SQUASHFS_METADATA_SIZE)
+
+#define SQUASHFS_LOOKUP_BLOCK_OFFSET(A)		(SQUASHFS_LOOKUP_BYTES(A) % \
+						SQUASHFS_METADATA_SIZE)
+
+#define SQUASHFS_LOOKUP_BLOCKS(A)	((SQUASHFS_LOOKUP_BYTES(A) + \
+					SQUASHFS_METADATA_SIZE - 1) / \
+					SQUASHFS_METADATA_SIZE)
+
+#define SQUASHFS_LOOKUP_BLOCK_BYTES(A)	(SQUASHFS_LOOKUP_BLOCKS(A) *\
+					sizeof(long long))
 
 /* cached data constants for filesystem */
 #define SQUASHFS_CACHED_BLKS		8
@@ -241,7 +253,7 @@ struct squashfs_super_block {
 	long long		inode_table_start;
 	long long		directory_table_start;
 	long long		fragment_table_start;
-	long long		unused;
+	long long		lookup_table_start;
 } __attribute__ ((packed));
 
 struct squashfs_dir_index {
@@ -397,7 +409,7 @@ extern int squashfs_uncompress_exit(void);
 	SQUASHFS_SWAP((s)->inode_table_start, d, 696, 64);\
 	SQUASHFS_SWAP((s)->directory_table_start, d, 760, 64);\
 	SQUASHFS_SWAP((s)->fragment_table_start, d, 824, 64);\
-	SQUASHFS_SWAP((s)->unused, d, 888, 64);\
+	SQUASHFS_SWAP((s)->lookup_table_start, d, 888, 64);\
 }
 
 #define SQUASHFS_SWAP_BASE_INODE_CORE(s, d, n)\
@@ -513,6 +525,8 @@ extern int squashfs_uncompress_exit(void);
 	SQUASHFS_SWAP((s)->size, d, 64, 32);\
 }
 
+#define SQUASHFS_SWAP_INODE_T(s, d) SQUASHFS_SWAP_LONG_LONGS(s, d, 1)
+
 #define SQUASHFS_SWAP_SHORTS(s, d, n) {\
 	int entry;\
 	int bit_position;\
@@ -554,6 +568,7 @@ extern int squashfs_uncompress_exit(void);
 }
 
 #define SQUASHFS_SWAP_FRAGMENT_INDEXES(s, d, n) SQUASHFS_SWAP_LONG_LONGS(s, d, n)
+#define SQUASHFS_SWAP_LOOKUP_BLOCKS(s, d, n) SQUASHFS_SWAP_LONG_LONGS(s, d, n)
 
 #ifdef CONFIG_SQUASHFS_1_0_COMPATIBILITY
 
@@ -611,6 +626,15 @@ struct squashfs_dir_inode_header_1 {
 	unsigned int		mtime;
 	unsigned int		start_block:24;
 } __attribute__  ((packed));
+
+union squashfs_inode_header_1 {
+	struct squashfs_base_inode_header_1	base;
+	struct squashfs_dev_inode_header_1	dev;
+	struct squashfs_symlink_inode_header_1	symlink;
+	struct squashfs_reg_inode_header_1	reg;
+	struct squashfs_dir_inode_header_1	dir;
+	struct squashfs_ipc_inode_header_1	ipc;
+};
 
 #define SQUASHFS_SWAP_BASE_INODE_CORE_1(s, d, n) \
 	SQUASHFS_MEMSET(s, d, n);\

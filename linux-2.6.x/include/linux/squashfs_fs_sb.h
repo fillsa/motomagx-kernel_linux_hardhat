@@ -3,8 +3,8 @@
 /*
  * Squashfs
  *
- * Copyright (c) 2002, 2003, 2004, 2005, 2006
- * Phillip Lougher <phillip@lougher.org.uk>
+ * Copyright (c) 2002, 2003, 2004, 2005, 2006, 2007, 2008
+ * Phillip Lougher <phillip@lougher.demon.co.uk>
  * Copyright (C) 2007 Motorola Inc.
  *
  * This program is free software; you can redistribute it and/or
@@ -32,18 +32,29 @@
 #include <linux/squashfs_fs.h>
 #include <linux/zlib.h>
 
-struct squashfs_cache {
+struct squashfs_cache_entry {
 	long long	block;
 	int		length;
+	int		locked;
 	long long	next_index;
+	char		pending;
+	char		error;
+	int		waiting;
+	wait_queue_head_t	wait_queue;
 	char		*data;
 };
 
-struct squashfs_fragment_cache {
-	long long	block;
-	int		length;
-	unsigned int	locked;
-	char		*data;
+struct squashfs_cache {
+	char *name;
+	int entries;
+	int block_size;
+	int next_blk;
+	int waiting;
+	int unused_blks;
+	int use_vmalloc;
+	spinlock_t lock;
+	wait_queue_head_t wait_queue;
+	struct squashfs_cache_entry entry[0];
 };
 
 struct squashfs_sb_info {
@@ -52,30 +63,23 @@ struct squashfs_sb_info {
 	int			devblksize_log2;
 	int			swap;
 	struct squashfs_cache	*block_cache;
-	struct squashfs_fragment_cache	*fragment;
-	int			next_cache;
-	int			next_fragment;
+	struct squashfs_cache	*fragment_cache;
 	int			next_meta_index;
 	unsigned int		*uid;
 	unsigned int		*guid;
 	long long		*fragment_index;
 	unsigned int		*fragment_index_2;
-	unsigned int		read_size;
-	char			*read_data;
 	char			*read_page;
-	struct semaphore	read_data_mutex;
-	struct semaphore	read_page_mutex;
-	struct semaphore	block_cache_mutex;
-	struct semaphore	fragment_mutex;
-	struct semaphore	meta_index_mutex;
-	wait_queue_head_t	waitq;
-	wait_queue_head_t	fragment_wait_queue;
+	struct semaphore		read_data_mutex;
+	struct semaphore		read_page_mutex;
+	struct semaphore		meta_index_mutex;
 	struct meta_index	*meta_index;
 	z_stream		stream;
-	struct inode		*(*iget)(struct super_block *s,  squashfs_inode_t
+	long long		*inode_lookup_table;
+	int			(*read_inode)(struct inode *i,  squashfs_inode_t \
 				inode);
-	long long		(*read_blocklist)(struct inode *inode, int
-				index, int readahead_blks, char *block_list,
+	long long		(*read_blocklist)(struct inode *inode, int \
+				index, int readahead_blks, char *block_list, \
 				unsigned short **block_p, unsigned int *bsize);
 	int			(*read_fragment_index_table)(struct super_block *s);
 };

@@ -1373,16 +1373,16 @@ config ROOT_CRAMFS_LINEAR
 	  linear CramFs image to boot with).
 
 config SQUASHFS
-	tristate "SquashFS 3.1 - Squashed file system support"
+	tristate "SquashFS 3.4 - Squashed file system support"
 	select ZLIB_INFLATE
 	help
-	  Saying Y here includes support for SquashFS 3.1 (a Compressed Read-Only File
+	  Saying Y here includes support for SquashFS 3.4 (a Compressed Read-Only File
 	  System).  Squashfs is a highly compressed read-only filesystem for Linux.
 	  It uses zlib compression to compress both files, inodes and directories.
 	  Inodes in the system are very small and all blocks are packed to minimise
-	  data overhead. Block sizes greater than 4K are supported up to a maximum of 64K.
-	  SquashFS 3.1 supports 64 bit filesystems and files (larger than 4GB), full
-	  uid/gid information, hard links and timestamps.
+	  data overhead. Block sizes greater than 4Kare supported up to a maximum of 1 Mbytes 
+	  (default block size 128K). SquashFS 3.3 supports 64 bit filesystems and files
+	  (larger than 4GB), full uid/gid information, hard links and timestamps.
 
 	  Squashfs is intended for general read-only filesystem use, for archival
 	  use (i.e. in cases where a .tar.gz file may be used), and in embedded
@@ -1422,20 +1422,6 @@ config SQUASHFS_FRAGMENT_CACHE_SIZE
 
 	  Note there must be at least one cached fragment.  Anything
 	  much more than three will probably not make much difference.
-
-config SQUASHFS_VMALLOC
-	bool "Use Vmalloc rather than Kmalloc" if SQUASHFS_EMBEDDED
-	depends on SQUASHFS
-	default n
-	help
-	  By default SquashFS uses kmalloc to obtain fragment cache memory.
-	  Kmalloc memory is the standard kernel allocator, but it can fail
-	  on memory constrained systems.  Because of the way Vmalloc works,
-	  Vmalloc can succeed when kmalloc fails.  Specifying this option
-	  will make SquashFS always use Vmalloc to allocate the
-	  fragment cache memory.
-
-	  If unsure, say N.
 
 config VXFS_FS
 	tristate "FreeVxFS file system support (VERITAS VxFS(TM) compatible)"
