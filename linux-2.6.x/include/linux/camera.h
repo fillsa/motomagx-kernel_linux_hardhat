@@ -118,7 +118,7 @@ Motorola            08/15/2006     Implement common driver
 
 /*!
  * These are the registers for the read/write camera module and the CIF 
- * (Intel PXA27x processer quick capture interface)
+ * (Intel PXA27x (Bulverde) processer quick capture interface)
  * The following 4 ioctl interfaces are used for debugging and are not open to developers
  */
 #define WCAM_VIDIOCSCAMREG   	211
@@ -142,7 +142,7 @@ Motorola            08/15/2006     Implement common driver
  *   interface). Image data from the camera module can be converted to other formats through
  *   the CIF. val2 specifies the final output format of the video device.
  *   
- *   For more description on CIF please refer to the Intel PXA27x processor family developer's manual.
+ *   For more description on CIF please refer to the Intel PXA27x (Bulverde) processor family developer's manual.
  *     http://www.intel.com/design/pca/prodbref/253820.html 
  */
 #define WCAM_VIDIOCSINFOR	    215
@@ -578,7 +578,7 @@ struct V4l_IMAGE_FRAME
  *Image format definitions
  *Remarks:
  *  Although not all formats are supported by all camera modules, YCBCR422_PLANAR is widely supported. 
- *  For detailed information on each format please refer to the Intel PXA27x processor family developer's manual. 
+ *  For detailed information on each format please refer to the Intel PXA27x (Bulverde) processor family developer's manual. 
  *     http://www.intel.com/design/pca/prodbref/253820.html
  * 
  */

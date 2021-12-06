@@ -30,7 +30,7 @@ config PXA25x
 config PXA27x
 	bool
 	help
-	  Select code specific to PXA27x variants
+	  Select code specific to PXA27x (Bulverde) variants
 
 config IWMMXT
 	bool

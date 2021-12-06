@@ -16,7 +16,7 @@
  *    Jan 2003: Fixed several bugs concerning interrupt handling [Kai-Uwe Bloem]
  *    Jan 2003: added limited signal handling [Kai-Uwe Bloem]
  *    Sep 2004: Major rework to ensure efficient bus handling [RMK]
- *    Dec 2004: Added support for PXA27x and slave device probing [Liam Girdwood]
+ *    Dec 2004: Added support for PXA27x (Bulverde) and slave device probing [Liam Girdwood]
  */
 
 #include <linux/kernel.h>

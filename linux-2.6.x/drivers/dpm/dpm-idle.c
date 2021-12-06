@@ -43,7 +43,7 @@
  ****************************************************************************/
 
 /*
-   The idle handler is one of the most important parts of DPM, as very
+   The idle handler is one of the most important parts of DPM (Dynamic Power Management), as very
    significant amounts of energy are saved by moving to a low-power idle state
    whenever possible.  The basic coding of the core of this routine is simply:
 
@@ -55,7 +55,7 @@
    especially to reduce the latencies associated with going in and out of idle.
    Idle power can be greatly reduced by moving to a very low-frequency
    operating point, but we also need to be aware of the impact on interrupt
-   latencies.  The DPM implementation of idle attempts to balance these
+   latencies.  The DPM (Dynamic Power Management) implementation of idle attempts to balance these
    competing needs.
 
    We support 2 "idle" states: DPM_IDLE_TASK_STATE and DPM_IDLE_STATE.  The
@@ -106,7 +106,7 @@ full_idle(struct dpm_opt *idle_task_opt, struct dpm_opt *idle_opt)
 }
 
 
-/* If DPM is currently disabled here we simply do the standard
+/* If DPM (Dynamic Power Management) is currently disabled here we simply do the standard
    idle wait.
 
    If we're not actually in DPM_IDLE_TASK_STATE, we need to go back and get

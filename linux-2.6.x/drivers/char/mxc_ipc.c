@@ -31,10 +31,10 @@
  * @file mxc_ipc.c
  *
  * @brief This file provides all the kernel level and user level API
- * definitions for all kind of transfers between MCU and DSP core.
+ * definitions for all kind of transfers between MCU and DSP (Digital Signal Processor) core.
  *
  * The Interfaces are with respect to the MCU core. Any driver or user-space
- * application on the MCU side can transfer messages or data to the DSP side
+ * application on the MCU side can transfer messages or data to the DSP (Digital Signal Processor) side
  * using the interfaces implemented here.
  *
  * @ingroup IPC
@@ -142,8 +142,8 @@
 
 /*!
  * Physical channels used to implement IPC channels.
- * This defines depends on channels used on DSP side
- * i.e. if the DSP uses SDMA channel 1 to do writes,
+ * This defines depends on channels used on DSP (Digital Signal Processor) side
+ * i.e. if the DSP (Digital Signal Processor) uses SDMA channel 1 to do writes,
  * we must use SDMA channel 1 to receive data.
  *
  * Currently we use 8 physical channels to implement the
@@ -1382,7 +1382,7 @@ static int mu_start_mcu_transfer(struct ipc_priv_data *priv,
  */
 static int mu_start_mcu_transfer_kernel(struct mu_channel *mu)
 {
-	DPRINTK("writing bytes to DSP\n");
+	DPRINTK("writing bytes to DSP (Digital Signal Processor)\n");
 	mxc_mu_bind(mu->index, &mu_write_tasklet_kernel, TX);
 	mxc_mu_intenable(mu->index, TX);
 
@@ -1465,7 +1465,7 @@ static int sdma_start_mcu_transfer_kernel(struct ipc_channel *ipc_chn,
 	sdma = &ipc_chn->ch.sdma;
 	memset(&sdma_request, 0, sizeof(dma_request_t));
 
-	DPRINTK("writing %d bytes to DSP\n", count);
+	DPRINTK("writing %d bytes to DSP (Digital Signal Processor)\n", count);
 
 	sdma_request.sourceAddr = (__u8 *) sdma->wpaddr;
 	sdma_request.count = count;

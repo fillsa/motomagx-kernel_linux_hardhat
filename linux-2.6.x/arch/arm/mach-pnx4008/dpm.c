@@ -1,7 +1,7 @@
 /*
  * arch/arm/mach-pnx4008/dpm.c
  *
- * DPM driver for PNX4008
+ * DPM (Dynamic Power Management) driver for PNX4008
  *
  * Authors: Vitaly Wool, Dmitry Chigirev <source@mvista.com>
  *

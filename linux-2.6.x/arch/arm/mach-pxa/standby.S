@@ -1,5 +1,5 @@
 /*
- * PXA27x standby mode
+ * PXA27x (Bulverde) standby mode
  *
  * Author: David Burrage
  *

@@ -1,5 +1,5 @@
 /*
- * power-dpm.c -- Dynamic Power Management LDM power hooks
+ * power-dpm.c -- DPM (Dynamic Power Management) LDM power hooks
  *
  * (c) 2003 MontaVista Software, Inc. This file is licensed under the
  * terms of the GNU General Public License version 2. This program is
@@ -258,7 +258,7 @@ constraints_store(struct device * dev, struct device_attribute *attr,
 	num_args = sscanf(cp, "%d %d", &min, &max);
 
 	if (num_args != 2) {
-		printk("DPM: Need 2 integer parameters for constraint min/max.\n");
+		printk("DPM (Dynamic Power Management): Need 2 integer parameters for constraint min/max.\n");
 		ret = -EINVAL;
 		goto out;
 	}
@@ -269,7 +269,7 @@ constraints_store(struct device * dev, struct device_attribute *attr,
 	}
 
 	if (paramid >= DPM_PP_NBR) {
-		printk("DPM: Unknown power parameter name in device constraints\n");
+		printk("DP (Dynamic Power Management): Unknown power parameter name in device constraints\n");
 		ret = -EINVAL;
 		goto out;
 	}
@@ -294,7 +294,7 @@ constraints_store(struct device * dev, struct device_attribute *attr,
 
 	/* Error if max is less than min */
 	if (max < min) {
-		printk("DPM: Max value of the constraint should not be less than min\n");
+		printk("DPM (Dynamic Power Management): Max value of the constraint should not be less than min\n");
 		ret = -EINVAL;
 		goto out;
 	}

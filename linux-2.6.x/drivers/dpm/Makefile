@@ -1,5 +1,5 @@
 #
-# Makefile for the kernel DPM driver.
+# Makefile for the kernel DPM (Dynamic Power Management) driver.
 #
 
 obj-$(CONFIG_DPM)		+= dpm.o dpm-idle.o dpm-ui.o

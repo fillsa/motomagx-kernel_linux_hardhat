@@ -30,10 +30,10 @@
  * @file mxc_mu.c
  *
  * @brief This file provides all the kernel level and user level API
- * definitions for the message transfer between MCU and DSP core.
+ * definitions for the message transfer between MCU and DSP (Digital Signal Processor) core.
  *
  * The Interfaces are with respect to the MCU core. Any driver on the MCU side
- * can transfer messages to the DSP side using the interfaces implemented here.
+ * can transfer messages to the DSP (Digital Signal Processor) side using the interfaces implemented here.
  *
  * @ingroup MU
  */
@@ -656,7 +656,7 @@ static irqreturn_t mxc_mu_mcutxhand(int irq, void *dev_id, struct pt_regs *regs)
 }
 
 /*!
- * This function is used by other modules to issue DSP hardware reset.
+ * This function is used by other modules to issue DSP (Digital Signal Processor) hardware reset.
  *
  */
 int mxc_mu_dsp_reset(void)
@@ -673,7 +673,7 @@ int mxc_mu_dsp_reset(void)
 }
 
 /*!
- * This function is used by other modules to deassert DSP hardware reset
+ * This function is used by other modules to deassert DSP (Digital Signal Processor) hardware reset
  */
 int mxc_mu_dsp_deassert(void)
 {
@@ -689,8 +689,8 @@ int mxc_mu_dsp_deassert(void)
 }
 
 /*!
- * This function is used by other modules to issue DSP Non-Maskable
- * Interrupt to the DSP
+ * This function is used by other modules to issue DSP (Digital Signal Processor) Non-Maskable
+ * Interrupt to the DSP (Digital Signal Processor)
  */
 int mxc_mu_dsp_nmi(void)
 {
@@ -706,9 +706,9 @@ int mxc_mu_dsp_nmi(void)
 }
 
 /*!
- * This function is used by other modules to retrieve the DSP reset state.
+ * This function is used by other modules to retrieve the DSP (Digital Signal Processor) reset state.
  *
- * @return   Returns 1 if DSP in reset state and 0 otherwise
+ * @return   Returns 1 if DSP (Digital Signal Processor) in reset state and 0 otherwise
  */
 int mxc_mu_dsp_reset_status(void)
 {
@@ -716,18 +716,18 @@ int mxc_mu_dsp_reset_status(void)
 		return -EBUSY;
 	}
 	if ((readl(AS_MUMSR) & AS_MUMSR_DRS) != 0) {
-		/* 1 implies the DSP side of MU is in reset state */
+		/* 1 implies the DSP (Digital Signal Processor) side of MU is in reset state */
 		return 1;
 	} else {
-		/* 0 implies the DSP side of MU is not in reset state */
+		/* 0 implies the DSP (Digital Signal Processor) side of MU is not in reset state */
 		return 0;
 	}
 }
 
 /*!
- * This function is used by other modules to retrieve the DSP Power Mode.
+ * This function is used by other modules to retrieve the DSP (Digital Signal Processor) Power Mode.
  *
- * @return   Returns a value from which power mode of the DSP side of
+ * @return   Returns a value from which power mode of the DSP (Digital Signal Processor) side of
  *           of MU unit can be inferred
  *           0 - Run mode,  1 - Wait mode
  *           2 - Stop mode, 3 - DSM mode
@@ -760,7 +760,7 @@ void mxc_mu_set_ioi_response(unsigned int swtch)
 
 /*!
  * This function is used by other modules to reset the MU Unit. This would reset
- * both the MCU side and the DSP side
+ * both the MCU side and the DSP (Digital Signal Processor) side
  *
  */
 int mxc_mu_reset(void)

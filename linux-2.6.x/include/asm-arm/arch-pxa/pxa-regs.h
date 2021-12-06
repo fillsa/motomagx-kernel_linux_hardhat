@@ -581,7 +581,7 @@
 
 /*
  * USB Device Controller
- * PXA25x and PXA27x USB device controller registers are different.
+ * PXA25x and PXA27x (Bulverde) USB device controller registers are different.
  */
 #if defined(CONFIG_PXA25x)
 

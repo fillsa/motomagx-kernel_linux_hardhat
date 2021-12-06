@@ -18,7 +18,7 @@ config DPM
 	  If in doubt, say N.
 
 config DPM_STATS
-	bool "  Enable DPM Statistics Gathering"
+	bool "  Enable DPM (Dynamic Power Management) Statistics Gathering"
 	depends on DPM
 	help
 	  This enables gathering and reporting statistics for DPM.
@@ -30,11 +30,11 @@ config DPM_STATS
 
 
 config DPM_PROCFS
-	bool "  Enable old DPM /proc interface (deprecated)"
+	bool "  Enable old DPM (Dynamic Power Management) /proc interface (deprecated)"
 	depends on DPM && PROC_FS
 	help
 	  This enables the /proc/driver/dpm interface for controlling
-	  DPM.  Please note that it is recommended to use the sysfs
+	  DPM (Dynamic Power Management).  Please note that it is recommended to use the sysfs
 	  interface instead (which is built automatically).
 
 	  If in doubt, say N.

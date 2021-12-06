@@ -16,7 +16,7 @@
  *
  * @brief This file contains the SDMA TTY public declarations.
  *
- * SDMA TTY driver is used for moving data between MCU and DSP using line discipline API.
+ * SDMA TTY driver is used for moving data between MCU and DSP (Digital Signal Processor) using line discipline API.
  *
  * @ingroup SDMA
  */
@@ -42,7 +42,7 @@
 #define IPC_NB_CH_BIDIR  2
 
 /*!
- * This defines a number of mono directional channels from DSP to MCU  driver instances
+ * This defines a number of mono directional channels from DSP (Digital Signal Processor) to MCU  driver instances
  */
 #define IPC_NB_CH_DSPMCU 4
 

@@ -1,5 +1,5 @@
 /*
- * include/linux/dpm.h  DPM policy management
+ * include/linux/dpm.h  DPM (Dynamic Power Management) policy management
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by

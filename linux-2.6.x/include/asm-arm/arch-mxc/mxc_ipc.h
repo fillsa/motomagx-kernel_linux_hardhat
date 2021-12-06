@@ -63,7 +63,7 @@ typedef enum {
  * There are currently three types of channels:
  *
  * - Short Message channels. Used to transfer 32-bits
- *   messages from MCU to DSP and vice versa
+ *   messages from MCU to DSP (Digital Signal Processor) and vice versa
  *
  * - Packet Data channels. Useful to transfer data between
  *   the two cores.

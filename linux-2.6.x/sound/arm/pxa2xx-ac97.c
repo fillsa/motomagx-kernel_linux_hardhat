@@ -117,7 +117,7 @@ static void pxa2xx_ac97_reset(ac97_t *ac97)
 
 	gsr_bits = 0;
 #ifdef CONFIG_PXA27x
-	/* PXA27x Developers Manual section 13.5.2.2.1 */
+	/* PXA27x (Bulverde) Developers Manual section 13.5.2.2.1 */
 	pxa_set_cken(1 << 31, 1);
 	udelay(5);
 	pxa_set_cken(1 << 31, 0);

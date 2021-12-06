@@ -56,7 +56,7 @@ static struct MvDAC table_c0[] = {
 
 /*
  *  Transfer desired mv to required DAC value, update for new boards,
- *  according to "Intel PXA27x Processor Developer's Kit User's Guide,
+ *  according to "Intel PXA27x (Bulverde) Processor Developer's Kit User's Guide,
  *  April 2004, Revision 4.001"
  *  Vcore = 1.5V - (587uV * DAC(input)).
  */

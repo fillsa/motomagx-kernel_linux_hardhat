@@ -1,6 +1,6 @@
 /* REVISIT Doxygen fixups */
 /*
- * DPM support for Freescale i.MX31
+ * DPM (Dynamic Power Management) support for Freescale i.MX31
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@
 /*!
  * @file dpm.c
  *
- * @brief This file provides DPM support hooks for the Freescale i.MX31
+ * @brief This file provides DPM (Dynamic Power Management) support hooks for the Freescale i.MX31
  *
  * @ingroup DPM
  */
@@ -270,12 +270,12 @@ read_proc_dpm_md_opts(char *page, char **start, off_t offset,
 		return -ERESTARTSYS;
 
 	if (!dpm_initialized)
-		len += sprintf(page + len, "DPM is not initialized\n");
+		len += sprintf(page + len, "DPM (Dynamic Power Management) is not initialized\n");
 	else if (!dpm_enabled)
-		len += sprintf(page + len, "DPM is disabled\n");
+		len += sprintf(page + len, "DPM (Dynamic Power Management) is disabled\n");
 	else {
 		len += sprintf(page + len,
-			       "The active DPM policy is \"%s\"\n",
+			       "The active DPM (Dynamic Power Management) policy is \"%s\"\n",
 			       dpm_active_policy->name);
 		len += sprintf(page + len,
 			       "The current operating point is \"%s\"\n",
@@ -311,7 +311,7 @@ read_proc_dpm_md_opts(char *page, char **start, off_t offset,
  *
  * /proc/driver/dpm/md/cmd (Write-only)
  *
- *  This is a catch-all, simple command processor for the MX31 DPM
+ *  This is a catch-all, simple command processor for the MX31 DPM (Dynamic Power Management)
  *  implementation. These commands are for experimentation and development
  *  _only_, and may leave the system in an unstable state.
  *
@@ -390,7 +390,7 @@ static void mxc_dpm_cleanup(void)
 
 static int __init mxc_dpm_init(void)
 {
-	printk("Freescale i.MX31 Dynamic Power Management.\n");
+	printk("Freescale i.MX31 Dynamic Power Management (DPM).\n");
 
 	dpm_md.init_opt = mxc_dpm_init_opt;
 	dpm_md.set_opt = mxc_dpm_set_opt;

@@ -130,7 +130,7 @@
 #define FB_ACCEL_SUPERSAVAGE    0x8c    /* S3 Supersavage               */
 #define FB_ACCEL_PROSAVAGE_DDR  0x8d	/* S3 ProSavage DDR             */
 #define FB_ACCEL_PROSAVAGE_DDRK 0x8e	/* S3 ProSavage DDR-K           */
-#define FB_ACCEL_PXA27X         0x8f    /* PXA27X                       */
+#define FB_ACCEL_PXA27X         0x8f    /* PXA27X Bulverde              */
 
 struct fb_fix_screeninfo {
 	char id[16];			/* identification string eg "TT Builtin" */

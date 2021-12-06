@@ -38,7 +38,7 @@
 #define MCU_MCR_REGISTER        IO_ADDRESS(MU_BASE_ADDR + 0x24)
 
 /*
- * Control register to reset and to disable security mode on DSP core.
+ * Control register to reset and to disable security mode on DSP (Digital Signal Processor) core.
  */
 #define REG_SPBA_INIT_IIM        IO_ADDRESS(SPBA_CTRL_BASE_ADDR + 0x1C)
 #define REG_DSP_HAB_TYPE         IO_ADDRESS(IIM_BASE_ADDR + 0x814)
@@ -67,7 +67,7 @@
 
 /*
  * This variable holds address of MSR register. We need this register to
- * issue a DSP reset and to disable security mode.
+ * issue a DSP (Digital Signal Processor) reset and to disable security mode.
  */
 volatile unsigned long *mcu_msr_register =
     (volatile unsigned long *)MCU_MSR_REGISTER;
@@ -93,10 +93,10 @@ volatile unsigned long *iim_hab_register =
 static int dsp_boot_on = 0;
 
  /*!
-  * This function issues a DSP hardware reset. It executes
+  * This function issues a DSP (Digital Signal Processor) hardware reset. It executes
   * three steps:
   *
-  *  1) Sets DSP Hardware Reset bit into MU module - MCR register
+  *  1) Sets DSP (Digital Signal Processor) Hardware Reset bit into MU module - MCR register
   *  2) De-asserts DSP Hardware Reset bit
   *  3) Executes an active wait until DSP is out of reset state.
   *
@@ -111,7 +111,7 @@ void reset_dsp(void)
 }
 
 /*!
- *  Disables security mode for DSP
+ *  Disables security mode for DSP (Digital Signal Processor)
  *
  *  @return   No return value
  */
@@ -152,7 +152,7 @@ static int __init do_dsp_params(char *param, char *val)
 /*!
  * This function search for 'dspboot' in kernel's command line
  * options and checks its value. if value is 'on', a startapp_request
- * will be sent to DSP core in order to start an image. Otherwise
+ * will be sent to DSP (Digital Signal Processor) core in order to start an image. Otherwise
  * none request is sent
  *
  * @return      Returns 1 if dspboot option = 'on'
@@ -172,7 +172,7 @@ int dsp_parse_cmdline(const char *cmdline)
 }
 
 /*!
- * this function sends a jump vector to DSP
+ * this function sends a jump vector to DSP (Digital Signal Processor)
  * in order to resume execution of a previously
  * downloaded executable image.
  *
@@ -199,10 +199,10 @@ void dsp_startapp_request(void)
 
 	physical_addr = __pa((volatile void *)virtual_addr);
 
-	/* Send a start application request to the DSP */
+	/* Send a start application request to the DSP (Digital Signal Processor) */
 	*mcu_mtr0_register = STARTAPP_REQUEST;
 
-	/* Send the start physical address to the DSP */
+	/* Send the start physical address to the DSP (Digital Signal Processor) */
 	*mcu_mtr1_register = physical_addr;
 
 	/* Wait for the DSP response */
@@ -211,9 +211,9 @@ void dsp_startapp_request(void)
 	/*check if DSP has acknowledged our request */
 	if ((*mcu_mrr0_register & 0x000000FF) != STARTAPP_RESPONSE)
 		printk
-		    ("STARCORE: DSP core DOES NOT acknowledged STARTAPP request!!\n");
+		    ("STARCORE: DSP (Digital Signal Processor) core DOES NOT acknowledged STARTAPP request!!\n");
 	else
-		printk("STARCORE: DSP core acknowledged STARTAPP request\n");
+		printk("STARCORE: DSP (Digital Signal Processor) core acknowledged STARTAPP request\n");
 
 	kfree(virtual_addr);
 }
@@ -222,19 +222,19 @@ int dsp_memwrite_request(unsigned long addr, unsigned long word)
 {
 	int res = 0;
 
-	/* Send a write application request to the DSP */
+	/* Send a write application request to the DSP (Digital Signal Processor) */
 	*mcu_mtr0_register = 0x00010001;
 
-	/* Send the write address to the DSP */
+	/* Send the write address to the DSP (Digital Signal Processor) */
 	*mcu_mtr1_register = addr;
 
 	/* Send data to write to StarCore */
 	*mcu_mtr2_register = word;
 
-	/* Wait for the DSP response */
+	/* Wait for the DSP (Digital Signal Processor) response */
 	while (!(*mcu_msr_register & 0x08000000)) ;
 
-	/*return response of DSP */
+	/*return response of DSP (Digital Signal Processor) */
 	res = (int)(*mcu_mrr0_register & 0x000000FF);
 	return res;
 }

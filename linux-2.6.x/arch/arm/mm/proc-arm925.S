@@ -112,7 +112,7 @@ ENTRY(cpu_arm925_proc_fin)
  */
 	.align	5
 ENTRY(cpu_arm925_reset)
-	/* Send software reset to MPU and DSP */
+	/* Send software reset to MPU and DSP (Digital Signal Processor) */
 	mov	ip, #0xff000000
 	orr	ip, ip, #0x00fe0000
 	orr	ip, ip, #0x0000ce00

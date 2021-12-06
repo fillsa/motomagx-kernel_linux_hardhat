@@ -1,6 +1,6 @@
 /*
  * linux/drivers/usb/gadget/pxa27x_udc.c
- * Intel pxa27x on-chip full speed USB device controller
+ * Intel pxa27x (Bulverde) on-chip full speed USB device controller
  *
  * Copyright (C) 2002 Intrinsyc, Inc. (Frank Becker)
  * Copyright (C) 2003 Robert Schwebel, Pengutronix

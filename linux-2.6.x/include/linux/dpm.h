@@ -1,5 +1,5 @@
 /*
- * include/linux/dpm.h  DPM policy management
+ * include/linux/dpm.h  DPM (Dynamic Power Management) policy management
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,7 +37,7 @@
 
 /* The above and following constants must always be defined for the
    benefit of the init task and system tasks, although they are
-   otherwise ignored if DPM is not configured. */
+   otherwise ignored if DPM (Dynamic Power Management) is not configured. */
 
 #define DPM_TASK_STATE 0
 #define dpm_set_os(task_state) do {} while (0);
@@ -50,7 +50,7 @@
 #include <linux/unistd.h>
 #include <linux/notifier.h>
 
-/* max size of DPM names */
+/* max size of DPM (Dynamic Power Management) names */
 enum {DPM_NAME_SIZE=256};
 
 #include <linux/dpm-trace.h>
@@ -76,7 +76,7 @@ typedef int dpm_md_pp_t;
 
 /* A table of processor-dependent routines, must be initialized by
    platform-dependent boot code.  None of the entries (that will actually be
-   called) are allowed to be NULL if DPM is enabled. */
+   called) are allowed to be NULL if DPM (Dynamic Power Management) is enabled. */
 
 struct dpm_opt;
 
@@ -166,10 +166,10 @@ struct dpm_policy {
 };
 
 /*
- * internal use utility functions for use by DPM
+ * internal use utility functions for use by DPM (Dynamic Power Management)
  */
 
-/* DPM semaphore locking. To simplify future expansion, don't 'down' _dpm_lock
+/* DPM (Dynamic Power Management) semaphore locking. To simplify future expansion, don't 'down' _dpm_lock
    directly.  Also, _dpm_lock must be 'up'ed only by dpm_unlock(). */
 
 extern struct semaphore _dpm_lock;
@@ -203,23 +203,23 @@ void dpm_idle(void);
 void dpm_set_os(dpm_state_t state);
 
 /*
- * names of DPM stuff for userspace interfaces
+ * names of DPM (Dynamic Power Management) stuff for userspace interfaces
  */
 
 extern char *dpm_state_names[DPM_STATES];
 extern char *dpm_param_names[DPM_PP_NBR];
 
-/* initialize/terminate the DPM */
+/* initialize/terminate the DPM (Dynamic Power Management) */
 int dynamicpower_init(void);
 int dynamicpower_terminate(void);
 
-/* (temporarily) disable the DPM */
+/* (temporarily) disable the DPM (Dynamic Power Management) */
 int dynamicpower_disable(void);
 
-/* re-enable the DPM */
+/* re-enable the DPM (Dynamic Power Management) */
 int dynamicpower_enable(void);
 
-/* suspend/resume DPM across a system shutdown */
+/* suspend/resume DPM (Dynamic Power Management) across a system shutdown */
 int dynamicpm_suspend(void);
 void dynamicpm_resume(void);
 

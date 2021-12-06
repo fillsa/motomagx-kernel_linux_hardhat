@@ -55,13 +55,13 @@
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
  * /proc/driver/dpm/cmd (Write-Only)
  *
- * Writing a string to this file is equivalent to issuing a DPM command.
+ * Writing a string to this file is equivalent to issuing a DPM (Dynamic Power Management) command.
  * Currently only one command per "write" is allowed, and there is a maximum on
  * the number of tokens that will be accepted (PAGE_SIZE / sizeof(char *)).
- * DPM can be initialized by a linewise copy of a configuration file to this
+ * DPM (Dynamic Power Management) can be initialized by a linewise copy of a configuration file to this
  * /proc file.
  *
- * DPM Control
+ * DPM (Dynamic Power Management) Control
  * -----------
  *
  * init          : dynamicpower_init()
@@ -410,7 +410,7 @@ read_proc_dpm_opt_stats(char *page, char **start, off_t offset,
  *               the operating state and operating point are out of sync.
  * hz          = The frequency of the statistics timer
  *
- * If DPM is disabled the line will appear as:
+ * If DPM (Dynamic Power Management) is disabled the line will appear as:
  *
  * N/A -1 N/A N/A N/A <hz>
  *

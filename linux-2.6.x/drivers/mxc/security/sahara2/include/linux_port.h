@@ -65,7 +65,7 @@
 
 #include <linux/device.h>           /* used in dynamic power management */
 
-#include <asm/arch/clock.h>         /* clock en/disable for DPM */
+#include <asm/arch/clock.h>         /* clock en/disable for DPM (Dynamic Power Management) */
 
 #include <linux/dmapool.h>
 #include <linux/dma-mapping.h>

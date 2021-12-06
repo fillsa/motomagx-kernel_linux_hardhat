@@ -15,7 +15,7 @@
 #define DSP_BRINGUP_H
 
 /*
- * Define a default start address for any DSP image
+ * Define a default start address for any DSP (Digital Signal Processor) image
  */
 #define IMAGE_START_ADDRESS      0x00008170
 

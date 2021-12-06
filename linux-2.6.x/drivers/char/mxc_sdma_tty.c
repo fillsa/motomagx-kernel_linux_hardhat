@@ -15,7 +15,7 @@
  * @file mxc_sdma_tty.c
  * @brief This file contains functions for SDMA TTY driver
  *
- * SDMA TTY driver is used for moving data between MCU and DSP using line discipline API
+ * SDMA TTY driver is used for moving data between MCU and DSP (Digital Signal Processor) using line discipline API
  *
  * @ingroup SDMA
  */
@@ -68,7 +68,7 @@
 
 /*!
  * This define returns 1 if the device is unidirectional
- * DSP to MCU
+ * DSP (Digital Signal Processor) to MCU
  */
 #define DSPMCU_DEVICE(line) line < (IPC_NB_CH_BIDIR + IPC_NB_CH_DSPMCU) && \
                             line >= IPC_NB_CH_BIDIR
@@ -763,5 +763,5 @@ module_init(sdma_tty_init);
 module_exit(sdma_tty_exit);
 
 MODULE_AUTHOR("Freescale Semiconductor, Inc.");
-MODULE_DESCRIPTION("MXC SDMA TTY driver");
+MODULE_DESCRIPTION("MXC SDMA (Shared DMA) TTY driver");
 MODULE_LICENSE("GPL");

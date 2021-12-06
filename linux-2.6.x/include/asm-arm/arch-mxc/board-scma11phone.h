@@ -119,7 +119,7 @@
 #define MXCIPU_MEM_SIZE         (SZ_4M + SZ_1M)
 #endif /* CONFIG_MOT_FEAT_IPU_MEM_ADDR */
 /*!
- * Size of DSP image in SDRAM 
+ * Size of DSP (Digital Signal Processor) image in SDRAM 
  */
 #define DSP_MEM_SIZE		SZ_4M
 /*!

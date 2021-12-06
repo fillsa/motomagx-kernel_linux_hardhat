@@ -85,17 +85,17 @@ unsigned long dpm_compute_lpj(unsigned long ref, u_int div, u_int mult)
 
 /****************************************************************************
 
-DPM Synchronization and Operating Point Changes
+DPM (Dynamic Power Management) Synchronization and Operating Point Changes
 ===============================================
 
-There are 2 aspects to synchronization in DPM: First, the usual requirement of
+There are 2 aspects to synchronization in DPM (Dynamic Power Management): First, the usual requirement of
 serializing access to shared data structures, and second, the idea of
 synchronizing the operating point and the current operating state.  The second
 condition arises because setting an operating point may complete asynchronously
 for a number of reasons, whereas the operating state change that causes the
 operating point change succeeds immediately.
 
-Access to most of the global variables representing the current state of DPM
+Access to most of the global variables representing the current state of DPM (Dynamic Power Management)
 and the current policy are protected by a spinlock, dpm_policy_lock.  The use
 of this lock appears in only a few critical places.
 
@@ -131,7 +131,7 @@ operating point:
 int dpm_set_opt_async()
 int dpm_set_opt_sync();
 
-Neither of these interfaces takes parameters since under DPM the operating
+Neither of these interfaces takes parameters since under DPM (Dynamic Power Management) the operating
 point to select is always implied by the current policy and operating state.
 If the system is already at the correct operating point then no change is
 required or made.  To avoid deadlock, the caller must not be holding the
@@ -200,7 +200,7 @@ int dpm_initialized;
 struct dpm_stats dpm_state_stats[DPM_STATES];
 
 /*
- * Start counting DPM stats from the time DPM was enabled... in the case of
+ * Start counting DPM stats from the time DPM (Dynamic Power Management) was enabled... in the case of
  * operating states the stats are updated from the time userspace is started.
  */
 
@@ -281,7 +281,7 @@ dpm_choose_opt(struct dpm_policy *policy, int state)
 
 /*****************************************************************************
  * dpm_next_opt() returns the operating point that needs to be activated next,
- * or NULL if the operating point is up-to-date or the DPM system is disabled.
+ * or NULL if the operating point is up-to-date or the DPM (Dynamic Power Management) system is disabled.
  * Since this call looks at the value of the current operating point, it can
  * only be made when the _dpm_lock is held.
  *****************************************************************************/
@@ -303,7 +303,7 @@ dpm_next_opt(void)
 }
 
 /*****************************************************************************
- * Set the operating point implied by the current DPM policy. These calls can
+ * Set the operating point implied by the current DPM (Dynamic Power Management) policy. These calls can
  * only be made while holding _dpm_lock, and the release of
  * _dpm_lock is implied by the call (see below).
  *****************************************************************************/
@@ -321,7 +321,7 @@ dpm_set_opt(struct dpm_opt *new, unsigned flags)
 		return 0;
 	}
 
-	/* Support for setting the operating point when DPM is not running, and
+	/* Support for setting the operating point when DPM (Dynamic Power Management) is not running, and
 	   setting the first operating point. */
 
 	if (!dpm_enabled || !dpm_active_opt) {
@@ -422,7 +422,7 @@ dpm_resync_task(unsigned long ignore)
 }
 
 /*****************************************************************************
- * unlock the DPM
+ * unlock the DPM (Dynamic Power Management)
  *
  * If the operating point and operating state are not in sync when _dpm_lock is
  * released, a tasklet is launched to resynchronize them. A tasklet is used
@@ -454,7 +454,7 @@ dpm_unlock(void)
  *
  * The normal case that occurs during task scheduling, where we go from task
  * state to task state, is quickly ignored, as are changes to the
- * DPM_NO_STATE and changes when DPM is not running.  Otherwise,
+ * DPM_NO_STATE and changes when DPM (Dynamic Power Management) is not running.  Otherwise,
  * dpm_enter_state() has advertised that we are in a new state, and indicates
  * whether an operating point change is required.
  *
@@ -466,7 +466,7 @@ dpm_unlock(void)
  *
  * The 'quick' variant (in dpm.h) is called out separately to reduce latency
  * for critical operating state changes where the following are known: 1) The
- * dpm_policy_lock is held and/or interrupts are properly disabled.  2) DPM is
+ * dpm_policy_lock is held and/or interrupts are properly disabled.  2) DPM (Dynamic Power Management) is
  * enabled.  3) The new state is neither DPM_NO_STATE nor the same as the
  * active state.  4) Any operating point change is being handled elsewhere.
  *****************************************************************************/
@@ -503,7 +503,7 @@ dpm_enter_state(int new_state)
 /*****************************************************************************
  * set operating state
  *
- * This is used by the kernel to inform the DPM that the operating state has
+ * This is used by the kernel to inform the DPM (Dynamic Power Management) that the operating state has
  * changed and that a new operating point should (possibly) be set as a
  * result.
  *
@@ -532,14 +532,14 @@ dynamicpower_init(void)
 	trace("in dynamicpower_init\n");
 
 	if (dpm_initialized) {
-		trace("DPM already initialized");
+		trace("DPM (Dynamic Power Management) already initialized");
 		return -EALREADY;
 	}
 
 	/* mutex-style semaphore for access to policies and opts */
 	init_MUTEX(&_dpm_lock);
 
-	dpm_active_policy = 0;	/* this leaves the DPM temporarily
+	dpm_active_policy = 0;	/* this leaves the DPM (Dynamic Power Management) temporarily
 				   disabled until a policy is
 				   activated */
 	dpm_enabled = 0;
@@ -547,13 +547,13 @@ dynamicpower_init(void)
 	dpm_active_state = DPM_TASK_STATE;
 
 
-	trace("DPM is now initialized\n");
+	trace("DPM (Dynamic Power Management) is now initialized\n");
 
 	return 0;
 }
 
 /*****************************************************************************
- * (temporarily) disable the DPM
+ * (temporarily) disable the DPM (Dynamic Power Management)
  *****************************************************************************/
 int
 dynamicpower_disable(void)
@@ -581,7 +581,7 @@ dynamicpower_disable(void)
 }
 
 /*****************************************************************************
- * re-enable the DPM
+ * re-enable the DPM (Dynamic Power Management)
  * dpm_enabled = 1 implies that DPM is initialized and there is an active
  * policy. The 'enable' call is really designed to be used after a temporary
  * 'disable'.  All that's required to start DPM is to initialize it and set a
@@ -619,13 +619,13 @@ dynamicpower_enable(void)
 }
 
 /*****************************************************************************
- * Suspend/Resume DPM
+ * Suspend/Resume DPM (Dynamic Power Management)
  * The current operating point is saved and restored. This
  * interface is designed to be used by system suspend/resume code, to safely
  * save/restore the DPM operating point across a system power-down, where the
  * firmware may resume the system at a random operating point.  This does not
- * require DPM to be enabled. Note that DPM remains locked across the
- * suspend/resume.
+ * require DPM (Dynamic Power Management) to be enabled. Note that DPM (Dynamic Power Management)
+ * remains locked across the suspend/resume.
  *****************************************************************************/
 
 static struct dpm_opt suspend_opt = { name : "[Suspended Op. Point]" };
@@ -660,7 +660,7 @@ dynamicpm_resume(void)
 	trace("in dpm_resume\n");
 
 	if (suspended_opt) {
-		dpm_active_opt = NULL;	/* Force reinitialization of DPM */
+		dpm_active_opt = NULL;	/* Force reinitialization of DPM (Dynamic Power Management) */
 		dpm_active_class = NULL;
 		dpm_set_opt(suspended_opt, DPM_SYNC);
 		suspended_opt = NULL;
@@ -1033,7 +1033,7 @@ dpm_set_op_state(const char *name)
 }
 
 /*****************************************************************************
- * terminate the DPM
+ * terminate the DPM (Dynamic Power Management)
  *****************************************************************************/
 int
 dynamicpower_terminate(void)
@@ -1066,7 +1066,7 @@ dynamicpower_terminate(void)
 	mb();
 	dpm_unlock();
 
-	trace("DPM is now terminated\n");
+	trace("DPM (Dynamic Power Management) is now terminated\n");
 	printk("Dynamic Power Management is now terminated\n");
 
 	return 0;
@@ -1095,7 +1095,7 @@ dpm_init_module(void)
 	for (i = 0; i < DPM_PP_NBR; i++)
 		nop_op.pp[i] = -1;
 
-	trace("DPM is now installed\n");
+	trace("DPM (Dynamic Power Management) is now installed\n");
 	return 0;
 }
 
@@ -1108,7 +1108,7 @@ dpm_exit_module(void)
 	/* disable power management policy system */
 	dynamicpower_terminate();
 
-	trace("DPM module is now unloaded\n");
+	trace("DPM (Dynamic Power Management) module is now unloaded\n");
 }
 
 module_init(dpm_init_module);

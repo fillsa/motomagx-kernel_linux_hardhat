@@ -1,7 +1,7 @@
 /*
  * include/asm-arm/arch-pnx4008/dpm.h
  *
- * DPM driver for PNX4008 - header file
+ * DPM (Dynamic Power Management) driver for PNX4008 - header file
  *
  * Authors: Vitaly Wool, Dmitry Chigirev <source@mvista.com>
  *
@@ -19,7 +19,7 @@
  * machine dependent operating state
  *
  * An operating state is a cpu execution state that has implications for power
- * management. The DPM will select operating points based largely on the
+ * management. The DPM (Dynamic Power Management) will select operating points based largely on the
  * current operating state.
  *
  * DPM_STATES is the number of supported operating states. Valid operating
@@ -93,7 +93,7 @@ typedef __u64 dpm_md_time_t;
 /* Time in microseconds for dpm stats*/
 #define dpm_md_time() (get_cycles() * CLOCK_TICK_RATE / 1000000)
 
-/* Instances of this structure define valid PNX4008 operating points for DPM.
+/* Instances of this structure define valid PNX4008 operating points for DPM (Dynamic Power Management).
    Voltages are represented in mV, and frequencies are represented in KHz. */
 
 struct dpm_md_opt {

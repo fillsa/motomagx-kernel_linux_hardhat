@@ -1,7 +1,7 @@
 /*
  * arch/arm/mach-pxa/gpio.c
  *
- * Additional GPIO class driver support for PXA27x.
+ * Additional GPIO class driver support for PXA27x (Bulverde).
  *
  * Author: Todd Poynor <tpoynor@mvista.com>
  *

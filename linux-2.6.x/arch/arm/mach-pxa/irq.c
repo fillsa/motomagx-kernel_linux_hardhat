@@ -28,7 +28,7 @@
 /*
  * This is for peripheral IRQs internal to the PXA chip.
  * Using coprocessor-register access mode instead of 
- * memory-mapped-register access mode for PXA27x family
+ * memory-mapped-register access mode for PXA27x (Bulverde) family
  * to reduce access times.
  */
 
@@ -67,7 +67,7 @@ static struct irqchip pxa_internal_chip_low = {
 #if PXA_INTERNAL_IRQS > 32
 
 /*
- * This is for the second set of internal IRQs as found on the PXA27x.
+ * This is for the second set of internal IRQs as found on the PXA27x (Bulverde).
  */
 
 static void pxa_mask_high_irq(unsigned int irq)
@@ -302,7 +302,7 @@ void __init pxa_init_irq(void)
 	GEDR2 = GEDR2;
 
 #ifdef CONFIG_PXA27x
-	/* And similarly for the extra regs on the PXA27x */
+	/* And similarly for the extra regs on the PXA27x (Bulverde) */
 	ICMR2 = 0;
 	ICLR2 = 0;
 	GFER3 = 0;

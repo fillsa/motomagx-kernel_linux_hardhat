@@ -1,5 +1,5 @@
 /*
- * arch/arm/mach-pxa/bulverde_dpm.c  DPM support for Intel PXA27x (Bulverde)
+ * arch/arm/mach-pxa/bulverde_dpm.c  DPM (Dynamic Power Management) support for Intel PXA27x (Bulverde)
  *
  * Author: <source@mvista.com>
  *
@@ -961,11 +961,11 @@ static void calculate_reg_values(struct dpm_md_opt *opt)
 
 	if ( (opt->l > 1) && (opt->cpll_enabled == 0) ) {
 	  	 printk(KERN_WARNING
-		  "DPM: internal error if l>1 CPLL must be On\n");
+		  "DPM (Dynamic Power Management): internal error if l>1 CPLL must be On\n");
 	}
 	if( (opt->cpll_enabled == 1) && (opt->ppll_enabled == 0) ){
 	  	 printk(KERN_WARNING
-		 "DPM: internal error CPLL=On PPLL=Off is NOT supported in hardware\n");
+		 "DPM (Dynamic Power Management): internal error CPLL=On PPLL=Off is NOT supported in hardware\n");
  	}
 	if(opt->cpll_enabled == 0) {
 	 	 opt->regs.cccr |= (CCCR_CPDIS_BIT_ON);
@@ -1021,7 +1021,7 @@ int dpm_bulverde_init_opt(struct dpm_opt *opt)
 	/* Check if voltage is correct */
 	if(v < -1){
 		printk(KERN_WARNING
-	       "DPM: incorrect voltage %d\n",
+	       "DPM (Dynamic Power Management): incorrect voltage %d\n",
 		       v);
 		return -EINVAL;
 	}
@@ -1083,14 +1083,14 @@ int dpm_bulverde_init_opt(struct dpm_opt *opt)
 	}
 
 	if (half_turbo > 1) {
-		printk(KERN_WARNING "DPM: Half-Turbo must be 0 or 1 (%d)\n",
+		printk(KERN_WARNING "DPM (Dynamic Power Management): Half-Turbo must be 0 or 1 (%d)\n",
 		       half_turbo);
 		return -EINVAL;
 	}
 
 	if (b > 1) {
 		printk(KERN_WARNING
-		       "DPM: Fast-Bus Mode (B) must be 0 or 1 (%d)\n", b);
+		       "DPM (Dynamic Power Management): Fast-Bus Mode (B) must be 0 or 1 (%d)\n", b);
 		return -EINVAL;
 	}
 
@@ -1356,11 +1356,11 @@ void dpm_bulverde_fully_define_opt(struct dpm_md_opt *cur,
 	/* for "B0"-revision PLLs have the same value */
 	new->ppll_enabled = new->cpll_enabled;
 #endif
-		/*PXA27x manual ("Yellow book") 3.5.5 (Table 3-7) states that CPLL-"On" and
+		/*PXA27x (Bulverde) manual ("Yellow book") 3.5.5 (Table 3-7) states that CPLL-"On" and
 		 *PPLL-"Off"
 		 *configuration is forbidden (all others seam to be OK for "B0")
 		 *for "C0" boards we suppose that this configuration is also enabled.
-		 *PXA27x manual ("Yellow book") also states at 3.5.7.1 (page 3-25)
+		 *PXA27x (Bulverde) manual ("Yellow book") also states at 3.5.7.1 (page 3-25)
 		 *that "CCCR[PPDIS] and CCCR[CPDIS] must always be identical and
 		 *changed together". "If PLLs are to be turned off using xPDIS then
 		 *set xPDIS before frequency change and clear xPDIS after frequency
@@ -1393,7 +1393,7 @@ void dpm_bulverde_fully_define_opt(struct dpm_md_opt *cur,
 		saved_loops_per_jiffy = loops_per_jiffy;
 		saved_cpu_freq = cur->cpu;
 	}
-	/* now DPM core have
+	/* now DPM (Dynamic Power Management) core have
 	 * a dedicated method for updating jiffies when frequency is changed
 	 */
 	if (new->cpu) {
@@ -1846,12 +1846,12 @@ read_proc_dpm_md_opts(char *page, char **start, off_t offset,
 	if (dpm_lock_interruptible())
 		return -ERESTARTSYS;
 	if (!dpm_initialized)
-		len += sprintf(page + len, "DPM is not initialized\n");
+		len += sprintf(page + len, "DPM (Dynamic Power Management) is not initialized\n");
 	else if (!dpm_enabled)
-		len += sprintf(page + len, "DPM is disabled\n");
+		len += sprintf(page + len, "DPM (Dynamic Power Management) is disabled\n");
 	else {
 		len += sprintf(page + len,
-			       "The active DPM policy is \"%s\"\n",
+			       "The active DPM (Dynamic Power Management) policy is \"%s\"\n",
 			       dpm_active_policy->name);
 		len += sprintf(page + len,
 			       "The current operating point is \"%s\"\n",
@@ -1887,9 +1887,9 @@ read_proc_dpm_md_opts(char *page, char **start, off_t offset,
  *
  * /proc/driver/dpm/md/cmd (Write-only)
  *
- *  This is a catch-all, simple command processor for the Bulverde DPM
- *  implementation. These commands are for experimentation and development
- *  _only_, and may leave the system in an unstable state.
+ *  This is a catch-all, simple command processor for the Intel PXA Bulverde
+ *  DPM (Dynamic Power Management) implementation. These commands are 
+ *  for experimentation and development _only_, and may leave the system in an unstable state.
  *
  *  No commands defined now.
  *
@@ -1964,7 +1964,7 @@ int __init dpm_bulverde_init(void)
 {
 	printk("Mainstone bulverde Dynamic Power Management\n");
 	/* NOTE: none of dpm_md member function pointers  (that will actually be
-	   called) are allowed to be NULL if DPM is enabled
+	   called) are allowed to be NULL if DPM (Dynamic Power Management) is enabled
 	   (see linux/dpm.h for details)
 	 */
 	dpm_md.init_opt = dpm_bulverde_init_opt;

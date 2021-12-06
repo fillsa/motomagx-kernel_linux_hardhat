@@ -63,7 +63,7 @@ enum {
 
 enum mvista_events {
 	LTT_EV_DEFINE_NAME = LTT_MVISTA_EV_BASE - 1,	/* Provide the name of an object */
-	LTT_EV_DPM	/* Dynamic Power Management */
+	LTT_EV_DPM	/* DPM (Dynamic Power Management) */
 };
 
 #define LTT_MVISTA_EV_MIN	LTT_EV_DEFINE_NAME

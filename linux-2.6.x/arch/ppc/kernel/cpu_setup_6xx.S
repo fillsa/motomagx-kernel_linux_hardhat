@@ -153,7 +153,7 @@ setup_750_7400_hid0:
 	mfspr	r11,HID0
 	ori	r11,r11,HID0_SGE | HID0_ABE | HID0_BHTE | HID0_BTIC
 BEGIN_FTR_SECTION
-	oris	r11,r11,HID0_DPM@h	/* enable dynamic power mgmt */
+	oris	r11,r11,HID0_DPM@h	/* enable dynamic power mgmt (DPM) */
 END_FTR_SECTION_IFCLR(CPU_FTR_NO_DPM)
 	li	r3,HID0_SPD
 	andc	r11,r11,r3		/* clear SPD: enable speculative */

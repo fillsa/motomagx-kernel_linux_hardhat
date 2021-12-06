@@ -115,17 +115,17 @@
  */
 
 /*!
- * SENDINT      : To issue general purpose interrupt to DSP
+ * SENDINT      : To issue general purpose interrupt to DSP (Digital Signal Processor)
  */
 #define SENDINT                  1
 
 /*!
- * SENDNMI      : To issue NMI to DSP
+ * SENDNMI      : To issue NMI to DSP (Digital Signal Processor)
  */
 #define SENDNMI                  2
 
 /*!
- * SENDDSPRESET : To issue DSP Hardware Reset
+ * SENDDSPRESET : To issue DSP (Digital Signal Processor) Hardware Reset
  */
 #define SENDDSPRESET             3
 
@@ -347,37 +347,37 @@ int mxc_mu_intdisable(int chand, enum mu_oper muoper);
 
 /*!
  * This function is used by other modules to reset the MU Unit. This would reset
- * both the MCU side and the DSP side
+ * both the MCU side and the DSP (Digital Signal Processor) side
  */
 int mxc_mu_reset(void);
 
 /*!
- * This function is used by other modules to issue DSP hardware reset.
+ * This function is used by other modules to issue DSP (Digital Signal Processor) hardware reset.
  */
 int mxc_mu_dsp_reset(void);
 
 /*!
- * This function is used by other modules to deassert DSP hardware reset.
+ * This function is used by other modules to deassert DSP (Digital Signal Processor) hardware reset.
  */
 int mxc_mu_dsp_deassert(void);
 
 /*!
- * This function is used by other modules to issue DSP Non-Maskable
+ * This function is used by other modules to issue DSP (Digital Signal Processor) Non-Maskable
  * Interrupt to the DSP
  */
 int mxc_mu_dsp_nmi(void);
 
 /*!
- * This function is used by other modules to retrieve the DSP reset state.
+ * This function is used by other modules to retrieve the DSP (Digital Signal Processor) reset state.
  *
- * @return   Returns 1 if DSP in reset state and 0 otherwise
+ * @return   Returns 1 if DSP (Digital Signal Processor) in reset state and 0 otherwise
  */
 int mxc_mu_dsp_reset_status(void);
 
 /*!
- * This function is used by other modules to retrieve the DSP Power Mode.
+ * This function is used by other modules to retrieve the DSP (Digital Signal Processor) Power Mode.
  *
- * @return   Returns a value from which power mode of the DSP side of
+ * @return   Returns a value from which power mode of the DSP (Digital Signal Processor) side of
  *           of MU unit can be inferred
  *           0 - Run mode,  1 - Wait mode
  *           2 - Stop mode, 3 - DSM mode

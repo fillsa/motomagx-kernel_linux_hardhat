@@ -1,5 +1,5 @@
 /*
- * arch/arm/mach-omap/omap_dpm.c  DPM support for TI OMAP
+ * arch/arm/mach-omap/omap_dpm.c  DPM (Dynamic Power Management) support for TI OMAP
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -507,7 +507,7 @@ dpm_omap_cleanup(void)
 int __init
 dpm_omap_init(void)
 {
-	printk("TI OMAP Dynamic Power Management.\n");
+	printk("TI OMAP Dynamic Power Management (DPM).\n");
 	dpm_md.init_opt		= dpm_omap_init_opt;
 	dpm_md.set_opt		= dpm_omap_set_opt;
 	dpm_md.get_opt		= dpm_omap_get_opt;

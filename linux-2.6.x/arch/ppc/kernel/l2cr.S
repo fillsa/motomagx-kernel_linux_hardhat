@@ -121,13 +121,13 @@ END_FTR_SECTION_IFSET(CPU_FTR_ALTIVEC)
 
 	/* Before we perform the global invalidation, we must disable dynamic
 	 * power management via HID0[DPM] to work around a processor bug where
-	 * DPM can possibly interfere with the state machine in the processor
+	 * DPM (Dynamic Power Management) can possibly interfere with the state machine in the processor
 	 * that invalidates the L2 cache tags.
 	 */
 	mfspr	r8,HID0			/* Save HID0 in r8 */
 	rlwinm	r4,r8,0,12,10		/* Turn off HID0[DPM] */
 	sync
-	mtspr	HID0,r4			/* Disable DPM */
+	mtspr	HID0,r4			/* Disable DPM (Dynamic Power Management) */
 	sync
 
 	/* Get the current enable bit of the L2CR into r4 */
