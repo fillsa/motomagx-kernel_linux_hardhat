@@ -77,9 +77,17 @@ config MOT_FEAT_DOWN_TIMEOUT
 
 config FEAT_MXC31_CORE_OVERCLOCK_740
 	bool "freq 636 and 740"
+	depends on !FEAT_MXC31_CORE_OVERCLOCK_780
 	default n
 	help
 	  add mcu core overclock freq 636 and 740
+	
+config FEAT_MXC31_CORE_OVERCLOCK_780
+	bool "freq 665 and 780"
+	depends on !FEAT_MXC31_CORE_OVERCLOCK_740
+	default n
+	help
+	  add mcu core overclock freq 665 and 780
 	  
 config MOT_FEAT_POWERUP_LOGO
 	bool "Powerup LOGO Feature"

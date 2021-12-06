@@ -37,6 +37,7 @@
  * 11/23/2007   Motorola  Add BT LED debug option processing
  * 01/08/2008   Motorola  Changed some debug information. 
  * 		EXL, Ant-On, fill.sa add cpu core overclock freq 636 and 740 & test stable and temperature
+ * 		        fill.sa add right and max cpu core overclock freq 665 and 780
  */
 
 
@@ -294,9 +295,11 @@ static DEFINE_RAW_SPINLOCK(dvfs_lock);
 #define L2CC_LATENCY_266 0x00000012
 #define L2CC_LATENCY_399 0x0000001B
 #define L2CC_LATENCY_532 0x00000024
-#ifdef CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740
+#if defined (CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740) || defined (CONFIG_FEAT_MXC31_CORE_OVERCLOCK_780)
 	#define L2CC_LATENCY_636 0x00000036
 	#define L2CC_LATENCY_740 0x0000003F
+	#define L2CC_LATENCY_665 0x00000036
+	#define L2CC_LATENCY_780 0x0000003F
 #endif /* CONFIG_MOT_FEAT_CORE_740 */
 #endif /* CONFIG_MOT_FEAT_PM */
 
@@ -325,9 +328,12 @@ typedef enum {
 #ifdef CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740
 	CORE_636 = CORE_FREQ_636,
 	CORE_740 = CORE_FREQ_740,
+#elif CONFIG_FEAT_MXC31_CORE_OVERCLOCK_780
+	CORE_665 = CORE_FREQ_665,
+	CORE_780 = CORE_FREQ_780,
 #endif /* CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740 */
 } dvfs_op_point_t;
-#else
+#else /* else CONFIG_MOT_FEAT_PM */
 /*!
  * Enumerations of operating points
  */
@@ -339,9 +345,12 @@ typedef enum {
 #ifdef CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740
         CORE_636 = 636,
         CORE_740 = 740,
+#elif CONFIG_FEAT_MXC31_CORE_OVERCLOCK_780
+        CORE_665 = 665,
+        CORE_780 = 780,
 #endif /* CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740 */
 } dvfs_op_point_t;
-#endif
+#endif /* end CONFIG_MOT_FEAT_PM */
 
 #ifdef CONFIG_MOT_FEAT_PM
 /*
@@ -388,6 +397,10 @@ static unsigned int l2cc_latency[NUM_DVFSOP_INDEXES] = {
                                                            L2CC_LATENCY_532,
                                                            L2CC_LATENCY_636,
                                                            L2CC_LATENCY_740
+#elif CONFIG_FEAT_MXC31_CORE_OVERCLOCK_780
+                                                           L2CC_LATENCY_532,
+                                                           L2CC_LATENCY_665,
+                                                           L2CC_LATENCY_780
 #else
                                                            L2CC_LATENCY_532
 #endif /* CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740 */
@@ -443,6 +456,19 @@ static ap_pll_mfn_values_t opinfo[NUM_DVFSOP_INDEXES] = {
         /* 740Mhz */ {
                        ap_pll_dp_hfs_op:    0x000000E0, // Writing 0 to PDF(divide by 1) and E to MFI(MFI = 14)
                        ap_pll_dp_hfs_mfn:   0x00762762, // Writing MFN as 7743330
+                       ap_pll_dp_hfs_mfd:   0x01FFFFFE, // Writing MFD as 33554430
+		       divider_ratio:       ARM_AHB_IPG_RATIO_148, //(x:133:532:1064)
+                     },
+#elif CONFIG_FEAT_MXC31_CORE_OVERCLOCK_780
+        /* 665Mhz */ {
+                       ap_pll_dp_hfs_op:    0x000000C0, // Writing 0 to PDF(divide by 1) and C to MFI(MFI = 12)
+                       ap_pll_dp_hfs_mfn:   0x0193B13A, // Writing MFN as 26456378
+                       ap_pll_dp_hfs_mfd:   0x01FFFFFE, // Writing MFD as 33554430
+		       divider_ratio:       ARM_AHB_IPG_RATIO_148, //(x:133:532:1064)
+                     },
+        /* 780Mhz */ {
+                       ap_pll_dp_hfs_op:    0x000000F0, // Writing 0 to PDF(divide by 1) and F to MFI(MFI = 15)
+                       ap_pll_dp_hfs_mfn:   0x00000000, // Writing MFN as 0
                        ap_pll_dp_hfs_mfd:   0x01FFFFFE, // Writing MFD as 33554430
 		       divider_ratio:       ARM_AHB_IPG_RATIO_148, //(x:133:532:1064)
                      },
@@ -771,6 +797,9 @@ static dvfs_op_point_index_t dvfsop2index (dvfs_op_point_t dvfs_op)
 #ifdef CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740
 	case CORE_636:  dvfs_indx = INDX_636; break;
 	case CORE_740:  dvfs_indx = INDX_740; break;
+#elif CONFIG_FEAT_MXC31_CORE_OVERCLOCK_780
+	case CORE_665:  dvfs_indx = INDX_665; break;
+	case CORE_780:  dvfs_indx = INDX_780; break;
 #endif /* CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740 */
 	}
 
@@ -1240,6 +1269,9 @@ static int mxc_pm_chgfreq(dvfs_op_point_t dvfs_op)
 #ifdef CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740
 	case CORE_636:
 	case CORE_740:
+#elif CONFIG_FEAT_MXC31_CORE_OVERCLOCK_780
+	case CORE_665:
+	case CORE_780:
 #endif /* CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740 */
 		/* if DFS_DIV_EN = 1 and LOW voltage: 133 or 266 -> 532 */
 		if ((dfs_div == DFS_ENABLE) && (voltage == LO_VOLT)) {
@@ -1360,6 +1392,15 @@ int mxc_pm_dvfs(unsigned long armfreq, long ahbfreq, long ipfreq)
 	
 	case CORE_740:
 		dvfs_op_point = CORE_740;
+		break;
+
+#elif CONFIG_FEAT_MXC31_CORE_OVERCLOCK_780
+	case CORE_665:
+		dvfs_op_point = CORE_665;
+		break;
+	
+	case CORE_780:
+		dvfs_op_point = CORE_780;
 		break;
 
 #endif /* CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740 */

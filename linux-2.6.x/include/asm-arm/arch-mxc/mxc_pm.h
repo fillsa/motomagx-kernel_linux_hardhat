@@ -292,9 +292,11 @@ int mxc_pm_dvfs(unsigned long armfreq, long ahbfreq, long ipfreq);
 #define CORE_FREQ_266 266
 #define CORE_FREQ_399 399
 #define CORE_FREQ_532 532
-#ifdef CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740
+#if defined (CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740) || defined (CONFIG_FEAT_MXC31_CORE_OVERCLOCK_780)
 #define CORE_FREQ_636 636
 #define CORE_FREQ_740 740
+#define CORE_FREQ_665 665
+#define CORE_FREQ_780 780
 #endif
 
 /*!
@@ -303,6 +305,8 @@ int mxc_pm_dvfs(unsigned long armfreq, long ahbfreq, long ipfreq);
  */
 #ifdef CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740
 	#define CORE_MAX_FREQ CORE_FREQ_740
+#elif CONFIG_FEAT_MXC31_CORE_OVERCLOCK_780
+	#define CORE_MAX_FREQ CORE_FREQ_780
 #else
 	#define CORE_MAX_FREQ CORE_FREQ_532
 #endif
@@ -328,6 +332,10 @@ typedef enum {
 #ifdef CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740
         INDX_636 =    4,
         INDX_740 =    5,
+        NUM_DVFSOP_INDEXES = 6,
+#elif CONFIG_FEAT_MXC31_CORE_OVERCLOCK_780
+        INDX_665 =    4,
+        INDX_780 =    5,
         NUM_DVFSOP_INDEXES = 6,
 #else
         NUM_DVFSOP_INDEXES = 4,
