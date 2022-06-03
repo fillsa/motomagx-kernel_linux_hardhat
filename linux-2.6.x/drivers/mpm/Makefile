@@ -18,3 +18,17 @@
 #
 
 obj-y   	:= mpm_func.o
+
+#for Motorola PM driver
+#ifneq ($(FEAT_PM),0)
+ifeq ($(CONFIG_MOT_FEAT_PM),y)
+
+ifeq ($(DEBUG), true)
+	CFLAGS += -DMPM_DEBUG
+endif
+
+MODULE_NAME = mpmdrv
+obj-m   := $(MODULE_NAME).o
+$(MODULE_NAME)-objs := mpm.o mpm_sysfs.o
+
+endif
