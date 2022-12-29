@@ -434,7 +434,7 @@ void ipu_uninit_channel(ipu_channel_t channel)
     }
 
 
-
+#if defined(CONFIG_MACH_NEVIS)
     /* Make sure channel is disabled */
 
     /* Get input and output dma channels */
@@ -457,7 +457,7 @@ void ipu_uninit_channel(ipu_channel_t channel)
         spin_unlock_irqrestore(&ipu_lock, lock_flags);
         return;
     }
-
+#endif
 
     gSecChanEn[IPU_CHAN_ID(channel)] = false;
 
@@ -535,25 +535,32 @@ void ipu_uninit_channel(ipu_channel_t channel)
     gChannelInitMask &= ~(1L << IPU_CHAN_ID(channel));
 
     ipu_conf = __raw_readl(IPU_CONF);
-    if ((gChannelInitMask & 0x00000066L) == 0) { /*CSI */
+    if ((gChannelInitMask & 0x00000066L) == 0)	/*CSI */
+    {
         ipu_conf &= ~IPU_CONF_CSI_EN;
     }
-    if ((gChannelInitMask & 0x00001FFFL) == 0) { /*IC */
+    if ((gChannelInitMask & 0x00001FFFL) == 0)	/*IC */
+    {
         ipu_conf &= ~IPU_CONF_IC_EN;
     }
-    if ((gChannelInitMask & 0x00000A10L) == 0) { /*ROT */
+    if ((gChannelInitMask & 0x00000A10L) == 0)	/*ROT */
+    {
         ipu_conf &= ~IPU_CONF_ROT_EN;
     }
-    if ((gChannelInitMask & 0x0001C000L) == 0) { /*SDC */
+    if ((gChannelInitMask & 0x0001C000L) == 0)	/*SDC */
+    {
         ipu_conf &= ~IPU_CONF_SDC_EN;
     }
-    if ((gChannelInitMask & 0x00061140L) == 0) { /*ADC */
+    if ((gChannelInitMask & 0x00061140L) == 0)	/*ADC */
+    {
         ipu_conf &= ~IPU_CONF_ADC_EN;
     }
-    if ((gChannelInitMask & 0x0007D140L) == 0) { /*DI */
+    if ((gChannelInitMask & 0x0007D140L) == 0)	/*DI */
+    {
         ipu_conf &= ~IPU_CONF_DI_EN;
     }
-    if ((gChannelInitMask & 0x00380000L) == 0) { /*PF */
+    if ((gChannelInitMask & 0x00380000L) == 0)	/*PF */
+    {
         ipu_conf &= ~IPU_CONF_PF_EN;
     }
     __raw_writel(ipu_conf, IPU_CONF);
@@ -1396,18 +1403,66 @@ int32_t ipu_enable_channel(ipu_channel_t channel)
 
     __raw_writel(reg | chan_mask, IDMAC_CHA_EN);
 
+// need move to funct _ipu_ic_enable_task in ipu_ic.c
+    uint32_t ic_conf, adc_conf;
 
+    ic_conf = __raw_readl(IC_CONF);
+    adc_conf = __raw_readl(ADC_CONF);
+    
+    switch (channel) {
+        case CSI_PRP_VF_ADC:
+        case CSI_PRP_VF_MEM:
+        case MEM_PRP_VF_MEM:
+            ic_conf |= IC_CONF_PRPVF_EN;
+            break;
+        case MEM_ROT_VF_MEM:
+            ic_conf |= IC_CONF_PRPVF_ROT_EN;
+            break;
+        case CSI_PRP_ENC_MEM:
+            ic_conf |= IC_CONF_PRPENC_EN;
+            break;
+        case MEM_PRP_ENC_MEM:
+            ic_conf |= IC_CONF_PRPENC_EN;
+            break;
+        case MEM_ROT_ENC_MEM:
+            ic_conf |= IC_CONF_PRPENC_ROT_EN;
+            break;
+        case MEM_PP_ADC:
+        case MEM_PP_MEM:
+            ic_conf |= IC_CONF_PP_EN;
+            break;
+        case MEM_ROT_PP_MEM:
+            ic_conf |= IC_CONF_PP_ROT_EN;
+            break;
+        case CSI_MEM:
+            ic_conf |= (IC_CONF_RWS_EN | IC_CONF_PRPENC_EN);
+            break;
 
-    if (IPU_CHAN_ID(channel) <= IPU_CHAN_ID(MEM_PP_ADC)) {
-        _ipu_ic_enable_task(channel);
-    } else if (channel == MEM_SDC_BG) {
-        printk("Initializing SDC BG\n");
-        _ipu_sdc_bg_init(NULL);
-    } else if (channel == MEM_SDC_FG) {
-        printk("Initializing SDC FG\n");
-        _ipu_sdc_fg_init(NULL);
-    }
+        case MEM_PF_Y_MEM:
+        case MEM_PF_U_MEM:
+        case MEM_PF_V_MEM:
+            break;
 
+        case MEM_SDC_BG:
+            DPRINTK("Initializing SDC BG\n");
+            _ipu_sdc_bg_init(NULL);
+            break;
+        case MEM_SDC_FG:
+            DPRINTK("Initializing SDC FG\n");
+            _ipu_sdc_fg_init(NULL);
+            break;
+        case ADC_SYS1:
+/*            adc_conf |= 0x00030000; */
+            break;
+        case ADC_SYS2:
+/*            adc_conf |= 0x03000000; */
+            break;
+        default:
+            printk("Missing channel initialization\n");
+            break;
+            }
+    __raw_writel(ic_conf, IC_CONF);
+/*	__raw_writel(adc_conf, ADC_CONF);*/
 
     spin_unlock_irqrestore(&ipu_lock, lock_flags);
     FUNC_END;
