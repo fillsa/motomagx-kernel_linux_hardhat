@@ -3,5 +3,5 @@
 #
 
 obj-$(CONFIG_SQUASHFS) += squashfs.o
-
-squashfs-objs := inode.o
+squashfs-y += inode.o
+squashfs-y += squashfs2_0.o
