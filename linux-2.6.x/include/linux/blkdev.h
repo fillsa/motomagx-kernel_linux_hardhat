@@ -1,3 +1,13 @@
+/*
+ * Copyright (C) 2007 Motorola, Inc.
+ */
+                                                                                                                          
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 12-05-2007   Motorola        Add boundary_sectors for write with alignment
+ */
+
+
 #ifndef _LINUX_BLKDEV_H
 #define _LINUX_BLKDEV_H
 
@@ -356,7 +366,9 @@ struct request_queue
 	unsigned int		nr_congestion_on;
 	unsigned int		nr_congestion_off;
 	unsigned int		nr_batching;
-
+#ifdef CONFIG_MOT_FEAT_MOVINAND
+	unsigned short          boundary_sectors;/* write disk with boundary */
+#endif	
 	unsigned short		max_sectors;
 	unsigned short		max_hw_sectors;
 	unsigned short		max_phys_segments;

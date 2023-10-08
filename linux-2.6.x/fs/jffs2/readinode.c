@@ -2,13 +2,23 @@
  * JFFS2 -- Journalling Flash File System, Version 2.
  *
  * Copyright (C) 2001-2003 Red Hat, Inc.
- *
+ * Copyright (C) 2007 Motorola, Inc.
+ * 
  * Created by David Woodhouse <dwmw2@infradead.org>
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
  * $Id: readinode.c,v 1.123 2005/07/07 13:46:04 dedekind Exp $
  *
+ */
+
+/*
+ * Revision History:
+ * 
+ * Date         Author    Comment
+ *  --------   ------  -----------------------------------
+ * 12/04/2007   Motorola  Add the debug information to track 
+ *                        the inode cache corrupt issue.
  */
 
 #include <linux/kernel.h>
@@ -445,6 +455,10 @@ int jffs2_do_read_inode(struct jffs2_sb_info *c, struct jffs2_inode_info *f,
 			break;
 
 		default:
+#ifdef CONFIG_MOT_FEAT_LOG_SCHEDULE_EVENTS //old  #ifdef CONFIG_DEBUG_GNPO
+			/* track the status of the inode cache which state is default */
+			printk(KERN_CRIT "jffs2_get_ino_cache_read inode #%u in default state #%d nlink #%d!\n", ino, f->inocache->state, f->inocache->nlink);
+#endif
 			BUG();
 		}
 	}

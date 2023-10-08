@@ -1,5 +1,6 @@
 /*
  * Copyright 2005-2006 Freescale Semiconductor, Inc. All Rights Reserved.
+ * Copyright (C) 2007 Motorola, Inc.
  */
 
 /*
@@ -18,11 +19,37 @@
 * @ingroup MXCSAHARA2
 */
 
+/*
+ *  Date          Author       Comment
+ *  ===========  ==========   ======================================
+ *  10/23/2007    Motorola    Add mpm adivce calls and clock gating.
+ *
+ */
 #ifndef SAH_HARDWARE_INTERFACE_H
 #define SAH_HARDWARE_INTERFACE_H
 
 #include <sah_driver_common.h>
 #include <sah_status_manager.h>
+#include <asm/arch/clock.h>
+
+#ifdef SAHARA_MOT_ARCH_MXC91321
+#define SAHARA_CLOCK_ENABLE() mxc_clks_enable(SAHARA_CLK)
+#define SAHARA_CLOCK_DISABLE() mxc_clks_disable(SAHARA_CLK)
+#else
+#define SAHARA_CLOCK_ENABLE() mxc_clks_enable(SAHARA2_AHB_CLK)
+#define SAHARA_CLOCK_DISABLE() mxc_clks_disable(SAHARA2_AHB_CLK)
+#endif /* SAHARA_MOT_ARCH_MXC91321 */
+
+#ifdef SAHARA_MOT_FEAT_PM
+#define MPM_DRIVER_ADVISE(device_number, advice) \
+    do { \
+        if (mpm_driver_advise(device_number, advice)) \
+            printk(KERN_ERR "MPM advise call failed for sahara :%d\n", device_number); \
+    } while(0)
+#else
+#define MPM_DRIVER_ADVISE(device_number, advice) 
+#endif /* SAHARA_MOT_FEAT_PM */
+
 
 /* These values can be used with sah_HW_Write_Control(). */
 #ifdef SAHARA1

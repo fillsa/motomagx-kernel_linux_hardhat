@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Motorola, Inc.
+ * Copyright (C) 2007-2008 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,7 +22,11 @@
  *
  * Date         Author    Comment
  * ----------   --------  -------------------------------------
- * 03/11/2008   Motorola  Initial version
+ * 12/03/2007   Motorola  Initial version. 
+ * 03/11/2008   Motorola  Initial version for LJ6.3
+ * 01/11/2008   Motorola  Output current->comm to mem log.
+ * 01/30/2008   Motorola  Fixed the timestamp issue between uptime and rtc timer.
+ * 02/13/2008   Motorola  Modified the log size.
  * 
  */
 

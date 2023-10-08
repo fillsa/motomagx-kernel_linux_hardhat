@@ -38,7 +38,7 @@
 /**
  * Initial GPIO register settings.
  */
-struct gpio_signal_settings initial_gpio_settings[MAX_GPIO_SIGNAL] = {
+struct gpio_signal_description initial_gpio_settings[MAX_GPIO_SIGNAL] = {
     /*
      * SCM-A11 Package Pin Name: GP_AP_C8
      * Pico P0 Signal: BT_RESET_B (Bluetooth)
@@ -416,7 +416,7 @@ struct gpio_signal_settings initial_gpio_settings[MAX_GPIO_SIGNAL] = {
 };
 
 /**
- * Update the initial_gpio_settings array based on the board revision. This
+ * Update the initial_gpio_settings(gpio_signal_mapping) array based on the board revision. This
  * function is called by scma11phone_gpio_init() at boot.
  */
 void __init pixl_gpio_signal_fixup(void)

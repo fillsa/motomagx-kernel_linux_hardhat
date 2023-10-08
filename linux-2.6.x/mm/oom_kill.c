@@ -4,7 +4,7 @@
  *  Copyright (C)  1998,2000  Rik van Riel
  *	Thanks go out to Claus Fischer for some serious inspiration and
  *	for goading me into coding this file...
- *  Copyright (C) 2007 Motorola, Inc. 
+ *  Copyright (C) 2007-2008 Motorola, Inc. 
  *
  *  The routines in this file are used to kill a process when
  *  we're seriously out of memory. This gets called from kswapd()
@@ -20,6 +20,7 @@
  * 03/16/2007    Motorola       Added memory usage information in out of memory
  *                              handler before kernel panic.
  * 11/21/2007    Motorola       Remove OOM kernel panic.
+ * 03/05/2008    Motorola       Enable APR.
  *
  */
 
@@ -587,6 +588,10 @@ static void show_mem_usage(void)
 {
 	struct task_struct *task;
 	struct mm_struct *mm;
+#ifdef CONFIG_MOT_FEAT_PRINT_PC_ON_PANIC
+	unsigned long rss_apr = 0;
+	struct task_struct *task_apr;
+#endif	
 
 	printk("pid:command:VM:RSS:DATA:STACK\n");
 	for_each_process(task) {
@@ -599,8 +604,17 @@ static void show_mem_usage(void)
 			(mm->total_vm - mm->shared_vm - mm->stack_vm) << (PAGE_SHIFT-10), /* data */
 			mm->stack_vm << (PAGE_SHIFT-10)); /* stack */
 			mmput(mm);
+#ifdef CONFIG_MOT_FEAT_PRINT_PC_ON_PANIC
+			if(rss_apr < (mm->rss << (PAGE_SHIFT-10))) {
+				rss_apr = mm->rss << (PAGE_SHIFT-10);
+				task_apr = task;
+			}
+#endif
 		}
 	}
+#ifdef CONFIG_MOT_FEAT_PRINT_PC_ON_PANIC 
+	printk("[APR]PanicPC: OOM thread:%s,mem:%lu\n",task_apr->comm,rss_apr);
+#endif
 }
 
 extern void dump_stack(void);

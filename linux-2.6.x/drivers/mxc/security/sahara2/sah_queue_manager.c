@@ -1,5 +1,7 @@
 /*
  * Copyright 2005-2006 Freescale Semiconductor, Inc. All Rights Reserved.
+ * Copyright (C) 2007 Motorola, Inc.
+ *
  */
 
 /*
@@ -9,7 +11,11 @@
  *
  * http://www.opensource.org/licenses/gpl-license.html
  * http://www.gnu.org/copyleft/gpl.html
+ * Date        Author            Comment
+ * ==========  ================  ========================
+ * 10/23/2007  Motorola          Add mpm advise calls
  */
+ 
 /*!
  * @file sah_queue_manager.c
  *
@@ -21,7 +27,6 @@
  *
  * @ingroup MXCSAHARA2
 */
-
 
 #include "portable_os.h"
 
@@ -35,6 +40,9 @@
 #include <diagnostic.h>
 #endif
 #include <sah_memory_mapper.h>
+#ifdef SAHARA_MOT_FEAT_PM
+#include <linux/mpm.h>
+#endif
 
 #ifdef DIAG_DRV_STATUS
 
@@ -145,6 +153,10 @@ static void sah_Log_Error(uint32_t descriptor, uint32_t error,
 #endif
 
 extern wait_queue_head_t *int_queue;
+
+#ifdef SAHARA_MOT_FEAT_PM
+extern int mpm_sahara_dev_num;
+#endif
 
 
 /*!
@@ -360,6 +372,13 @@ void sah_Queue_Manager_Prime(sah_Head_Desc *entry)
 #if defined(DIAG_DRV_IF)
             sah_Dump_Chain(&entry->desc);
 #endif /* DIAG_DRV_IF */
+
+#ifdef SAHARA_MOT_FEAT_PM
+            MPM_DRIVER_ADVISE(mpm_sahara_dev_num, MPM_ADVICE_DRIVER_IS_BUSY);
+#ifdef DIAG_DRV_IF
+            printk(KERN_ALERT"sahara(sah_Queue_Manager_Prime):MPM_ADVICE_DRIVER_IS_BUSY\n");
+#endif /* DIAG_DRV_IF */
+#endif /* SAHARA_MOT_FEAT_PM */
 
             sah_HW_Write_DAR((entry->desc.dma_addr));
             entry->status = SAH_STATE_ON_SAHARA;

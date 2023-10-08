@@ -42,8 +42,9 @@ void __init gpio_setting_fixup_p1a(void); /* Elba R1.1 */
 
 /**
  * Initial GPIO register settings.
+ * GPIO signal name to <port, sig_no> pair mapping.
  */
-struct gpio_signal_settings initial_gpio_settings[MAX_GPIO_SIGNAL] = {
+struct gpio_signal_description initial_gpio_settings[MAX_GPIO_SIGNAL] = {
     /*
      * SCM-A11 Package Pin Name: GP_AP_C8
      * Elba P0 Signal: BT_RESET_B (Bluetooth)
@@ -526,7 +527,7 @@ struct iomux_pad_setting iomux_pad_register_settings[IOMUX_PAD_SETTING_COUNT] __
 
 
 /**
- * Update the initial_gpio_settings array based on the board revision. This
+ * Update the initial_gpio_settings(gpio_signal_mapping) array based on the board revision. This
  * function is called by scma11phone_gpio_init() at boot.
  */
 void __init elba_gpio_signal_fixup(void)
@@ -549,7 +550,7 @@ void __init elba_gpio_signal_fixup(void)
 
 #ifdef CONFIG_MOT_FEAT_BRDREV
 /**
- * Adjust initial_gpio_settings array to reflect Elba R1.1.
+ * Adjust initial_gpio_settings(gpio_signal_mapping) array to reflect Elba R1.1.
  */
 void __init gpio_setting_fixup_p1a(void)
 {

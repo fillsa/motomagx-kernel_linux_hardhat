@@ -47,13 +47,19 @@
  * 01/04/2007    Motorola       Power management support to account for time in DSM
  * 02/23/2007    Motorola       Bug fix: Incorrectly updated clock when resume was
  *                              called without a suspend powering down the phone.
+ * 03/07/2007	 Motorola	Update fuzzy timer implementation to match EZX
  * 03/08/2007    Motorola       Replaced do_settimeofday() with
  *				set_normalized_timespec() in rtcsw_resume().
  * 03/16/2007    Motorola       Fixed incorrect wraparound handlings.
  * 03/27/2007    Motorola       Added fix to maintain interrupt state in resume
  *                              routine.
  * 04/29/2007    Motorola       Added support for GPT running at 32KHz.
+ * 10/25/2007    Motorola       Improved periodic job state collection for debug.
+ * 11/13/2007    Motorola	Resloved display time in CLI is one min delayed from 
+ * 				phone clock, re-align to xtime when xtime changed
+ * 				somewhere.	
  * 11/15/2007    Motorola       Upmerge from 6.1.(re-align to xtime when xtime changed somewhere.)
+ * 12/3/2007     Motorola       Added API to get closest RTC timeout
  * 12/17/2008    Motorola       Calculate the time drift and make the time accurate.
  */
 
@@ -207,6 +213,9 @@ static unsigned int rtc_sw_poll(struct file *file, poll_table *wait)
                 /* request is ready to be handled */
                 req->running--;
                 req->pending++;
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+                mpm_collect_pj_stat(1, current->comm, current->pid);
+#endif
                 RTC_SW_DPRINTK("\nEPIT: %s() %d - \"%s\" running - %d pending - %d\n", __FUNCTION__, current->pid, current->comm,req->running, req->pending ); 
                 data = 1;
                 break;
@@ -566,11 +575,19 @@ static void inline update_one_request(struct rtc_sw_request *req, unsigned long 
 
             tasklet_schedule(&req->callback_data.task_data.task);
             req->remain = 0;
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+            mpm_collect_pj_stat((unsigned long)req->callback_data.task_data.orig_func, \
+                                "NULL", 1);
+#endif
         } else {
             RTC_SW_DPRINTK("\nEPIT: %s() waking up process %d - \"%s\"\n", __FUNCTION__, req->callback_data.process->pid, req->callback_data.process->comm);
             /* wake up the process */
             wake_up_process(req->callback_data.process);
             req->remain = req->interval;
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+            mpm_collect_pj_stat(1, req->callback_data.process->comm, \
+                                req->callback_data.process->pid);
+#endif
         }
     } else {
         /* subtract the time that has elapsed */
@@ -680,6 +697,40 @@ static void find_new_request(void)
 }
 
 /*
+ * Get the least common multiple.
+ */
+static unsigned long get_least_multiple(unsigned long first, unsigned long second)
+{
+    unsigned long num1, num2;
+    u64 result;
+    unsigned long temp;
+
+    if (second >= first) {
+        temp = second;
+        second = first;
+        first = temp;
+    }
+
+    num1 = first;
+    num2 = second;
+
+    while (second != 0) {
+        temp = first % second;
+        first = second;
+        second = temp;
+    }
+
+    if (first != 0) {
+        result = num1 / first;
+        result = result * (u64)num2;
+    } else {
+        result = -1;
+    }
+
+    return result;
+}
+
+/*
  * Grab the first fuzzy request we see. Assume we have the request lock.
  */
 static inline struct rtc_sw_request *get_fuzz_req(void)
@@ -693,6 +744,32 @@ static inline struct rtc_sw_request *get_fuzz_req(void)
         if (req->type == RTC_SW_FUZZ) {
             fuzz = req;
             break;
+        }
+        req = req->next;
+    }
+    
+    return fuzz;
+}
+
+/*
+ * Grab the most closely aligned fuzzy request. Assume we have the request lock, least multiple version.
+ */
+static inline struct rtc_sw_request *get_fuzz_req_least_multiple(unsigned long interval)
+{
+    unsigned long lowest = LONG_MAX;
+    u64 temp;
+    struct rtc_sw_request *req = NULL;
+    struct rtc_sw_request *fuzz = NULL;
+
+    req = rtc_sw_request_head;
+
+    while (req != NULL) {
+        if (req->type == RTC_SW_FUZZ) {
+            temp =  get_least_multiple(req->interval/10000, interval/10000);
+            if (temp < lowest) {
+                    lowest = temp;
+            fuzz = req;
+            }
         }
         req = req->next;
     }
@@ -968,7 +1045,7 @@ static int rtc_sw_ioctl(struct inode *inode, struct file *file,
         }
         
         /* check if there is a fuzzy request in the list */
-        fuzz = get_fuzz_req();
+        fuzz = get_fuzz_req_least_multiple(req->interval); //  * 03/07/2007	 Motorola	Update fuzzy timer implementation to match EZX
         
         if (fuzz != NULL) {
             /* sync with the previous fuzzy request */
@@ -979,6 +1056,7 @@ static int rtc_sw_ioctl(struct inode *inode, struct file *file,
              * This is done for the case of a CLI fuzzy request.
              * The CLI application will want to wake up on the
              * turn of each minute to update the clock. */
+            /* FIXME: no protection for xtime changing later */
             hundredths = (60 * 100) - ((xtime.tv_sec % 60) * 100 +
                                        xtime.tv_nsec / 10000000);
              req->remain = hundredths_to_ticks(hundredths) % req->interval;
@@ -1043,6 +1121,10 @@ static int rtc_sw_ioctl(struct inode *inode, struct file *file,
         
         RTC_SW_DPRINTK("\nEPIT: %s() RTC_SW_JOB_DONE called from %d - \"%s\" \n", __FUNCTION__, current->pid, current->comm);
         
+#ifdef CONFIG_MOT_FEAT_PM_STATS 
+        mpm_collect_pj_stat(0, current->comm, current->pid);
+#endif
+
         req = rtc_sw_request_head;
         
         /* set the APP_SLEEP_READY status bit */
@@ -1289,6 +1371,11 @@ static void rtc_sw_task_tasklet_callback(unsigned long data)
 
     RTC_SW_DPRINTK("\nEPIT: %s() tasklet done jobs_running %d\n", __FUNCTION__,jobs_running);
 
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+    mpm_collect_pj_stat((unsigned long)task->callback_data.task_data.orig_func, \
+                        "NULL", 0);
+#endif
+
     if(rtc_sw_periodic_jobs_running() == PJ_NOT_RUNNING) {
         RTC_SW_DPRINTK("\nEPIT: %s() Done Going to sleep\n", __FUNCTION__);
         mpm_periodic_jobs_done();
@@ -1339,6 +1426,21 @@ void rtc_sw_task_schedule(unsigned long offset, rtc_sw_task_t * task)
     spin_unlock_irqrestore(&request_lock, flags);
 }
 EXPORT_SYMBOL(rtc_sw_task_schedule);
+
+// * 12/3/2007     Motorola       Added API to get closest RTC timeout
+unsigned int rtc_sw_get_closest_timeout(void)
+{
+    unsigned int timeout = 0;
+    struct rtc_sw_request * req;
+
+    spin_lock(&request_lock);
+    req = get_lowest_request();
+    if(req)
+        timeout = req->remain;
+    spin_unlock(&request_lock);
+    return ticks_to_ms(timeout);
+}
+EXPORT_SYMBOL(rtc_sw_get_closest_timeout);
 
 static struct file_operations rtc_sw_fops = {
         .owner          = THIS_MODULE,

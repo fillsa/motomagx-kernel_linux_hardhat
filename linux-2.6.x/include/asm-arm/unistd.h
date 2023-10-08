@@ -2,6 +2,7 @@
  *  linux/include/asm-arm/unistd.h
  *
  *  Copyright (C) 2001-2005 Russell King
+ *  Copyright (C) 2007 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -9,6 +10,12 @@
  *
  * Please forward _all_ changes to this file to rmk@arm.linux.org.uk,
  * no matter what the change is.  Thanks!
+ *
+ * Revision History:
+ *                   Modification 
+ * Author            Date          Description of Changes
+ * ----------------  ----------    --------------------------
+ * Motorola          08/13/2007    Commented out warning which is out of date.
  */
 #ifndef __ASM_ARM_UNISTD_H
 #define __ASM_ARM_UNISTD_H
@@ -30,8 +37,10 @@
 #undef __MV_SYS_EABI__
 #endif
 
+#if 0 /* WSAN FN497 */
 #if defined(__ARM_EABI__) && !defined(__MV_SYS_EABI__) && !defined(__KERNEL__)
 #warning "forced old ABI syscalls on EABI build"
+#endif
 #endif
 
 

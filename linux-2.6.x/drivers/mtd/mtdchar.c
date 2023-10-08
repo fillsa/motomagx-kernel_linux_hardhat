@@ -16,6 +16,8 @@
  * 06-10-2006   Motorola  added CONFIG_MOT_FEAT_SECURE_DRM feature.
  *              	  make sure "user" and "pds" partitions are handled 
  *			  as protected device.
+ * 02-23-2007   Motorla   Renamed MOT_FEAT_SECURE_DRM feature to 
+ *                        MOT_FEAT_SECURE_MTD
  * 03-15-2007   Motorola  added 'rsv' partition as a protected device.
  *
  * 04-15-2007   Motorola  added reason_code: RDDIST_CNTFIX to read_distfix while 
@@ -62,7 +64,7 @@ extern int nand_ecc_flag;
 
 static struct class_simple *mtd_class;
 
-#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+#ifdef CONFIG_MOT_FEAT_SECURE_MTD // old #ifdef CONFIG_MOT_FEAT_SECURE_DRM
 static inline int is_protected_device (struct mtd_info *mtd)
 {
         return ((mtd->name) && 
@@ -233,7 +235,7 @@ static ssize_t mtd_read(struct file *file, char __user *buf, size_t count,loff_t
 	
 	DEBUG(MTD_DEBUG_LEVEL1,"MTD_read\n");
 
-#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+#ifdef CONFIG_MOT_FEAT_SECURE_MTD // old #ifdef CONFIG_MOT_FEAT_SECURE_DRM
 	if (is_protected_device(mtd))
 	{
 		return -EPERM;
@@ -310,7 +312,7 @@ static ssize_t mtd_write(struct file *file, const char __user *buf, size_t count
 
 	DEBUG(MTD_DEBUG_LEVEL1,"MTD_write\n");
 	
-#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+#ifdef CONFIG_MOT_FEAT_SECURE_MTD // old #ifdef CONFIG_MOT_FEAT_SECURE_DRM
 	if (is_protected_device(mtd))
 	{
 		return -EPERM;
@@ -437,7 +439,7 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 		if(!(file->f_mode & 2))
 			return -EPERM;
 
-#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+#ifdef CONFIG_MOT_FEAT_SECURE_MTD // old #ifdef CONFIG_MOT_FEAT_SECURE_DRM
 		if (is_protected_device(mtd))
 		{
 			return -EPERM;
@@ -498,7 +500,7 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 		if(!(file->f_mode & 2))
 			return -EPERM;
 
-#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+#ifdef CONFIG_MOT_FEAT_SECURE_MTD // old #ifdef CONFIG_MOT_FEAT_SECURE_DRM
 		if (is_protected_device(mtd))
 		{
 			return -EPERM;
@@ -640,7 +642,7 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 		if (copy_from_user(&offs, argp, sizeof(loff_t)))
 			return -EFAULT;
 
-#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+#ifdef CONFIG_MOT_FEAT_SECURE_MTD // old #ifdef CONFIG_MOT_FEAT_SECURE_DRM
 		if (is_protected_device(mtd))
 		{
 			return -EPERM;

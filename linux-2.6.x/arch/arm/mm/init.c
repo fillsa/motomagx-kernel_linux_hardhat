@@ -14,7 +14,10 @@
  * ----------   --------  -------------------
  * 11/16/2006   Motorola  Hardware Config Framework
  * 01/20/2007   Motorola  Added support for dynamic IPU memory pool size.
+ * 09/20/2007   Motorola  Increased IPU memory.
+ * 10/05/2007   Motorola  Implement the IPU FIQ solution code in kernel and module layer.
  * 10/15/2007   Motorola  FIQ related modified.
+ * 12/14/2007   Motorola  Add support for new keypad
  * 04/23/2008   Motorola  Added IPU memory for new display
  * 08/28/2008   Motorola  Increase IPU reserved memory
  *
@@ -58,8 +61,12 @@ extern u32 phys_flat_dev_tree_size;
 
 #ifdef CONFIG_MOT_FEAT_IPU_MEM_ADDR
 extern unsigned long ipu_mem_addr;
-#ifdef CONFIG_MOT_FEAT_DISPLAY_EPSON
+#if defined(CONFIG_MOT_FEAT_IPU_MEM_SIZE)
+unsigned long ipu_mem_size = (SZ_2M + SZ_4M);
+#elif CONFIG_MOT_FEAT_DISPLAY_EPSON
 unsigned long ipu_mem_size = (SZ_1M + SZ_1M + SZ_1M + SZ_1M + SZ_1M + SZ_1M + SZ_1M + SZ_1M + SZ_1M);
+#elif defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA)
+unsigned long ipu_mem_size = (SZ_1M);
 #else
 unsigned long ipu_mem_size = (SZ_1M + SZ_1M);
 #endif

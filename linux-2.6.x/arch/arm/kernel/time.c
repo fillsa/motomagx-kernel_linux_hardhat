@@ -16,6 +16,8 @@
  *              fixed set_rtc_mmss, fixed time.year for >= 2000, new mktime
  *  1998-12-20  Updated NTP code according to technical memorandum Jan '96
  *              "A Kernel Model for Precision Timekeeping" by Dave Mills
+ *  2007-10-18  Motorola
+ *              Add a hook to re-align rtc_fuzz requests to xtime.
  *  2007-11-15  Motorola
  *              Upmrege from 6.1 ( Add a hook to re-align rtc_fuzz requests to xtime). 
 */

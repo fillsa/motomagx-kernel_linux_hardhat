@@ -1,5 +1,6 @@
 /*
  * Copyright 2005-2006 Freescale Semiconductor, Inc. All Rights Reserved.
+ * Copyright (C) 2007 Motorola
  */
 
 /*
@@ -9,7 +10,12 @@
  *
  * http://www.opensource.org/licenses/gpl-license.html
  * http://www.gnu.org/copyleft/gpl.html
+ *
+ * Date        Author            Comment
+ * ==========  ================  ========================
+ * 10/12/2007  Motorola          Add mpm advise calls
  */
+
 /*!
 * @file sah_status_manager.c
 *
@@ -35,6 +41,9 @@
 #include <diagnostic.h>
 #endif
 
+#ifdef SAHARA_MOT_FEAT_PM
+#include <linux/mpm.h>
+#endif
 
 /*! Compile-time flag to count various interrupt types. */
 #define DIAG_INT_COUNT
@@ -68,6 +77,12 @@ static int sah_dpm_suspend(struct device *dev, uint32_t state, uint32_t level);
 static int sah_dpm_resume(struct device *dev, uint32_t level);
 #endif
 
+/*!
+ * Enable/Disable sahara module -- enable/disable sahara clock and advise mpm. 
+ */
+#ifdef SAHARA_MOT_FEAT_PM
+extern int mpm_sahara_dev_num;
+#endif
 
 #ifndef SAHARA_POLL_MODE
 /*!
@@ -93,6 +108,9 @@ unsigned long sah_Handle_Interrupt(
     /* HW status at time of interrupt */
     hw_status &= SAH_EXEC_STATE_MASK;
 
+#ifdef DIAG_DRV_IF
+    printk(KERN_ALERT"sahara: begin: sah_Handle_Interrupt\n");
+#endif
     do {
         sah_Head_Desc* current_entry;
         uint32_t dar;
@@ -107,9 +125,13 @@ unsigned long sah_Handle_Interrupt(
         }
 #endif
 
+
         /* if the first entry on sahara has completed... */
         if ( (hw_status & SAH_EXEC_DONE1_BIT ) ||
              (hw_status == SAH_EXEC_ERROR1) ) {
+#ifdef DIAG_DRV_IF
+            printk(KERN_ALERT"sahara(sah_Handle_Interrupt): SAH_EXEC_DONE1_BIT\n");
+#endif
             /* lock queue while searching */
             os_lock_save_context(desc_queue_lock, lock_flags);
             current_entry = sah_Find_With_State(SAH_STATE_ON_SAHARA);
@@ -120,6 +142,7 @@ unsigned long sah_Handle_Interrupt(
                 /* change hw_status to avoid an infinite loop (possible if
                  * hw_status is SAH_EXEC_DONE1_BUSY2 first time into loop) */
                 hw_status = SAH_EXEC_IDLE;
+
 #if defined(DIAG_DRV_INTERRUPT) && defined(DIAG_DURING_INTERRUPT)
                 LOG_KDIAG("Interrupt received with nothing on queue.");
 #endif
@@ -129,6 +152,7 @@ unsigned long sah_Handle_Interrupt(
 
                 /* SAHARA is reporting an error with descriptor chain 1 */
                 if (hw_status == SAH_EXEC_ERROR1) {
+
                     /* Gather extra diagnostic information */
                     current_entry->fault_address = sah_HW_Read_Fault_Address();
                     current_entry->current_dar = sah_HW_Read_CDAR();
@@ -142,6 +166,7 @@ unsigned long sah_Handle_Interrupt(
                     /* is there a second, successfully, completed descriptor
                      * chain? (done1/error2 processing is handled later) */
                     if (hw_status == SAH_EXEC_DONE1_DONE2) {
+
                         os_lock_save_context(desc_queue_lock, lock_flags);
                         current_entry =
                                   sah_Find_With_State(SAH_STATE_ON_SAHARA);
@@ -186,7 +211,7 @@ unsigned long sah_Handle_Interrupt(
                                 == NULL) {
 #endif
 #if defined(DIAG_DRV_IF) && defined(DIAG_DURING_INTERRUPT)
-                                sah_Dump_Chain(&entry->desc);
+                                sah_Dump_Chain(&current_entry->desc);
 #endif /* DIAG_DRV_IF */
                                 sah_HW_Write_DAR(current_entry->desc.dma_addr);
                                 current_entry->status = SAH_STATE_ON_SAHARA;
@@ -273,6 +298,15 @@ unsigned long sah_Handle_Interrupt(
      /* Keep going while further status is available. */
     } while (hw_status == SAH_EXEC_ERROR1);
 
+#ifdef SAHARA_MOT_FEAT_PM
+if (sah_Find_With_State(SAH_STATE_ON_SAHARA) == NULL) {
+    MPM_DRIVER_ADVISE(mpm_sahara_dev_num, MPM_ADVICE_DRIVER_IS_NOT_BUSY);
+}
+#ifdef DIAG_DRV_IF
+printk(KERN_ALERT"sahara(interrupt_handler):MPM advise MPM_ADVICE_DRIVER_IS_NOT_BUSY\n");
+#endif
+#endif /* SAHARA_MOT_FEAT_PM */
+
     return reset_flag;
 }
 
@@ -310,12 +344,25 @@ unsigned long sah_Handle_Poll(sah_Head_Desc *entry)
     } else {
 #endif /* SAHARA_POWER_MANAGEMENT */
 
+#ifdef SAHARA_MOT_FEAT_PM
+        MPM_DRIVER_ADVISE(mpm_sahara_dev_num, MPM_ADVICE_DRIVER_IS_BUSY);
+#ifdef DIAG_DRV_IF
+        printk(KERN_ALERT"sahara(sah_HW_Write_DAR):MPM_ADVICE_DRIVER_IS_BUSY\n");
+#endif /* DIAG_DRV_IF */
+#endif /* SAHARA_MOT_FEAT_PM */
+
         /* Nothing can be in the dar if we got the lock */
         sah_HW_Write_DAR((uint32_t)(entry->desc.dma_addr));
 
         /* Wait for SAHARA to finish with this entry */
         hw_status = sah_Wait_On_Sahara();
 
+#ifdef SAHARA_MOT_FEAT_PM
+        MPM_DRIVER_ADVISE(mpm_sahara_dev_num, MPM_ADVICE_DRIVER_IS_NOT_BUSY);
+#ifdef DIAG_DRV_IF
+        printk(KERN_ALERT"sahara(sah_Handle_Poll):MPM advise MPM_ADVICE_DRIVER_IS_NOT_BUSY\n"); 
+#endif
+#endif /* SAHARA_MOT_FEAT_PM */
         /* if entry completed successfully, mark it as such */
         /**** HARDWARE ERROR WORK AROUND (hw_status == SAH_EXEC_IDLE) *****/
         if (
@@ -495,6 +542,7 @@ static int sah_dpm_suspend(
             break;
 
         case SUSPEND_POWER_DOWN:
+#ifdef E8_71_01_8BR
             /* hopefully between the DISABLE call and this one, the outstanding
              * work Sahara was doing complete. this checks (and waits) for
              * those entries that were already active on Sahara to complete */
@@ -504,11 +552,14 @@ static int sah_dpm_suspend(
                 entry = sah_Find_With_State(SAH_STATE_ON_SAHARA);
             } while (entry != NULL);
             os_unlock_restore_context(desc_queue_lock, lock_flags);
+#endif
 
             /* now we kill the clock so the control circuitry isn't sucking
              * any power */
-            mxc_clks_disable(SAHARA2_AHB_CLK);
-
+#ifdef DIAG_DRV_IF
+            printk(KERN_ALERT"sahara: sah_dpm_suspend\n");
+#endif
+            SAHARA_CLOCK_DISABLE();
             break;
     }
 
@@ -540,8 +591,10 @@ static int sah_dpm_resume(
 
     switch(level) {
         case RESUME_POWER_ON:
-            /* enable Sahara's clock */
-            mxc_clks_enable(SAHARA2_AHB_CLK);
+#ifdef DIAG_DRV_IF
+            printk(KERN_ALERT"sahara: sah_dpm_resume\n");
+#endif
+            SAHARA_CLOCK_ENABLE();
             break;
 
         case RESUME_RESTORE_STATE:

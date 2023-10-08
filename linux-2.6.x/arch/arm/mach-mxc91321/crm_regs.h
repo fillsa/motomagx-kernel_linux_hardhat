@@ -1,10 +1,24 @@
 /*
- * Copyright 2005-2006 Freescale Semiconductor, Inc. All Rights Reserved.
+ * Copyright 2004-2006 Freescale Semiconductor, Inc. All Rights Reserved.
+ * Copyright 2007 Motorola, Inc.
+ */
+
+/*
+ * The code contained herein is licensed under the GNU General Public
+ * License. You may obtain a copy of the GNU General Public License
+ * Version 2 or later at the following locations:
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
+ * http://www.opensource.org/licenses/gpl-license.html
+ * http://www.gnu.org/copyleft/gpl.html
+ */
+
+/*
+ * Revision History:
+ *
+ * Date        Author    Comment
+ * 03/09/2007  Motorola  Added DVFS support
+ * 04/04/2007  Motorola  Add clock gating values for GPT and WDOG
+ * 06/07/2007  Motorola  Update values for clock gating registers
  */
 
 #ifndef __ARCH_ARM_MACH_MXC91321_CRM_REGS_H__
@@ -75,6 +89,7 @@
 #define MXC_CCM_MPDR0_CSI_PRE               (0x1 << 21)
 #define MXC_CCM_MPDR0_CSI_DIS               (0x1 << 19)
 #define MXC_CCM_MPDR0_TPSEL                 (0x1 << 11)
+#define MXC_CCM_MPDR0_TPSEL_OFFSET          11
 #define MXC_CCM_MPDR0_NFC_PDF_OFFSET        8
 #define MXC_CCM_MPDR0_NFC_PDF_MASK          (0x7 << 8)
 #define MXC_CCM_MPDR0_IPG_PDF_OFFSET        6
@@ -128,16 +143,115 @@
 #define MXC_CCM_TPCTL_MFN_OFFSET            0
 #define MXC_CCM_TPCTL_MFN_MASK              0x7FF
 
+#ifdef CONFIG_MOT_FEAT_PM
+
+/* MCU Clock Gating Registers */
+
+/* MCGR0 */
+#define MXC_CCM_MCGR0_SSI1_EN               (0x3 << 2)
+#define MXC_CCM_MCGR0_SSI1_MASK             (0x3 << 2)
+#define MXC_CCM_MCGR0_UART1_EN              (0x2 << 4)
+#define MXC_CCM_MCGR0_UART1_MASK            (0x3 << 4)
+#define MXC_CCM_MCGR0_UART2_EN              (0x2 << 6)
+#define MXC_CCM_MCGR0_UART2_MASK            (0x3 << 6)
+#define MXC_CCM_MCGR0_CSPI1_EN              (0x2 << 8)
+#define MXC_CCM_MCGR0_CSPI1_MASK            (0x3 << 8)
+
+#define MXC_CCM_MCGR0_FIRI_EN               (0x0 << 10)
+#define MXC_CCM_MCGR0_FIRI_MASK             (0x3 << 10)
+#define MXC_CCM_MCGR0_GPTMCU_EN             (0x2 << 12)
+#define MXC_CCM_MCGR0_GPTMCU_MASK           (0x3 << 12)
+#define MXC_CCM_MCGR0_RTC_EN                (0x3 << 14)
+#define MXC_CCM_MCGR0_RTC_MASK              (0x3 << 14)
+#define MXC_CCM_MCGR0_EPIT1MCU_EN           (0x3 << 16)
+#define MXC_CCM_MCGR0_EPIT1MCU_MASK         (0x3 << 16)
+
+#define MXC_CCM_MCGR0_EPIT2MCU_EN           (0x2 << 18)
+#define MXC_CCM_MCGR0_EPIT2MCU_MASK         (0x3 << 18)
+#define MXC_CCM_MCGR0_EDIO_EN               (0x3 << 20)
+#define MXC_CCM_MCGR0_EDIO_MASK             (0x3 << 20)
+#define MXC_CCM_MCGR0_WDOGMCU_EN            (0x2 << 22)
+#define MXC_CCM_MCGR0_WDOGMCU_MASK          (0x3 << 22)
+#define MXC_CCM_MCGR0_PWMMCU_EN             (0x2 << 26)
+#define MXC_CCM_MCGR0_PWMMCU_MASK           (0x3 << 26)
+
+#define MXC_CCM_MCGR0_OWIRE_EN              (0x2 << 28)
+#define MXC_CCM_MCGR0_OWIRE_MASK            (0x3 << 28)
+#define MXC_CCM_MCGR0_I2C_EN                (0x2 << 30)
+#define MXC_CCM_MCGR0_I2C_MASK              (0x3 << 30)
+
+
+/* MCGR1 */
+#define MXC_CCM_MCGR1_IPU_EN                 0x2
+#define MXC_CCM_MCGR1_IPU_MASK               0x3
+#define MXC_CCM_MCGR1_MPEG4_EN              (0x2 << 2)
+#define MXC_CCM_MCGR1_MPEG4_MASK            (0x3 << 2)
+#define MXC_CCM_MCGR1_EMI_EN                (0x3 << 4)
+#define MXC_CCM_MCGR1_EMI_MASK              (0x3 << 4)
+#define MXC_CCM_MCGR1_IIM_EN                (0x3 << 6)
+#define MXC_CCM_MCGR1_IIM_MASK              (0x3 << 6)
+
+#define MXC_CCM_MCGR1_SIM1_EN               (0x3 << 8)
+#define MXC_CCM_MCGR1_SIM1_MASK             (0x3 << 8)
+#define MXC_CCM_MCGR1_SIM2_EN               (0x3 << 10)
+#define MXC_CCM_MCGR1_SIM2_MASK             (0x3 << 10)
+#define MXC_CCM_MCGR1_GEM_EN                (0x3 << 14)
+#define MXC_CCM_MCGR1_GEM_MASK              (0x3 << 14)
+#define MXC_CCM_MCGR1_USBOTG_EN             (0x2 << 16)
+#define MXC_CCM_MCGR1_USBOTG_MASK           (0x3 << 16)
+
+#define MXC_CCM_MCGR1_CSPI2_EN              (0x2 << 20)
+#define MXC_CCM_MCGR1_CSPI2_MASK            (0x3 << 20)
+#define MXC_CCM_MCGR1_UART4_EN              (0x2 << 22)
+#define MXC_CCM_MCGR1_UART4_MASK            (0x3 << 22)
+#define MXC_CCM_MCGR1_UART3_EN              (0x2 << 24)
+#define MXC_CCM_MCGR1_UART3_MASK            (0x3 << 24)
+#define MXC_CCM_MCGR1_SDHC2_EN              (0x2 << 26)
+#define MXC_CCM_MCGR1_SDHC2_MASK            (0x3 << 26)
+
+#define MXC_CCM_MCGR1_SDHC1_EN              (0x2 << 28)
+#define MXC_CCM_MCGR1_SDHC1_MASK            (0x3 << 28)
+#define MXC_CCM_MCGR1_SSI2_EN               (0x3 << 30)
+#define MXC_CCM_MCGR1_SSI2_MASK             (0x3 << 30)
+
+
+/* MCGR2 */
+
+#define MXC_CCM_MCGR2_SDMA_EN                0x3
+#define MXC_CCM_MCGR2_SDMA_MASK              0x3
+#define MXC_CCM_MCGR2_RTRMCU_EN             (0x3 << 2)
+#define MXC_CCM_MCGR2_RTRMCU_MASK           (0x3 << 2)
+#define MXC_CCM_MCGR2_KPP_EN                (0x2 << 6)
+#define MXC_CCM_MCGR2_KPP_MASK              (0x3 << 6)
+#define MXC_CCM_MCGR2_MU_EN                 (0x3 << 8)
+#define MXC_CCM_MCGR2_MU_MASK               (0x3 << 8)
+
+#define MXC_CCM_MCGR2_ECT_EN                (0x0 << 10)
+#define MXC_CCM_MCGR2_ECT_MASK              (0x3 << 10)
+#define MXC_CCM_MCGR2_SMC_EN                (0x0 << 12)
+#define MXC_CCM_MCGR2_SMC_MASK              (0x3 << 12)
+#define MXC_CCM_MCGR2_RTIC_EN               (0x0 << 14)
+#define MXC_CCM_MCGR2_RTIC_MASK             (0x3 << 14)
+#define MXC_CCM_MCGR2_SPBA_EN               (0x3 << 16)
+#define MXC_CCM_MCGR2_SPBA_MASK             (0x3 << 16)
+
+#define MXC_CCM_MCGR2_SAHARA_EN             (0x3 << 18)
+#define MXC_CCM_MCGR2_SAHARA_MASK           (0x3 << 18)
+
+#endif /* CONFIG_MOT_FEAT_PM */
+
 #define MXC_CCM_MCGR0_SSI1                  (0x3 << 2)
 #define MXC_CCM_MCGR0_UART1                 (0x3 << 4)
 #define MXC_CCM_MCGR0_UART2                 (0x3 << 6)
 #define MXC_CCM_MCGR0_CSPI1                 (0x3 << 8)
 #define MXC_CCM_MCGR0_FIRI                  (0x3 << 10)
+
 #define MXC_CCM_MCGR0_GPTMCU                (0x3 << 12)
 #define MXC_CCM_MCGR0_RTC                   (0x3 << 14)
 #define MXC_CCM_MCGR0_EPIT1MCU              (0x3 << 16)
 #define MXC_CCM_MCGR0_EPIT2MCU              (0x3 << 18)
 #define MXC_CCM_MCGR0_EDIO                  (0x3 << 20)
+
 #define MXC_CCM_MCGR0_WDOGMCU               (0x3 << 22)
 #define MXC_CCM_MCGR0_SIRF                  (0x3 << 24)
 #define MXC_CCM_MCGR0_PWMMCU                (0x3 << 26)
@@ -216,5 +330,17 @@
 #define MXC_CCM_COSR_CKO1EN	            (0x1 << 6)
 #define MXC_CCM_COSR_CKO1S_MASK	            0x7
 #define MXC_CCM_COSR_CKO1DV_MASK	    (0x7 << 3)
+
+#ifdef CONFIG_MOT_FEAT_PM
+
+#define MXC_CLKCTL_BASE             (IO_ADDRESS(CLKCTL_BASE_ADDR))
+
+#define MXC_CLKCTL_GP_CTRL          (MXC_CLKCTL_BASE + 0x00)
+#define MXC_CLKCTL_GP_SER           (MXC_CLKCTL_BASE + 0x04)
+#define MXC_CLKCTL_GP_CER           (MXC_CLKCTL_BASE + 0x08)
+
+#define MXC_CLKCTL_GP_CTRL_BIT7     0x80
+
+#endif
 
 #endif				/* __ARCH_ARM_MACH_MXC91321_CRM_REGS_H__ */

@@ -50,7 +50,7 @@ static void gpio_setting_fixup_p4(void);
 /**
  * Initial GPIO register settings.
  */
-struct gpio_signal_settings initial_gpio_settings[MAX_GPIO_SIGNAL] = {
+struct gpio_signal_description gpio_signal_mapping[MAX_GPIO_SIGNAL] = {
     /*
      * MCU GPIO Port Pin 1 -- Secondary Display Reset (active low)
      * ButeP3 (brass) Signal: GPIO_CLI_RST_B
@@ -520,7 +520,7 @@ struct gpio_signal_settings initial_gpio_settings[MAX_GPIO_SIGNAL] = {
 
 
 /**
- * Update the initial_gpio_settings array based on the board revision. This
+ * Update the initial_gpio_settings(gpio_signal_mapping) array based on the board revision. This
  * function is called by argonlvphone_gpio_init() at boot.
  */
 void __init buteref_gpio_signal_fixup(void)
@@ -556,10 +556,10 @@ void __init gpio_setting_fixup_p3_brassboard(void)
      *
      * GPIO_MCU_7 is also on pin USB_XRXD mux setting GPIO.
      */
-    initial_gpio_settings[GPIO_SIGNAL_GPS_RESET].port   = GPIO_MCU_PORT;
-    initial_gpio_settings[GPIO_SIGNAL_GPS_RESET].sig_no = 7;
-    initial_gpio_settings[GPIO_SIGNAL_GPS_RESET].out    = GPIO_GDIR_OUTPUT;
-    initial_gpio_settings[GPIO_SIGNAL_GPS_RESET].data   = GPIO_DATA_LOW;
+    gpio_signal_mapping[GPIO_SIGNAL_GPS_RESET].port   = GPIO_MCU_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_GPS_RESET].sig_no = 7;
+    gpio_signal_mapping[GPIO_SIGNAL_GPS_RESET].out    = GPIO_GDIR_OUTPUT;
+    gpio_signal_mapping[GPIO_SIGNAL_GPS_RESET].data   = GPIO_DATA_LOW;
 
     /*
      * MCU GPIO Port Pin 8 -- Ethernet Interrupt
@@ -569,10 +569,10 @@ void __init gpio_setting_fixup_p3_brassboard(void)
      * ButeP5 (close) Signal: GPU_VCORE2_EN/PWGT2EN
      * Pin: GPIO8 Mux Setting: Func
      */
-    initial_gpio_settings[GPIO_SIGNAL_ENET_INT_B].port      = GPIO_MCU_PORT;
-    initial_gpio_settings[GPIO_SIGNAL_ENET_INT_B].sig_no    = 8;
-    initial_gpio_settings[GPIO_SIGNAL_ENET_INT_B].out       = GPIO_GDIR_INPUT;
-    initial_gpio_settings[GPIO_SIGNAL_ENET_INT_B].data      = GPIO_DATA_INVALID;
+    gpio_signal_mapping[GPIO_SIGNAL_ENET_INT_B].port      = GPIO_MCU_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_ENET_INT_B].sig_no    = 8;
+    gpio_signal_mapping[GPIO_SIGNAL_ENET_INT_B].out       = GPIO_GDIR_INPUT;
+    gpio_signal_mapping[GPIO_SIGNAL_ENET_INT_B].data      = GPIO_DATA_INVALID;
 
     /*
      * MCU GPIO Port Pin 14 -- IRDA Shutdown
@@ -582,10 +582,10 @@ void __init gpio_setting_fixup_p3_brassboard(void)
      * ButeP5 (close) Signal: LCD_SD
      * Pin: GPIO14 Mux Setting: Func
      */
-    initial_gpio_settings[GPIO_SIGNAL_IRDA_SD].port     = GPIO_MCU_PORT;
-    initial_gpio_settings[GPIO_SIGNAL_IRDA_SD].sig_no   = 14;
-    initial_gpio_settings[GPIO_SIGNAL_IRDA_SD].out      = GPIO_GDIR_OUTPUT;
-    initial_gpio_settings[GPIO_SIGNAL_IRDA_SD].data     = GPIO_DATA_HIGH;
+    gpio_signal_mapping[GPIO_SIGNAL_IRDA_SD].port     = GPIO_MCU_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_IRDA_SD].sig_no   = 14;
+    gpio_signal_mapping[GPIO_SIGNAL_IRDA_SD].out      = GPIO_GDIR_OUTPUT;
+    gpio_signal_mapping[GPIO_SIGNAL_IRDA_SD].data     = GPIO_DATA_HIGH;
 
     /*
      * MCU GPIO Port Pin 28 -- Main Display Reset
@@ -597,10 +597,10 @@ void __init gpio_setting_fixup_p3_brassboard(void)
      *
      * This line must toggle from high to low to enable the display.
      */
-    initial_gpio_settings[GPIO_SIGNAL_DISP_RST_B].port      = GPIO_MCU_PORT;
-    initial_gpio_settings[GPIO_SIGNAL_DISP_RST_B].sig_no    = 28;
-    initial_gpio_settings[GPIO_SIGNAL_DISP_RST_B].out       = GPIO_GDIR_OUTPUT;
-    initial_gpio_settings[GPIO_SIGNAL_DISP_RST_B].data      = GPIO_DATA_HIGH;
+    gpio_signal_mapping[GPIO_SIGNAL_DISP_RST_B].port      = GPIO_MCU_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_DISP_RST_B].sig_no    = 28;
+    gpio_signal_mapping[GPIO_SIGNAL_DISP_RST_B].out       = GPIO_GDIR_OUTPUT;
+    gpio_signal_mapping[GPIO_SIGNAL_DISP_RST_B].data      = GPIO_DATA_HIGH;
 
     /*
      * MCU GPIO Port Pin 29 -- Main Display Color Mode (low=high color mode)
@@ -610,10 +610,10 @@ void __init gpio_setting_fixup_p3_brassboard(void)
      * ButeP5 (close) Signal: STBY_B/GPU_INT_B
      * Pin: USB1_TXENB Mux Setting: GPIO
      */
-    initial_gpio_settings[GPIO_SIGNAL_DISP_CM].port     = GPIO_MCU_PORT;
-    initial_gpio_settings[GPIO_SIGNAL_DISP_CM].sig_no   = 29;
-    initial_gpio_settings[GPIO_SIGNAL_DISP_CM].out      = GPIO_GDIR_OUTPUT;
-    initial_gpio_settings[GPIO_SIGNAL_DISP_CM].data     = GPIO_DATA_LOW;
+    gpio_signal_mapping[GPIO_SIGNAL_DISP_CM].port     = GPIO_MCU_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_DISP_CM].sig_no   = 29;
+    gpio_signal_mapping[GPIO_SIGNAL_DISP_CM].out      = GPIO_GDIR_OUTPUT;
+    gpio_signal_mapping[GPIO_SIGNAL_DISP_CM].data     = GPIO_DATA_LOW;
 
     /*
      * MCU GPIO Port Pin 14 -- Main Display Shut Down
@@ -625,7 +625,7 @@ void __init gpio_setting_fixup_p3_brassboard(void)
      *
      * GPIO_MCU_14 also on pin GPIO19 mux setting GPIO.
      */
-    initial_gpio_settings[GPIO_SIGNAL_LCD_SD].port  = GPIO_INVALID_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_LCD_SD].port  = GPIO_INVALID_PORT;
 
     /*
      * MCU GPIO Port Pin 28 -- Main Display Serializer/Deserializer Enable
@@ -635,7 +635,7 @@ void __init gpio_setting_fixup_p3_brassboard(void)
      * ButeP5 (close) Signal: SERDES_RESET_B/GPU_RESET_B
      * Pin: USB1_VMOUT Mux Setting: GPIO
      */
-    initial_gpio_settings[GPIO_SIGNAL_SERDES_RESET_B].port  = GPIO_INVALID_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_SERDES_RESET_B].port  = GPIO_INVALID_PORT;
 
     /*
      * MCU GPIO Port Pin 29 -- Serializer Standby (in low-power mode when low)
@@ -645,12 +645,12 @@ void __init gpio_setting_fixup_p3_brassboard(void)
      * ButeP5 (close) Signal: STBY_B/GPU_INT_B
      * Pin: USB1_TXENB Mux Setting: GPIO
      */
-    initial_gpio_settings[GPIO_SIGNAL_STBY].port    = GPIO_INVALID_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_STBY].port    = GPIO_INVALID_PORT;
 }
 
 
 /**
- * Adjust initial_gpio_settings array to reflect P4 closed-phone and
+ * Adjust gpio_signal_mapping array to reflect P4 closed-phone and
  * wingboard.
  */
 void __init gpio_setting_fixup_p4(void)
@@ -663,10 +663,10 @@ void __init gpio_setting_fixup_p4(void)
      * ButeP5 (close) Signal: BT_RX
      * Pin: USB1_XRXD Mux Setting: GPIO
      */
-    initial_gpio_settings[GPIO_SIGNAL_CLI_RST_B].port   = GPIO_MCU_PORT;
-    initial_gpio_settings[GPIO_SIGNAL_CLI_RST_B].sig_no = 1;
-    initial_gpio_settings[GPIO_SIGNAL_CLI_RST_B].out    = GPIO_GDIR_OUTPUT;
-    initial_gpio_settings[GPIO_SIGNAL_CLI_RST_B].data   = GPIO_DATA_LOW;
+    gpio_signal_mapping[GPIO_SIGNAL_CLI_RST_B].port   = GPIO_MCU_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_CLI_RST_B].sig_no = 1;
+    gpio_signal_mapping[GPIO_SIGNAL_CLI_RST_B].out    = GPIO_GDIR_OUTPUT;
+    gpio_signal_mapping[GPIO_SIGNAL_CLI_RST_B].data   = GPIO_DATA_LOW;
 
     /* Pin USB1_XRXD is also used to control GPS_RESET_B on some modified
      * P4A Wingboards. This means there is a conflict between the ability
@@ -680,10 +680,10 @@ void __init gpio_setting_fixup_p4(void)
          * ButeP5 (close) Signal: BT_RX
          * Pin: USB1_XRXD Mux Setting: GPIO
          */
-        initial_gpio_settings[GPIO_SIGNAL_GPS_RESET].port   = GPIO_MCU_PORT;
-        initial_gpio_settings[GPIO_SIGNAL_GPS_RESET].sig_no = 1;
-        initial_gpio_settings[GPIO_SIGNAL_GPS_RESET].out    = GPIO_GDIR_OUTPUT;
-        initial_gpio_settings[GPIO_SIGNAL_GPS_RESET].data   = GPIO_DATA_INVALID;
+        gpio_signal_mapping[GPIO_SIGNAL_GPS_RESET].port   = GPIO_MCU_PORT;
+        gpio_signal_mapping[GPIO_SIGNAL_GPS_RESET].sig_no = 1;
+        gpio_signal_mapping[GPIO_SIGNAL_GPS_RESET].out    = GPIO_GDIR_OUTPUT;
+        gpio_signal_mapping[GPIO_SIGNAL_GPS_RESET].data   = GPIO_DATA_INVALID;
     } else {
         /*
          * MCU GPIO Port Pin 12 -- GPS Reset
@@ -692,7 +692,7 @@ void __init gpio_setting_fixup_p4(void)
          * ButeP5 (close) Signal: GPS_RESET_B
          * Pin: GPIO12 Mux Setting: Func
          */
-        initial_gpio_settings[GPIO_SIGNAL_GPS_RESET].port   = GPIO_INVALID_PORT;
+        gpio_signal_mapping[GPIO_SIGNAL_GPS_RESET].port   = GPIO_INVALID_PORT;
     }
 
     /*
@@ -705,10 +705,10 @@ void __init gpio_setting_fixup_p4(void)
      *
      * Configured by MBM at boot time.
      */
-    initial_gpio_settings[GPIO_SIGNAL_LCD_BACKLIGHT].port   = GPIO_MCU_PORT;
-    initial_gpio_settings[GPIO_SIGNAL_LCD_BACKLIGHT].sig_no = 30;
-    initial_gpio_settings[GPIO_SIGNAL_LCD_BACKLIGHT].out    = GPIO_GDIR_OUTPUT;
-    initial_gpio_settings[GPIO_SIGNAL_LCD_BACKLIGHT].data   = GPIO_DATA_INVALID;
+    gpio_signal_mapping[GPIO_SIGNAL_LCD_BACKLIGHT].port   = GPIO_MCU_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_LCD_BACKLIGHT].sig_no = 30;
+    gpio_signal_mapping[GPIO_SIGNAL_LCD_BACKLIGHT].out    = GPIO_GDIR_OUTPUT;
+    gpio_signal_mapping[GPIO_SIGNAL_LCD_BACKLIGHT].data   = GPIO_DATA_INVALID;
 
     /*
      * Shared GPIO Port Pin 7 -- Bluetooth Reset
@@ -720,10 +720,10 @@ void __init gpio_setting_fixup_p4(void)
      *
      * GPIO_Shared_7 also on pin IPU_CSI_DATA_3 mux setting GPIO.
      */
-    initial_gpio_settings[GPIO_SIGNAL_BT_POWER].port    = GPIO_SHARED_PORT;
-    initial_gpio_settings[GPIO_SIGNAL_BT_POWER].sig_no  = 7;
-    initial_gpio_settings[GPIO_SIGNAL_BT_POWER].out     = GPIO_GDIR_OUTPUT;
-    initial_gpio_settings[GPIO_SIGNAL_BT_POWER].data    = GPIO_DATA_LOW;
+    gpio_signal_mapping[GPIO_SIGNAL_BT_POWER].port    = GPIO_SHARED_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_BT_POWER].sig_no  = 7;
+    gpio_signal_mapping[GPIO_SIGNAL_BT_POWER].out     = GPIO_GDIR_OUTPUT;
+    gpio_signal_mapping[GPIO_SIGNAL_BT_POWER].data    = GPIO_DATA_LOW;
     
     /*
      * MCU GPIO Port Pin 28 -- Main Display Serializer/Deserializer Enable
@@ -733,10 +733,10 @@ void __init gpio_setting_fixup_p4(void)
      * ButeP5 (close) Signal: SERDES_RESET_B/GPU_RESET_B
      * Pin: USB1_VMOUT Mux Setting: GPIO
      */
-    initial_gpio_settings[GPIO_SIGNAL_SERDES_RESET_B].port   = GPIO_MCU_PORT;
-    initial_gpio_settings[GPIO_SIGNAL_SERDES_RESET_B].sig_no = 28;
-    initial_gpio_settings[GPIO_SIGNAL_SERDES_RESET_B].out    = GPIO_GDIR_OUTPUT;
-    initial_gpio_settings[GPIO_SIGNAL_SERDES_RESET_B].data   = GPIO_DATA_HIGH;
+    gpio_signal_mapping[GPIO_SIGNAL_SERDES_RESET_B].port   = GPIO_MCU_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_SERDES_RESET_B].sig_no = 28;
+    gpio_signal_mapping[GPIO_SIGNAL_SERDES_RESET_B].out    = GPIO_GDIR_OUTPUT;
+    gpio_signal_mapping[GPIO_SIGNAL_SERDES_RESET_B].data   = GPIO_DATA_HIGH;
 
     /*
      * MCU GPIO Port Pin 29 -- Serializer Standby (in low-power mode when low)
@@ -746,10 +746,10 @@ void __init gpio_setting_fixup_p4(void)
      * ButeP5 (close) Signal: STBY_B/GPU_INT_B
      * Pin: USB1_TXENB Mux Setting: GPIO
      */
-    initial_gpio_settings[GPIO_SIGNAL_STBY].port    = GPIO_MCU_PORT;
-    initial_gpio_settings[GPIO_SIGNAL_STBY].sig_no  = 29;
-    initial_gpio_settings[GPIO_SIGNAL_STBY].out     = GPIO_GDIR_OUTPUT;
-    initial_gpio_settings[GPIO_SIGNAL_STBY].data    = GPIO_DATA_LOW;
+    gpio_signal_mapping[GPIO_SIGNAL_STBY].port    = GPIO_MCU_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_STBY].sig_no  = 29;
+    gpio_signal_mapping[GPIO_SIGNAL_STBY].out     = GPIO_GDIR_OUTPUT;
+    gpio_signal_mapping[GPIO_SIGNAL_STBY].data    = GPIO_DATA_LOW;
 
     /*
      * MCU GPIO Port Pin 7 -- SW_GPU_CORE1
@@ -759,7 +759,7 @@ void __init gpio_setting_fixup_p4(void)
      * ButeP5 (close) Signal: GPU_VCORE1_EN/PWGT1EN
      * Pin: GPIO7 Mux Setting: Func
      */
-    initial_gpio_settings[GPIO_SIGNAL_GPU_VCORE1_EN].port   = GPIO_INVALID_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_GPU_VCORE1_EN].port   = GPIO_INVALID_PORT;
 
     /*
      * MCU GPIO Port Pin 8 -- SW_GPU_CORE2
@@ -769,7 +769,7 @@ void __init gpio_setting_fixup_p4(void)
      * ButeP5 (close) Signal: GPU_VCORE2_EN/PWGT2EN
      * Pin: GPIO8 Mux Setting: Func
      */
-    initial_gpio_settings[GPIO_SIGNAL_GPU_VCORE2_EN].port   = GPIO_INVALID_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_GPU_VCORE2_EN].port   = GPIO_INVALID_PORT;
 
     /*
      * MCU GPIO Port Pin 23 -- GPU Deep-Power-Down
@@ -778,7 +778,7 @@ void __init gpio_setting_fixup_p4(void)
      * ButeP5 (close) Signal: GPU_DPD_B
      * Pin: GPIO36 Mux Setting: Func
      */
-    initial_gpio_settings[GPIO_SIGNAL_GPU_DPD_B].port   = GPIO_INVALID_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_GPU_DPD_B].port   = GPIO_INVALID_PORT;
 
     /*
      * MCU GPIO Port Pin 28 -- GPU Reset
@@ -788,7 +788,7 @@ void __init gpio_setting_fixup_p4(void)
      * ButeP5 (close) Signal: SERDES_RESET_B/GPU_RESET_B
      * Pin: USB1_VMOUT Mux Setting: GPIO
      */
-    initial_gpio_settings[GPIO_SIGNAL_GPU_RESET_B].port = GPIO_INVALID_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_GPU_RESET_B].port = GPIO_INVALID_PORT;
 
     /*
      * MCU GPIO Port Pin 31 -- APPS_CLK_EN_B
@@ -797,6 +797,6 @@ void __init gpio_setting_fixup_p4(void)
      * ButeP5 (close) Signal: APPS_CLK_EN_B
      * Pin: USB1_VPOUT Mux Setting: GPIO
      */
-    initial_gpio_settings[GPIO_SIGNAL_APP_CLK_EN_B].port    = GPIO_INVALID_PORT;
+    gpio_signal_mapping[GPIO_SIGNAL_APP_CLK_EN_B].port    = GPIO_INVALID_PORT;
 }
 #endif /* CONFIG_MOT_FEAT_BRDREV */

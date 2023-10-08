@@ -1,7 +1,8 @@
 /* Rewritten by Rusty Russell, on the backs of many others...
    Copyright (C) 2002 Richard Henderson
    Copyright (C) 2001 Rusty Russell, 2002 Rusty Russell IBM.
-   Copyright (C) 2006-2008 Motorola, Inc.
+   Copyright 2006-2007 Motorola, Inc.
+   Copyright 2008 Motorola, Inc.
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -19,8 +20,10 @@
 
     Date         Author          Comment
     10/2006      Motorola        Added secure module loading support 
+    03/2007      Mototola        Changed secure module code
     03/2007      Motorola        Applied GCOV 2.6.16 patch
     06/2008  	 Motorola	 Hash whole ELF file in secure module loading
+    06/2008      Motorola        Fix partition security issue
 */
 #include <linux/config.h>
 #include <linux/module.h>
@@ -49,8 +52,10 @@
 //#ifdef CONFIG_MOT_FEAT_SECURE_MODULE
 #include <linux/crypto.h>
 #include <asm/scatterlist.h>
-#include <linux/mount.h>
 //#endif /* CONFIG_MOT_FEAT_SECURE_MODULE */
+#ifdef CONFIG_MOT_FEAT_SECURE_MODULE // in LJ63 need commit for USB, LJ71 no commic for sound
+#include <linux/mount.h>
+#endif /* CONFIG_MOT_FEAT_SECURE_MODULE */
 
 #if 0
 #define DEBUGP printk
@@ -1480,6 +1485,52 @@ static inline void add_kallsyms(struct module *mod,
 #endif /* CONFIG_KALLSYMS */
 
 #ifdef CONFIG_MOT_FEAT_SECURE_MODULE
+
+static char *motmodule_hashes;
+static DEFINE_SPINLOCK(motmodule_hash_lock);
+
+/* null is an empty list */
+static const char mot_empty_hash_list[]={'\0','\0'};
+
+int motmodule_hash_add_hashes(const char * hashes)
+{
+        char *tmp = mot_empty_hash_list;
+        int ret=-EPERM;
+
+        if (hashes)
+                tmp = hashes;
+
+        spin_lock(&motmodule_hash_lock);
+        if (!motmodule_hashes) {
+                motmodule_hashes = tmp;
+                ret = 0;
+        }
+        spin_unlock(&motmodule_hash_lock);
+
+        return ret;
+}
+
+EXPORT_SYMBOL(motmodule_hash_add_hashes);
+
+#ifdef DEBUGHASHES
+int motmodule_hash_get_hashes(char *buff, size_t buff_size)
+{
+    size_t left;
+    int ret;
+    char * hash;
+    
+    for ( left = buff_size, hash = motmodule_hashes; hash != NULL && *hash != '\0' && left > 0; ) {
+        ret = snprintf(buff, left,"%s\n",hash);
+        left -= (ret < left) ? ret : left;
+        buff += (ret < left) ? ret : left;
+        hash += strlen(hash) + 1;
+    }
+    return buff_size-left;
+}
+
+EXPORT_SYMBOL(motmodule_hash_get_hashes);
+#endif
+
 static void module_hash_update(struct crypto_tfm * tfm, 
             struct scatterlist * sg, uint8_t * data, unsigned int size)
 {
@@ -1506,18 +1557,36 @@ static void module_hash_update(struct crypto_tfm * tfm,
 
 static int module_hash_verify(uint8_t * digest)
 {
-    char digest_ascii[41];
+    int i, j;
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)
+    char * hash;
+#else
     extern dev_t ROOT_DEV;
     struct file * hashfile;
-    int correct_dev, i, j, in_hash;
+    int correct_dev, in_hash;
     char comp_char;
     mm_segment_t orig_fs;
+#endif
+    char digest_ascii[41];
 
     /* store the digest in ascii for comparison */
     for(i=0, j=0; i < 20; i++, j+=2) {
         sprintf((digest_ascii+j), "%02x", digest[i]);
     }
     digest_ascii[40] = '\0';
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)
+    
+    if (motmodule_hashes) {
+        for ( hash = motmodule_hashes; *hash != '\0'; ) {
+            if (!strcmp(hash, digest_ascii))
+                return 0;
+            hash += strlen(hash) + 1;
+        }
+    } else {
+        /* default state is to allow modules */
+        return 0;
+    }
+#else
 
     /* Open up hash file for comparison */
     hashfile = filp_open("/etc/modules.hash", O_RDONLY, 0);
@@ -1569,10 +1638,14 @@ static int module_hash_verify(uint8_t * digest)
         }
         i++;
     }
+#endif /*defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)*/
+    
     /* If no matches it is an untrusted module */
     printk( KERN_WARNING "Untrusted module, correct hash must be listed in /etc/modules.hash\n");
+#if ! defined(CONFIG_MACH_ELBA) && ! defined(CONFIG_MACH_PIANOSA) && ! defined(CONFIG_MACH_KEYWEST)
     set_fs(orig_fs);
     filp_close(hashfile, NULL);
+#endif /* ! defined(CONFIG_MACH_ELBA) && ! defined(CONFIG_MACH_PIANOSA) && ! defined(CONFIG_MACH_KEYWEST) */
     return -EPERM;
 }         
 #endif /* CONFIG_MOT_FEAT_SECURE_MODULE */
@@ -2356,3 +2429,4 @@ EXPORT_SYMBOL(module_remove_driver);
 void struct_module(struct module *mod) { return; }
 EXPORT_SYMBOL(struct_module);
 #endif
+

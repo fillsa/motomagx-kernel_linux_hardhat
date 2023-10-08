@@ -51,6 +51,8 @@
  * 08-02-2007    Motorola    Add comments for oss compliance.
  * 08-07-2007	 Mororola    Fix a bug in jffs2 to prevent kernel panic.
  * 08-10-2007    Motorola    Add comments.
+ * 10-18-2007    Motorola    Fix deadlock problem in JFFS2.
+ * 10-29-2007   Motorola     Change inode blocks when update
  * 11-06-2007    Motorola    Upmerge from 6.1.  (Change inode blocks when update)
  * 11-13-2007    Motorola    Fix deadlock problem in JFFS2.
  */

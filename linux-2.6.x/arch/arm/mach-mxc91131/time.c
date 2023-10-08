@@ -1,6 +1,6 @@
 /*
  * Copyright 2004 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright 2005-2006 Motorola, Inc. All rights reserved. 
+ * Copyright 2005-2007 Motorola, Inc. All rights reserved. 
  *
  * System Timer Interrupt reconfigured to run in free-run mode.
  * Author: Vitaly Wool
@@ -205,6 +205,21 @@ static irqreturn_t mxc_timer_interrupt(int irq, void *dev_id,
  */
 static unsigned long __noinstrument mxc_gettimeoffset(void)
 {
+#ifdef CONFIG_MOT_FEAT_GETTIMEOFFSET_2618
+	long ticks_to_match, elapsed, usec;
+
+	/* Get ticks before next timer match */
+	ticks_to_match =
+		__raw_readl(MXC_GPT_GPTOCR1) - __raw_readl(MXC_GPT_GPTCNT);
+
+	/* We need elapsed ticks since last match */
+	elapsed = LATCH - ticks_to_match;
+
+	/* Now convert them to usec */
+	usec = (unsigned long)(elapsed * (tick_nsec / 1000)) / LATCH;
+
+	return usec;
+#else
 	unsigned long ticks_to_match, elapsed, usec, tick_usec, i;
 
 	/* Get ticks before next timer match */
@@ -224,6 +239,7 @@ static unsigned long __noinstrument mxc_gettimeoffset(void)
 	usec = (unsigned long)(elapsed * tick_usec) / (LATCH / i);
 
 	return usec;
+#endif
 }
 
 /*!

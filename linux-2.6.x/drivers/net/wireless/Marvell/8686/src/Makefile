@@ -34,6 +34,8 @@
 
 
 MARVELL_SRC_DIR = drivers/net/wireless/Marvell/8686/src
+GPL_DRIVERS_DIR        = /vobs/3gsm_sierra/gpl_drivers
+LINUXJAVA_DRIVER_DIR   = /vobs/linuxjava/drivers_1
 
 # Use SCMA11 official CC & LD
 #CC=        $(CROSS)gcc

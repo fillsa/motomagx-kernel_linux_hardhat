@@ -10,6 +10,9 @@
  * Copyright (C) 2008 Motorola, Inc.
  * 
  * Date              Author          Comment
+ * 02/2007  Motorola   Change the PT_GNU_STACK section to allow executable 
+ *                     permission on all sections, not just the stack
+ * 12/2007  Motorola   Fix full coredump core pattern issue
  * 2008-02-27      Motorola        Fix full coredump core pattern issue
  */
  
@@ -889,7 +892,18 @@ static int load_elf_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	for (i = 0; i < loc->elf_ex.e_phnum; i++, elf_ppnt++)
 		if (elf_ppnt->p_type == PT_GNU_STACK) {
 			if (elf_ppnt->p_flags & PF_X)
+#ifdef CONFIG_MOT_WFN422
+			{
 				executable_stack = EXSTACK_ENABLE_X;
+				/*
+				 * Set the default prot flags for this process to 
+				 * enable execute permissions for all data sections
+				 */	
+				def_flags |= PROT_EXEC;
+			}
+#else
+				executable_stack = EXSTACK_ENABLE_X;
+#endif /* CONFIG_MOT_WFN422 */
 			else
 				executable_stack = EXSTACK_DISABLE_X;
 			break;

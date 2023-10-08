@@ -3,7 +3,7 @@
  *
  * Copyright (c) 2003 Patrick Mochel
  * Copyright (c) 2003 Open Source Development Labs
- * Copyright 2006 Motorola, Inc.
+ * Copyright 2006-2007 Motorola, Inc.
  *
  * This file is released under the GPLv2
  *
@@ -32,6 +32,7 @@
  * Date        Author    Comment
  * 10/04/2006  Motorola  Enhanced debugging support for device suspend/resume.
  *                       Added MPM logging for device suspend/resume.
+ * 04/04/2007  Motorola  Expanded support for device suspend/resume debug.
  */
 
 #include <linux/device.h>

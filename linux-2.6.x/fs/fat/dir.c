@@ -1,6 +1,8 @@
 /*
  *  linux/fs/fat/dir.c
  *
+ *  Copyright (C) 2008 Motorola, Inc. 
+ *
  *  directory handling functions for fat-based filesystems
  *
  *  Written 1992,1993 by Werner Almesberger
@@ -12,6 +14,14 @@
  *  Rewritten for constant inumbers. Plugged buffer overrun in readdir(). AV
  *  Short name translation 1999, 2001 by Wolfram Pienkoss <wp@bszh.de>
  */
+
+/* ChangeLog:
+ * (mm-dd-yyyy)  Author    Comment
+ * 06-25-2008    Motorola  Change lookup position for the lookup.
+ * 08-11-2008	 Motorola  Update lookup position.
+ * 09-05-2008	 Motorola  Fix the reused entries issue with FAT_LOOKUP enable.
+ */
+
 
 #include <linux/slab.h>
 #include <linux/time.h>
@@ -178,10 +188,30 @@ int fat_search_long(struct inode *inode, const unsigned char *name,
 	unsigned short opt_shortname = MSDOS_SB(sb)->options.shortname;
 	int chl, i, j, last_u, res = 0;
 	loff_t i_pos, cpos = 0;
-
+#ifdef CONFIG_MOT_FAT_LOOKUP
+	loff_t o_pos = cpos = MSDOS_I(inode)->i_epos;
+	int first_time = 0;
+#endif
 	while(1) {
-		if (fat_get_entry(inode,&cpos,&bh,&de,&i_pos) == -1)
+#ifndef CONFIG_MOT_FAT_LOOKUP
+		if (fat_get_entry(inode,&cpos,&bh,&de,&i_pos) == -1) 
 			goto EODir;
+#else
+		if (unlikely((first_time != 0) && (cpos >= o_pos)))  
+			goto EODir;
+		if (fat_get_entry(inode,&cpos,&bh,&de,&i_pos) == -1) {
+			if ((cpos >= o_pos) && (o_pos != 0)) {
+				if (unlikely(first_time++ != 0)) {
+					printk(KERN_ERR "FAT: bad blocks found in <%s>, go out!\n", __FUNCTION__);
+					goto EODir;
+				}
+				cpos = 0;
+				continue;
+			}	
+
+			goto EODir;
+		}
+#endif
 parse_record:
 		long_slots = 0;
 		if (de->name[0] == DELETED_FLAG)
@@ -231,8 +261,27 @@ parse_long:
 				if (ds->id & 0x40) {
 					unicode[offset + 13] = 0;
 				}
+#ifndef CONFIG_MOT_FAT_LOOKUP
 				if (fat_get_entry(inode,&cpos,&bh,&de,&i_pos)<0)
 					goto EODir;
+#else
+#if TOLKO_E8_71_14_1AR
+				if (unlikely((cpos == o_pos) && (first_time != 0))) 
+					goto EODir;
+#endif
+				if (fat_get_entry(inode,&cpos,&bh,&de,&i_pos) < 0) {
+					if ((cpos >= o_pos) && (o_pos != 0)) {
+						if (unlikely(first_time++ != 0)) {
+							printk(KERN_ERR "FAT: bad blocks found in <%s>, go out!\n", 
+									__FUNCTION__);
+							goto EODir;
+						}
+						cpos = 0;
+						break;
+					}	
+					goto EODir;
+				}
+#endif 
 				if (slot == 0)
 					break;
 				ds = (struct msdos_dir_slot *) de;
@@ -317,6 +366,9 @@ Found:
 	res = long_slots + 1;
 	*spos = cpos - sizeof(struct msdos_dir_entry);
 	*lpos = cpos - res*sizeof(struct msdos_dir_entry);
+#ifdef CONFIG_MOT_FAT_LOOKUP
+	MSDOS_I(inode)->i_epos = cpos;
+#endif
 EODir:
 	brelse(bh);
 	if (unicode) {

@@ -28,6 +28,8 @@
  *                    Added USB highspeed chipset support
  * 12/2006  Motorola  Added power_ic_kernel.h include
  * 01/2007  Motorola  Set clkctl_gp_ctrl[7] to keep ARM on when JTAG attached.
+ * 02/2007  Motorola  added hooks to allow power ic driver to be released as a module.
+ * 05/2007  Motorola  Added CONFIG_MOT_FEAT_PM control.
  * 05/2007  Motorola  Expose reboot procedure via __mxc_power_off().
  */
 
@@ -41,7 +43,6 @@
 #include <linux/nodemask.h>
 #include <linux/reboot.h>
 
-#include <linux/power_ic_kernel.h>
 
 #include <asm/hardware.h>
 #include <asm/setup.h>
@@ -49,6 +50,11 @@
 #include <asm/mach/arch.h>
 #include <asm/mach/keypad.h>
 #include <asm/arch/gpio.h>
+#ifdef CONFIG_MOT_POWER_IC_ATLAS
+#include <linux/power_ic_kernel.h>
+#elif CONFIG_MOT_FEAT_POWER_IC_API
+#include <asm/power-ic-api.h>
+#endif
 #if defined(CONFIG_MOT_FEAT_PM)
 #include <asm/arch/clock.h>
 #endif
@@ -148,7 +154,13 @@ void __mxc_power_off(void)
 static void mxc_power_off(void)
 {
         /* If charger is attached, perform a reset instead of shutdown. */
-        if(power_ic_is_charger_attached() > 0) {
+        if(
+#ifdef CONFIG_MOT_POWER_IC_ATLAS
+                power_ic_is_charger_attached()
+#elif CONFIG_MOT_FEAT_POWER_IC_API
+                kernel_power_ic_is_charger_attached()
+#endif
+                 > 0) {
                 machine_restart(0);
         }
 

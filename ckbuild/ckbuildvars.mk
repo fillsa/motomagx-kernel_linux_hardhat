@@ -14,11 +14,12 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #
-# Copyright 2006-2007 Motorola
+# Copyright (C) 2006-2007 Motorola, Inc.
 #
 # Motorola  2006-Nov-13 - Initial revision.
 # Motorola  2007-Jan-25 - Both clearmake and cleargmake are now acceptable
 #                         values for $(MAKE).
+# Motorola  2007-Aug-27 - Fixed miniplatform build error.
 
 ifndef _ckbuild_ckbuildvars
 _ckbuild_ckbuildvars = 1
@@ -30,7 +31,7 @@ CKBUILD_EXTRA_CFLAGS =
 CKBUILD_EXTRA_CONFIG =
 
 # kernel source directory
-CKBUILD_KERNELSRC := $(shell grep ^KERNELSRC $(STD_DIRPATH)/linux_build/Makefile | sed -e 's/.*:=\s*\(.*\)/\1/')
+CKBUILD_KERNELSRC := $(shell grep ^KERNELSRC $(STD_DIRPATH)/linux_build/Makefile | sed -e 's/.*:= *\(.*\)/\1/')
 
 # normal arguments
 CKBUILD_NORMAL_ARGS = ARCH=$(ARCH) CROSS_COMPILE=$(patsubst %-gcc,%-,$(CC)) M=$(PWD) KBUILD_SRC=$(CKBUILD_KERNELSRC) MODLIB=$(KMODULES_DIR) CKBUILD_EXTRA_CFLAGS="$(CKBUILD_EXTRA_CFLAGS)" CKBUILD_EXTRA_CONFIG=$(CKBUILD_EXTRA_CONFIG)

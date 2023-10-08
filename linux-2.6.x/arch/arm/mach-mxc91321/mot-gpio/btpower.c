@@ -24,6 +24,7 @@
  * ===========  ==============  ==============================================
  * 01-Nov-2006  Motorola        Initial revision.
  * 31-Jan-2007  Motorola        Add API to control BT_POWER.
+ * 09-Jul-2007  Motorola        Added gpio_free_irq_dev work around.
  */
 
 #include "mot-gpio-argonlv.h"
@@ -66,7 +67,11 @@ void gpio_bluetooth_hostwake_free_irq(void *dev_id)
 {
     gpio_signal_config(GPIO_SIGNAL_BT_HOST_WAKE_B, GPIO_GDIR_INPUT,
             GPIO_INT_NONE);
-    gpio_signal_free_irq(GPIO_SIGNAL_BT_HOST_WAKE_B, GPIO_HIGH_PRIO);
+    gpio_signal_free_irq(GPIO_SIGNAL_BT_HOST_WAKE_B, GPIO_HIGH_PRIO
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)
+								, dev_id
+#endif
+);
 }
 
 

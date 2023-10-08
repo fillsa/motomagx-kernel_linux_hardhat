@@ -1,7 +1,7 @@
 /*
  * mpm_sysfs.c - sysfs interface to mpm driver
  *
- * Copyright 2006-2007 Motorola, Inc.
+ * Copyright (C) 2006-2008 Motorola, Inc.
  *
  */
 
@@ -28,6 +28,9 @@
  * 12/14/2006  Motorola          Improved operating point printing.
  * 01/28/2007  Motorola          Tie DSM to IDLE and reduce IOI timeout to 10ms
  * 02/14/2007  Motorola          Add statistics gathering.
+ * 04/04/2007  Motorola          Add support for Argon.
+ * 10/25/2007  Motorola          Improved periodic job state collection for debug.
+ * 06/18/2008  Motorola          Add /sys/mpm/registered to show registered drivers
  */
 
 #include <linux/module.h>
@@ -53,6 +56,9 @@ decl_subsys(mpm, NULL, NULL);
 
 #ifdef CONFIG_MOT_FEAT_PM_STATS
 static int start_op_stat = 0;
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+static int start_pj_stat = 0;
+#endif
 #endif
 
 static char current_state[9] = {"Normal"};
@@ -146,8 +152,52 @@ static ssize_t state_availop_store(struct subsystem *subsys, const char *buf,
 }
 
 mpm_subsys_attr(state_availop,availop, 0444);
-        
 
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+static ssize_t state_registered_show(struct subsystem *subsys, char *buf)
+{
+    ssize_t len = 0;
+    int i = 0;
+    int registered_count = 0;
+    char *ptemp = NULL;
+    char **registered_name = NULL;
+    unsigned long driver_flags;
+
+    spin_lock_irqsave(&mpm_driver_info_lock, driver_flags);
+
+    registered_count = mpmdip->registered_count;
+    registered_name = mpmdip->name_arr;
+    if (registered_name && registered_count > 0)
+    {
+        for (ptemp = buf, i = 0; i < registered_count; i++)
+        {
+            if (registered_name[i])
+            {
+                len = sprintf(ptemp, "Driver number: %-2d    Driver name: %s\n", \
+                              i, registered_name[i]);
+            } else {
+                len = sprintf(ptemp, "Driver number: %-2d    Driver name is unknown\n", i);
+            }
+            if (len > 0)
+                ptemp += len;
+            else
+                printk("sprintf failed at outputing registered driver: %d\n", i);
+        }
+        len = strlen(buf);
+    }
+
+    spin_unlock_irqrestore(&mpm_driver_info_lock, driver_flags);
+    return len;
+}
+
+static ssize_t state_registered_store(struct subsystem *subsys, 
+                                      const char *buf, size_t n)
+{
+    return n;
+}
+
+mpm_subsys_attr(state_registered, registered, 0444);
+#endif        
 #ifdef CONFIG_MOT_FEAT_PM_STATS
 
 /*
@@ -163,11 +213,21 @@ static ssize_t control_ctl_show(struct subsystem *subsys, char *buf)
     if(start_op_stat) {
         dvfs_stats = "on";
     }
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+    char* pjs_stats = "off";
+    if(start_pj_stat) {
+        pjs_stats = "on";
+    }
+#endif
     if(LPM_STATS_ENABLED()) {
         lpm_stats = "on";
     }
 
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+    len = sprintf(buf, "dvfs: %s\npjs: %s\nlpm: %s\n", dvfs_stats, pjs_stats, lpm_stats);
+#else
     sprintf(buf, "dvfs: %s\nlpm: %s\n", dvfs_stats, lpm_stats);
+#endif
     return len;
 }
 
@@ -194,6 +254,30 @@ static ssize_t control_ctl_store(struct subsystem *subsys,
             mpm_start_opstat( );
         }
     }
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+    else if(strnicmp(buf, "pjs", len) == 0) {
+        if(strnicmp(buf+len, " on", 3) == 0) {
+            MPM_DPRINTK("Enabling pjs stats\n");
+            start_pj_stat = 1;
+            mpm_start_pjstat(1);
+        }
+        else if(strnicmp(buf+len, " -s on", 6) == 0) {
+            MPM_DPRINTK("Enabling pjs stats in sleep mode\n");
+            start_pj_stat = 2;
+            mpm_start_pjstat(2);
+        }
+        else if(strnicmp(buf+len, " off", 4) == 0) {
+            MPM_DPRINTK("Disabling pjs stats\n");
+            start_pj_stat = 0;
+            mpm_stop_pjstat( );
+        }
+        else if(strnicmp(buf+len, " reset", 6) == 0) {
+            MPM_DPRINTK("Resetting pjs stats\n");
+            mpm_stop_pjstat( );
+            mpm_start_pjstat(start_pj_stat);
+        }
+    }
+#endif
     else if(strnicmp(buf, "lpm", len) == 0) {
         if(strnicmp(buf+len, " on", 3) == 0) {
             MPM_DPRINTK("Enabling lpm stats\n");
@@ -212,19 +296,35 @@ static ssize_t control_ctl_store(struct subsystem *subsys,
         if(strnicmp(buf+len, " on", 3) == 0) {
             MPM_DPRINTK("Enabling all stats\n");
             start_op_stat = 1;
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+            start_pj_stat = 1;
+#endif
             mpm_start_opstat( );
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+            mpm_start_pjstat(1);
+#endif
             mpm_lpm_stat_ctl(1);
         }
         else if(strnicmp(buf+len, " off", 4) == 0) {
             MPM_DPRINTK("Disabling all stats\n");
             start_op_stat = 0;
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+            start_pj_stat = 0;
+#endif
             mpm_stop_opstat( );
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+            mpm_stop_pjstat( );
+#endif
             mpm_lpm_stat_ctl(0);
         }
         else if(strnicmp(buf+len, " reset", 6) == 0) {
             MPM_DPRINTK("Resetting all stats\n");
             mpm_stop_opstat( );
             mpm_start_opstat( );
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+            mpm_stop_pjstat( );
+            mpm_start_pjstat(start_pj_stat);
+#endif
             mpm_reset_lpm_stats( );
         }
     }
@@ -260,6 +360,30 @@ static ssize_t state_dvfs_store(struct subsystem *subsys,
 
 
 mpm_subsys_attr(state_dvfs,dvfs, 0444);
+
+
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+/*
+* pjs - To print periodic job information.
+*/
+
+static ssize_t state_pjs_show(struct subsystem *subsys, char *buf)
+{
+    ssize_t len = 0;
+
+    mpm_print_pjstat(buf, PAGE_SIZE);
+    len = strlen(buf);
+    return len;
+}
+
+static ssize_t state_pjs_store(struct subsystem *subsys,
+                const char *buf, size_t n)
+{
+    return n;
+}
+
+mpm_subsys_attr(state_pjs, pjs, 0444);
+#endif
 
 #endif
 
@@ -517,6 +641,39 @@ static ssize_t state_help_show(struct subsystem *subsys, char *buf)
     ssize_t len = 0;
 
     sprintf
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+        (buf,"\nUSAGE:\n\n"                                             \
+         "cat /sys/mpm/availop\n"                                       \
+         "    Display the list of available operating point frequencies.\n\n" \
+         "cat /sys/mpm/help\n"                                          \
+         "    Print this help page\n\n"                                 \
+         "cat /sys/mpm/mode\n"                                          \
+         "    Display the current power mode of the AP and BP.\n\n"     \
+         "echo value > /sys/mpm/mode\n"                                 \
+         "    Place the system in the specified low power mode\n"       \
+         "    Valid values are clear, stop, fsl_stop, DSM, fsl_DSM.\n\n" \
+         "cat /sys/mpm/desense\n"                                       \
+         "    Display desense information.\n\n"                         \
+         "cat /sys/mpm/registered\n"                                    \
+         "    Display information of drivers registered in mpm.\n\n"   \
+         "cat /sys/mpm/op\n"                                            \
+         "    Display current operating point.\n\n"                     \
+         "echo value > /sys/mpm/op\n"                                   \
+         "    Set value(in MHz) as the operating frequency.\n\n"        \
+         "(The following cmds are only available if stats collection is enabled"
+         "cat /sys/mpm/ctl\n"                                      \
+         "    Print the status of statistics collection.\n\n"           \
+         "echo [dvfs | lpm | pjs | all] [\"on\" | \"off\" | \"reset\"] "  \
+         "> /sys/mpm/ctl\n"                                             \
+         "    Enable/disable/reset statistics collection for dvfs, lpm or pjs.\n\n" \
+         "echo pjs -s on > /sys/mpm/ctl\n"                              \
+         "    Enable statistics collection when phone sleep for pjs.\n\n" \
+         "cat /sys/mpm/dvfs\n"                                          \
+         "    Display dvfs statistics\n\n"                              \
+         "cat /sys/mpm/lpm\n"                                      \
+         "    Display low power modes statistics\n\n"                   \
+         );
+#else         
         (buf,"\nUSAGE:\n\n"                                             \
          "cat /sys/mpm/availop\n"                                       \
          "    Display the list of available operating point frequencies.\n\n" \
@@ -544,6 +701,7 @@ static ssize_t state_help_show(struct subsystem *subsys, char *buf)
          "cat /sys/mpm/stat/lpm\n"                                      \
          "    Display low power modes statistics\n\n"                   \
          );
+#endif
 
     len = strlen(buf);
     return len;
@@ -793,6 +951,9 @@ mpm_subsys_attr(state_lpm, lpm, 0444);
 static struct attribute * mpm_attr_array[] = {
         &state_op_attr.attr,
         &state_availop_attr.attr,
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+        &state_registered_attr.attr,
+#endif
         &state_mode_attr.attr,
         &state_desense_attr.attr,
         &state_help_attr.attr,
@@ -800,6 +961,9 @@ static struct attribute * mpm_attr_array[] = {
         &state_lpm_attr.attr,
         &control_ctl_attr.attr,
         &state_dvfs_attr.attr,
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+        &state_pjs_attr.attr,
+#endif
 #endif        
         NULL
 };

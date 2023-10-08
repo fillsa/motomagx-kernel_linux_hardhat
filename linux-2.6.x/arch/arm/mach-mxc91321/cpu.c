@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 2001 Deep Blue Solutions Ltd.
  *  Copyright 2004-2006 Freescale Semiconductor, Inc. All Rights Reserved.
- *  Copyright (C) 2006 Motorola.
+ *  Copyright (C) 2006-2007 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -24,6 +24,13 @@
  * 01/05/2006   Motorola  pull in the new drop from MontaVista into our vobs 
  * 07/15/2006   Motorola  pull in the new drop from MontaVista into our vobs
  * 10/06/2006   Motorola  Support for new product
+ * 06/11/2007   Motorola  Initialize clocks at boot
+ * 07/16/2007   Motorola  Implement Dynamic Clock Gating (SPI)
+ * 08/09/2007   Motorola  Support for new Argon IC
+ * 09/05/2007   Motorola  Gate off I2C clock at boot
+ * 10/12/2007   Motorola  Gate off sahara clock at boot
+ * 10/17/2007   Motorola  Change clock initialization
+ * 10/31/2007   Motorola  Enable SDHC clock
  */
 
 /*!
@@ -47,6 +54,10 @@
 #include <asm/cacheflush.h>
 #include <linux/proc_fs.h>
 
+#ifdef CONFIG_MOT_FEAT_PM
+#include "crm_regs.h"
+#endif
+
 #ifdef CONFIG_ARCH_MXC91331
 const u32 system_rev_tbl[SYSTEM_REV_NUM][2] = {
 	/* SREV, own defined ver */
@@ -62,6 +73,9 @@ const u32 system_rev_tbl[SYSTEM_REV_NUM][2] = {
 	{0x11, CHIP_REV_1_1},
 	{0x22, CHIP_REV_1_2},
 #endif
+	{0x24, CHIP_REV_1_2_2},
+	{0x50, CHIP_REV_2_3},	
+	{0x52, CHIP_REV_2_3_2},	
 };
 #endif
 
@@ -113,6 +127,41 @@ static int __init post_cpu_init(void)
 		       (u32) mxc_get_clocks(GPT_CLK));
 		mdelay(5000);
 	}
+
+#ifdef CONFIG_MOT_FEAT_PM
+        /* Initialize clocks that drivers aren't handling yet */
+        /* MCGR0 */
+        mxc_clks_disable(I2C_CLK);
+        mxc_clks_disable(CSPI1_CLK);
+        mxc_clks_enable(FIRI_BAUD);
+        mxc_clks_disable(EPIT2_CLK);
+        mxc_clks_enable(EDIO_CLK);
+        mxc_clks_enable(PWM_CLK);
+        mxc_clks_enable(OWIRE_CLK);
+        mxc_clks_disable(SSI1_BAUD);
+
+        /* MCGR1 */
+        mxc_clks_disable(MPEG4_CLK);
+        mxc_clks_enable(IIM_CLK);
+        mxc_clks_enable(SIM1_CLK);
+        mxc_clks_enable(SIM2_CLK);
+        mxc_clks_enable(GEM_CLK);
+        mxc_clks_enable(USB_CLK);
+        mxc_clks_disable(CSPI2_CLK);
+        mxc_clks_enable(SDHC2_CLK);
+        mxc_clks_enable(SDHC1_CLK);
+        mxc_clks_disable(SSI2_BAUD);
+
+        /* MCGR2 */
+        mxc_clks_enable(SDMA_CLK);
+        mxc_clks_enable(RTRMCU_CLK);
+        mxc_clks_enable(KPP_CLK);
+        mxc_clks_enable(ECT_CLK);
+        mxc_clks_enable(SMC_CLK);
+        mxc_clks_enable(RTIC_CLK);
+        mxc_clks_enable(SPBA_CLK);
+        mxc_clks_disable(SAHARA_CLK);
+#endif
 
 	return 0;
 }

@@ -19,13 +19,14 @@
  */
 
 /*
- * Copyright 2006 Motorola, Inc.
+ * Copyright (C) 2006, 2008 Motorola, Inc.
  */
 
 /*
  * DATE          AUTHOR         COMMMENT
  * ----          ------         --------
  * 10/04/2006    Motorola       Added support for PPPIOCGIDLE ioctl.
+ * 08/28/2008    Motorola       Change buffer size for larger frame.
  */
 
 #include <linux/module.h>
@@ -44,7 +45,7 @@
 
 #define PPP_VERSION	"2.4.2"
 
-#define OBUFSIZE	256
+#define OBUFSIZE	1536
 
 /* Structure for storing local state. */
 struct asyncppp {

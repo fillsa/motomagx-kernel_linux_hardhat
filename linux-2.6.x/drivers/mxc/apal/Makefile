@@ -18,6 +18,11 @@
 #
 # Makefile for the kernel APAL (Audio Platform Abstraction Layer) driver.
 #
+# ChangeLog:
+# Date (mm/dd/yyyy)        Author        Comment
+# 04/27/2007               Motorola      Remove hardcode.
+# 08/04/2007               Motorola      Clearmake compliance.
+# 09/04/2007               Motorola      Miniplatform build compliance.
 
 ifneq ($(KBUILD_SRC),)
 LINUX_OS	= $(KBUILD_SRC)

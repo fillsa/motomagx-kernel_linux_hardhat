@@ -4,6 +4,13 @@
  *  Copyright (C) 1991, 1992  Linus Torvalds
  */
 
+/*  Copyright (C) 2008 Motorola, Inc. */
+
+/* Date         Author          Comment
+ * ===========  ==============  ===========================
+ * 08/29/2008   Motorola        Add stale posix file lock patch
+ */
+
 #include <linux/syscalls.h>
 #include <linux/init.h>
 #include <linux/mm.h>
@@ -319,7 +326,11 @@ static long do_fcntl(int fd, unsigned int cmd, unsigned long arg,
 		break;
 	case F_SETLK:
 	case F_SETLKW:
+#ifdef CONFIG_MOT_FILELOCK_PATCH
+		err = fcntl_setlk(fd, filp, cmd, (struct flock __user *) arg);
+#else
 		err = fcntl_setlk(filp, cmd, (struct flock __user *) arg);
+#endif
 		break;
 	case F_GETOWN:
 		/*
@@ -407,7 +418,11 @@ asmlinkage long sys_fcntl64(unsigned int fd, unsigned int cmd, unsigned long arg
 			break;
 		case F_SETLK64:
 		case F_SETLKW64:
+#ifdef CONFIG_MOT_FILELOCK_PATCH
+			err = fcntl_setlk64(fd, filp, cmd, (struct flock64 __user *) arg);
+#else
 			err = fcntl_setlk64(filp, cmd, (struct flock64 __user *) arg);
+#endif
 			break;
 		default:
 			err = do_fcntl(fd, cmd, arg, filp);

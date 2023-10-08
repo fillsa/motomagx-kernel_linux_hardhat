@@ -16,18 +16,22 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #
+# Changelog: 
+#
 # Date         Author          Comment
 # ===========  ==============  ==============================================
 # 09-Nov-2006  Motorola        Initial revision.
 # 20-Nov-2006  Motorola        Added HW_RF_PYTHON
 # 21-Nov-2006  Motorola        HW_MM_ACCEL_IPU check added
 # 06-Dec-2006  Motorola        Added FEAT_ETM check.
-
 # 15-Dec-2006  Motorola        Added memory dump support (DBG_MEMDUMP)
-
 # 25-Dec-2006  Motorola        Export WLAN driver header file to application
+# 07-Feb-2007  Motorola        Remove MMC/SD support
+# 12-Jan-2007  Motorola        HW_PWR_KEY_LOCK and HW_OMEGA checks added
+# 19-Jan-2007  Motorola        Added FEAT_VIRTUAL_KEYMAP
+# 26-Jan-2007  Motorola        Added FM_RADIO check.
+# 29-Jan-2007  Motorola        exported linux/mmc/external.h
 # 09-Jan-2007  Motorola        Removed an incorrect export
-
 # 12-Jan-2007  Motorola        HW_PWR_KEY_LOCK and HW_OMEGA checks added
 # 19-Jan-2007  Motorola        Added FEAT_VIRTUAL_KEYMAP
 # 23-Jan-2007  Motorola        Fixed kernel rebuild issue
@@ -36,15 +40,30 @@
 # 01-Feb-2007  Motorola        Added TEST_ALLOW_MODULES.
 # 07-Feb-2007  Motorola        Export light_sensor.h.
 # 07-Feb-2007  Motorola        Add HW_MAX6946 check
+# 20-Feb-2007  Motorola        Added HW_USB_HS_ANTIOCH
 # 02-Apr-2007  Motorola        Add TEST_COVERAGE.   
+# 06-Apr-2007  Motorola        removed PowerIC exports
+# 06-Apr-2007  Motorola	       Export mpm.h
+# 11-Apr-2007  Motorola        TOOLPREFIX dump functionality
+# 11-Apr-2007  Motorola        Export mtd/jffs-user.h & linux/jffs2.h
+# 19-Apr-2007  Motorola        Updated ckbuild export for x86
+# 25-Apr-2007  Motorola        Removed sierra kconfig hack
 # 04-May-2007  Motorola        Export mxc_ipc.h
-# 05-Jun-2007  Motorola        Add FEAT_AV
+# 12-May-2007  Motorola	       Removed keypad.h
+# 29-May-2007  Motorola        Removed sdhc_user.h and usr_blk_dev.h
+# 05-Jun-2007  Motorola        Add FEAT_AV support
+# 07-Jun-2007  Motorola        Added motfb.h and mxcfb.h
+# 28-Jun-2007  Motorola        Removed some SiERRA variables
+# 03-Aug-2007  Motorola	       Enable ptrace
+# 04-Sep-2007  Motorola        Export ssi and dam header files
+# 14-Nov-2007  Motorola        Export mpm.h for the previous incorrect merge.
 # 23-Nov-2007  Motorola        Add BT LED debug option processing
 # 30-Jun-2008  Motorola        Export inotify.h
 # 29-Jan-2008  Motorola        Added header file morphing_mode.h to API_INCS
 # 23-Apr-2008  Motorola        Add FEAT_EPSON_LTPS_DISPLAY check
 # 29-Jul-2008  Motorola        Add FEAT_32_BIT_DISPLAY check
 # 01-Aug-2008  Motorola        Fix Wifi/Marvell Drivers compliance issues
+# 30-Jue-2008  Motorola        Export inotify.h. 		
 # 10-Oct-2008  Motorola        Export inotify.h
 # ###########################################################################
 
@@ -95,11 +114,17 @@ API_INCS = $(COMPTOP)/linux-2.6.x/include//linux/moto_accy.h \
 	$(COMPTOP)/linux-2.6.x/drivers/net/wireless/Marvell/8686/src/wlan/wlan_types.h \
 	$(COMPTOP)/linux-2.6.x/drivers/net/wireless/Marvell/8686/src/wlan/wlan_wext.h \
 	$(COMPTOP)/linux-2.6.x/drivers/media/video/mxc/capture/capture_2mp_wrkarnd.h \
+	$(COMPTOP)/linux-2.6.x/include//linux/spi_display.h \
 	$(COMPTOP)/linux-2.6.x/include//mtd/jffs2-user.h \
 	$(COMPTOP)/linux-2.6.x/include//linux/jffs2.h \
+	$(COMPTOP)/linux-2.6.x/include//linux/mpm.h    \
 	$(COMPTOP)/linux-2.6.x/include//linux/motfb.h \
 	$(COMPTOP)/linux-2.6.x/include//linux/mxcfb.h \
 	$(COMPTOP)/linux-2.6.x/include//linux/morphing_mode.h \
+	$(COMPTOP)/linux-2.6.x/drivers/mxc/ssi/ssi.h \
+	$(COMPTOP)/linux-2.6.x/drivers/mxc/ssi/ssi_types.h \
+	$(COMPTOP)/linux-2.6.x/drivers/mxc/dam/dam.h \
+	$(COMPTOP)/linux-2.6.x/drivers/mxc/dam/dam_types.h \
 	$(COMPTOP)/linux-2.6.x/include//linux/inotify.h
 
 # don't build kernel for x86
@@ -163,6 +188,14 @@ ifneq ($(HW_USB_HS_FX2LP),0)
         ${LJAPDEFCONFIGSRC}/feature/usb_hs_fx2lp.config \
         ${LJAPDEFCONFIGSRC}/feature/usb_hs_fx2lp.${PRODUCT_FAMILY}_config \
         ${LJAPDEFCONFIGSRC}/feature/usb_hs_fx2lp.${PRODUCT}_config 
+endif 
+
+# High Speed USB using Antioch
+ifneq ($(HW_USB_HS_ANTIOCH),0)
+    PRODUCT_SPECIFIC_DEFCONFIGS += \
+        ${LJAPDEFCONFIGSRC}/feature/usb_hs_antioch.config \
+        ${LJAPDEFCONFIGSRC}/feature/usb_hs_antioch.${PRODUCT_FAMILY}_config \
+        ${LJAPDEFCONFIGSRC}/feature/usb_hs_antioch.${PRODUCT}_config 
 endif 
 
 # Multi-Media Card support
@@ -303,6 +336,7 @@ ifneq ($(HW_CERAMICSPEAKER),0)
         ${LJAPDEFCONFIGSRC}/feature/ceramicspeaker.${PRODUCT}_config
 endif
 
+# OS: ptrace 
 ifeq ($(FEAT_PTRACE),1)
     PRODUCT_SPECIFIC_DEFCONFIGS += \
 	${LJAPDEFCONFIGSRC}/feature/ptrace.config \

@@ -19,6 +19,8 @@
  *
  * DATE          AUTHOR         COMMMENT
  * ----          ------         --------
+ * 10/04/2006    Motorola       Apply FSL SDMA script changes for WFN444 and
+ *                              WFN389.
  * 09/15/2006    Motorola       Change mode instructions added to SDMA Script.
  * 04/30/2007	 Motorola	Integrate new Freescale SDMA scripts. 
  * 07/30/2007    Motorola       Merge SDMA script code changes from 6.1 line

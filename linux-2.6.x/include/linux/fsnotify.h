@@ -9,7 +9,7 @@
  * Instead, we rely on the code inside to optimize away as needed.
  *
  * (C) Copyright 2005 Robert Love
- * Copyright (C) 2007 Motorola, Inc.
+ * Copyright (C) 2006, 2007 Motorola, Inc.
  *
  * Revision History:
  *
@@ -36,6 +36,7 @@ static inline void fsnotify_move(struct inode *old_dir, struct inode *new_dir,
 				const char *old_name, const char *new_name, int is_dir)
 {
 	u32 cookie;
+	u32 isdir = 0;
 
 	if (old_dir == new_dir)
 		inode_dir_notify(old_dir, DN_RENAME);

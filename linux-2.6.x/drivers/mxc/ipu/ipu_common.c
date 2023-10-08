@@ -15,14 +15,21 @@
  * 10/2006  Motorola  Added power-up logo support, additional pixel packing
  *                    formats, and functions for controlling the pixel clock.
  * 11/2006  Motorola  Updated ipu_enable_pixel_clock functions for ESD recovery.
+ * 07/2007  Motorola  Added  Dynamic AP Clock Gating for IPU clock.
  * 08/2007  Motorola  Use mdelay to replace msleep in ipu_disable_channel
  * 09/2007  Motorola  Fix problem that camera VF got tearing
  * 09/2007  Motorola  Add comments.
+ * 10/2007  Motorola  Remove memory reserved by IPU camera
+ * 10/2007  Motorola  Add ipu irq support for camera still caputre.
+ * 10/2007  Motorola  fix some logic about IPU_CONF register.
  * 10/2007  Motorola  FIQ related modified.
  * 11/2007  Motorola  Added Dynamic AP Clock Gating for IPU clock.
+ * 11/2007  Motorola  Flash in display is observed during phone powering up, add wait for BG EOF in ipu_update_channel_buffer.
  * 12/2007  Motorola  Added function pointer check before call it.
+ * 12/2007  Motorola  Remove ipu csi mclk disable from ipu_go_to_sleep, this is done in camera omx 
  * 12/2007  Motorola  Removed Dynamic AP Clock Gating due to the introduced issue that phone resets
  * 01/2008  Motorola  Added unlock operation before error return in ipu_link_channel
+ * 03/2008  Motorola  Add support for new keypad 
  * 03/2008  Motorola  Fix red screen issue
  * 04/2008  Motorola  Add code for new display
  * 05/2008  Motorola  Add new channel init
@@ -47,6 +54,9 @@
 #ifdef CONFIG_MOT_FEAT_POWERUP_LOGO
 #include <asm/setup.h>
 #endif  /* CONFIG_MOT_FEAT_POWERUP_LOGO */
+#if defined(CONFIG_MACH_ARGONLVPHONE)
+#include <linux/mpm.h>
+#endif
 #include "ipu.h"
 #include "ipu_prv.h"
 #include "ipu_regs.h"
@@ -54,6 +64,15 @@
 #include "asm-arm/io.h"
 #include <asm/arch/board.h>
 #include "asm/arch/clock.h"
+
+#if defined(CONFIG_MACH_ARGONLVPHONE)
+static uint32_t ipu_in_sleep_flag = 0;
+static uint32_t ipu_mpm_num = 0;
+static uint32_t ipu_int_ctrl[5];
+
+void ipu_wake_from_sleep(void);
+void ipu_go_to_sleep(void);
+#endif
 
 #define USE_FIQ_HANDLER 1
 
@@ -203,6 +222,15 @@ int ipu_probe(struct device *dev)
     /* Set to max back to back burst requests */
     __raw_writel(0x00000070L, IDMAC_CONF);
 
+#if defined(CONFIG_MACH_ARGONLVPHONE)
+        if((ipu_mpm_num = mpm_register_with_mpm("mxc_ipu")) < 0)
+        {
+            printk(KERN_ALERT"ihal.ko: mpm_register_with_mpm failed \n");
+
+        }
+        printk(KERN_ALERT"ihal.ko: mpm_register_with_mpm ipu_mpm_num:%d\n",ipu_mpm_num);
+#endif
+
     FUNC_END;
     return 0;
 }
@@ -251,6 +279,12 @@ int32_t ipu_init_channel(ipu_channel_t channel, ipu_channel_params_t * params)
         return -EINVAL;
     }
 
+#if defined(CONFIG_MACH_ARGONLVPHONE)
+        if(gChannelInitMask == 0){
+            mpm_driver_advise(ipu_mpm_num, MPM_ADVICE_DRIVER_IS_BUSY);
+            ipu_wake_from_sleep();
+        }
+#endif
 
     spin_lock_irqsave(&ipu_lock, lock_flags);
 
@@ -569,6 +603,12 @@ void ipu_uninit_channel(ipu_channel_t channel)
 
 
 
+#if defined(CONFIG_MACH_ARGONLVPHONE)
+        if(gChannelInitMask == 0){
+            ipu_go_to_sleep();
+            mpm_driver_advise(ipu_mpm_num, MPM_ADVICE_DRIVER_IS_NOT_BUSY);
+        }
+#endif
 
 
         spin_unlock_irqrestore(&ipu_lock, lock_flags);
@@ -595,18 +635,22 @@ static irqreturn_t ipu_4k_test_handler(int irq,void *dev_id,struct pt_regs *preg
                 printk("buf_num=%d,buff=0x%x\n",buf_num,ipu_reserved_buff_fiq[buf_num]);
                 if ((buf_num%2) == 0)
                 {
+#if 1
                     /* update physical address for idma buffer 0 */
                     __raw_writel((unsigned long)0x10078, IPU_IMA_ADDR);
                     __raw_writel((uint32_t) ipu_reserved_buff_fiq[buf_num], IPU_IMA_DATA);
+#endif
                     /* set buffer 0 ready bit */
                     __raw_writel((unsigned long)0x00000080, IPU_CHA_BUF0_RDY);
                 }
                 else
                 {
                     /* update physical address for idma buffer 1 */
+#if 1
                     __raw_writel((unsigned long)0x10079, IPU_IMA_ADDR);
                     __raw_writel((uint32_t) ipu_reserved_buff_fiq[buf_num], IPU_IMA_DATA);
 
+#endif
                     /* set buffer 1 ready bit */
                     __raw_writel((unsigned long)0x00000080, IPU_CHA_BUF1_RDY);
                 }
@@ -738,8 +782,9 @@ int32_t ipu_init_channel_buffer(ipu_channel_t channel, ipu_buffer_t type,
 
     spin_unlock_irqrestore(&ipu_lock, lock_flags);
 
-/* for nevis using ipu reserved memory */
+/* for nevis using ipu reserved memory (CONFIG_MOT_FEAT_DISPLAY_EPSON is on) */
 #ifndef CONFIG_MOT_FEAT_DISPLAY_EPSON
+printk("channel=%d,ipu_init_channel_buffer\n",channel);
     if(channel == CSI_MEM)
     {
 #if DBG_INT_CTRL
@@ -750,6 +795,7 @@ int32_t ipu_init_channel_buffer(ipu_channel_t channel, ipu_buffer_t type,
         __raw_writel(0xFFFFFFFF, IPU_INT_STAT_3);
         __raw_writel(0xFFFFFFFF, IPU_INT_STAT_4);
         __raw_writel(0xFFFFFFFF, IPU_INT_STAT_5);
+
         //store and disable all of interrupts
         gCtlReg1 = __raw_readl(IPU_INT_CTRL_1);
         __raw_writel(0x00000000, IPU_INT_CTRL_1);
@@ -761,11 +807,16 @@ int32_t ipu_init_channel_buffer(ipu_channel_t channel, ipu_buffer_t type,
         __raw_writel(0x00000000, IPU_INT_CTRL_4);
         gCtlReg5 = __raw_readl(IPU_INT_CTRL_5);
         __raw_writel(0x00000000, IPU_INT_CTRL_5);
+
         spin_unlock_irqrestore(&ipu_lock, lock_flags);
 #endif
 
+                printk("ipu_reserved_buff_fiq=0x%x,%x,%x,%x,%x\n",ipu_reserved_buff_fiq,ipu_reserved_buff_fiq[0],ipu_reserved_buff_fiq[1],ipu_reserved_buff_fiq[2],ipu_reserved_buff_fiq[3]);
+                
         //request irq&enable irq
+        printk("free handler first\n");
         ipu_free_irq(IPU_IRQ_SENSOR_OUT_EOF,NULL);
+        printk("request 4k handler\n");
         ipu_request_irq(IPU_IRQ_SENSOR_OUT_EOF,ipu_4k_test_handler,0,NULL,NULL);
 #ifdef USE_FIQ_HANDLER
         printk("!!switch to fiq,disable->switch->enable\n");
@@ -822,6 +873,7 @@ int32_t ipu_update_channel_buffer(ipu_channel_t channel, ipu_buffer_t type,
             if (timeout == 0)
                 break;
         }
+        /* wait for IPU_IRQ_SDC_FG_EOF first */
     } else if (channel == MEM_SDC_FG) {
         spin_lock_irqsave(&ipu_lock, lock_flags);
         ipu_clear_irq(IPU_IRQ_SDC_FG_EOF);
@@ -1611,7 +1663,7 @@ int32_t ipu_disable_channel(ipu_channel_t channel, bool wait_for_stop)
 
     spin_unlock_irqrestore(&ipu_lock, lock_flags);
 
-/* for nevis using ipu reserved memory*/
+/* for nevis using ipu reserved memory (CONFIG_MOT_FEAT_DISPLAY_EPSON is on) */
 #ifndef CONFIG_MOT_FEAT_DISPLAY_EPSON
 #if DBG_INT_CTRL
     if(channel == CSI_MEM)
@@ -1625,6 +1677,7 @@ int32_t ipu_disable_channel(ipu_channel_t channel, bool wait_for_stop)
         printk("free IPU_IRQ_SENSOR_OUT_EOF\n ");
         ipu_free_irq(IPU_IRQ_SENSOR_OUT_EOF,NULL);
 
+        printk("!!restore Ctl Reg\n");
         spin_lock_irqsave(&ipu_lock, lock_flags);
         __raw_writel(gCtlReg1, IPU_INT_CTRL_1);
         __raw_writel(gCtlReg2, IPU_INT_CTRL_2);
@@ -1680,8 +1733,13 @@ irqreturn_t ipu_irq_handler(int irq, void *desc, struct pt_regs *regs)
 
     int_stat = __raw_readl(IPU_INT_STAT_1);
     int_stat &= __raw_readl(IPU_INT_CTRL_1);
+    // unclear interrupt state for IDMA 7 EOF, it will be cleared in 4k handler
+        
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA)
+    __raw_writel(int_stat & (~0x00000080), IPU_INT_STAT_1);
+#else
     __raw_writel(int_stat, IPU_INT_STAT_1);
-
+#endif
     while ((line = ffs(int_stat)) != 0) {
         int_stat &= ~(1UL << (line - 1));
         line += line_base - 1;
@@ -2148,6 +2206,106 @@ ipu_color_space_t format_to_colorspace(uint32_t fmt)
 
 }
 
+#if defined(CONFIG_MACH_ARGONLVPHONE)
+static void clear_int(void)
+{
+        /* save interrupt control register*/
+        ipu_int_ctrl[0] = __raw_readl(IPU_INT_CTRL_1);
+        ipu_int_ctrl[1] = __raw_readl(IPU_INT_CTRL_2);
+        ipu_int_ctrl[2] = __raw_readl(IPU_INT_CTRL_3);
+        ipu_int_ctrl[3] = __raw_readl(IPU_INT_CTRL_4);
+        ipu_int_ctrl[4] = __raw_readl(IPU_INT_CTRL_5);
+
+        /* disable all interrupt lines */
+         __raw_writel(0, IPU_INT_CTRL_1);
+         __raw_writel(0, IPU_INT_CTRL_2);
+         __raw_writel(0, IPU_INT_CTRL_3);
+         __raw_writel(0, IPU_INT_CTRL_4);
+         __raw_writel(0, IPU_INT_CTRL_5);
+
+        /*  clear interrupt state bit*/
+         __raw_writel(0xffffffff, IPU_INT_STAT_1);
+         __raw_writel(0xffffffff, IPU_INT_STAT_2);
+         __raw_writel(0xffffffff, IPU_INT_STAT_3);
+         __raw_writel(0xffffffff, IPU_INT_STAT_4);
+         __raw_writel(0xffffffff, IPU_INT_STAT_5);
+
+}
+
+static void restore_int(void)
+{
+        /*  clear interrupt state bit*/
+         __raw_writel(0xffffffff, IPU_INT_STAT_1);
+         __raw_writel(0xffffffff, IPU_INT_STAT_2);
+         __raw_writel(0xffffffff, IPU_INT_STAT_3);
+         __raw_writel(0xffffffff, IPU_INT_STAT_4);
+         __raw_writel(0xffffffff, IPU_INT_STAT_5);
+
+        /* enable interrupt lines */
+         __raw_writel(ipu_int_ctrl[0], IPU_INT_CTRL_1);
+         __raw_writel(ipu_int_ctrl[1], IPU_INT_CTRL_2);
+         __raw_writel(ipu_int_ctrl[2], IPU_INT_CTRL_3);
+         __raw_writel(ipu_int_ctrl[3], IPU_INT_CTRL_4);
+         __raw_writel(ipu_int_ctrl[4], IPU_INT_CTRL_5);
+}
+
+void ipu_go_to_sleep(void)
+{
+    uint32_t lock_flags;
+    if(gChannelInitMask != 0)
+    {
+        DPRINTK(KERN_ALERT"ipu_common: ipu is in use, can't go to sleep!!!! \n");
+        return;
+    }
+    if(ipu_in_sleep_flag == 1)
+    {
+        DPRINTK(KERN_ALERT"ipu_common: ipu has been sleepinp!!!! \n");
+        return;
+    }
+   
+    printk(KERN_ALERT"ipu_common: ipu sleeping -_- -_- -_- -_- -_- ~~~~~~~~ \n");
+
+    spin_lock_irqsave(&ipu_lock, lock_flags);
+    ipu_in_sleep_flag = 1;
+
+    clear_int();
+    // just to ensure CSI clock has been disabled.
+    //ipu_csi_enable_mclk(CSI_MCLK_VF|CSI_MCLK_ENC|CSI_MCLK_RAW|CSI_MCLK_I2C, false, 1);
+
+    mxc_clks_disable(IPU_CLK);
+
+    spin_unlock_irqrestore(&ipu_lock, lock_flags);
+
+    return;
+}
+
+void ipu_wake_from_sleep(void)
+{
+
+    uint32_t lock_flags;
+
+    if(ipu_in_sleep_flag == 0)
+    {
+        DPRINTK(KERN_ALERT" ipu_common: ipu is awake!!!!!!!!\n");
+        return;
+    }
+
+    printk(KERN_ALERT"ipu_common: wakeup from sleeping *_* *_* *_* *_* *_* \n");
+
+    spin_lock_irqsave(&ipu_lock, lock_flags);
+
+    mxc_clks_enable(IPU_CLK);
+
+    restore_int();
+
+    ipu_in_sleep_flag = 0;
+
+    spin_unlock_irqrestore(&ipu_lock, lock_flags);
+    return;
+}
+
+#endif
+
 /*!
  * This structure contains pointers to the power management callback functions.
  */
@@ -2458,6 +2616,10 @@ EXPORT_SYMBOL(restore_ipu_access_memory_priority);
 #ifdef CONFIG_MOT_FEAT_2MP_CAMERA_WRKARND
 EXPORT_SYMBOL(setup_dma_chan_priority);
 EXPORT_SYMBOL(restore_dma_chan_priority);
+#endif
+#if defined(CONFIG_MACH_ARGONLVPHONE)
+EXPORT_SYMBOL(ipu_go_to_sleep);
+EXPORT_SYMBOL(ipu_wake_from_sleep);
 #endif
 
 /* TEST DEBUG ONLY */

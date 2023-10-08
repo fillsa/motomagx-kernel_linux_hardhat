@@ -11,9 +11,15 @@
  * 11/2006      Motorola        Changed timestamp to use secure clock
  * 11/2006      Motorola        Added memory dump support
  * 02/2007      Motorola        Fixing PC value in panic
+ * 02/2007      Motorola        added hooks to allow power ic driver to be
+ *                              released as a module.
  * 05/2007      Motorola        Emit build label in kernel panic text
- * 03/2008	Motorola	Add mem print log in panic
- * 03/2008	Motorola	Make memory log more flexable
+ * 01/2008	Motorola	Add mem print log in panic
+ * 03/2008	Motorola	Add mem print log in panic in LJ6.3
+ * 01/2008	Motorola	Make memory log more flexable.
+ * 03/2008	Motorola	Make memory log more flexable in LJ6.3
+ * 03/2008      Motorola        Deleted APR PC.
+ * 06/2008	Motorola	Enable full backtrace on security phones.
  */
 
 /*
@@ -37,6 +43,10 @@
 #endif /* CONFIG_MOT_FEAT_FB_PANIC_TEXT */
 #ifdef CONFIG_MOT_POWER_IC_ATLAS
 #include <linux/power_ic_kernel.h>
+#elif CONFIG_MOT_FEAT_POWER_IC_API
+#include <asm/power-ic-api.h>
+#else
+#error POWER_IC_are you shure?
 #endif /* CONFIG_MOT_POWER_IC_ATLAS */
 #include <linux/rtc.h>
 #include <linux/syscalls.h>
@@ -45,7 +55,7 @@
 
 #define MOTO_BLD_FLAG "motobldlabel"
 
-#ifdef CONFIG_MOT_FEAT_LOG_SCHEDULE_EVENTS
+#ifdef CONFIG_MOT_FEAT_LOG_SCHEDULE_EVENTSS // old #ifdef CONFIG_DEBUG_GNPO
 #include <linux/mem-log.h>
 #endif /* CONFIG_MOT_FEAT_LOG_SCHEDULE_EVENTS */
 
@@ -235,7 +245,13 @@ NORET_TYPE void panic(const char * fmt, ...)
 		va_start(args, fmt);
 		buf_len += vsnprintf(&(buf[buf_len]), sizeof(buf)-buf_len, fmt, args);
 		va_end(args);
+
+#ifdef CONFIG_MOT_POWER_IC_ATLAS
 		power_ic_rtc_get_time(&power_ic_time);
+#elif CONFIG_MOT_FEAT_POWER_IC_API
+		kernel_power_ic_rtc_get_time(&power_ic_time);        
+#endif /* CONFIG_MOT_POWER_IC_ATLAS */
+
 		rtc_time_to_tm((unsigned long)power_ic_time.tv_sec, &rtc_timestamp);
 		do_posix_clock_monotonic_gettime(&uptime);
 		/* displays current time (in ISO 8601 format) and uptime (in seconds) */
@@ -250,10 +266,15 @@ NORET_TYPE void panic(const char * fmt, ...)
 		/* dump the entire printk buffer to flash */
 		if ((security_mode == MOT_SECURITY_MODE_ENGINEERING) ||
 		    (security_mode == MOT_SECURITY_MODE_NO_SECURITY) ||
+#ifndef CONFIG_MOT_FEAT_ENHANCE_LOG 
 		    ((security_mode == MOT_SECURITY_MODE_PRODUCTION) &&
 		     (production_state == PRE_ACCEPTANCE_ACCEPTANCE) &&
 		     (bound_signature_state == BS_DIS_ENABLED))) {
+#else
+		     (security_mode == MOT_SECURITY_MODE_PRODUCTION)) {
+#endif
 
+#if 0 //  * 03/2008      Motorola        Deleted APR PC.
 #ifdef CONFIG_MOT_FEAT_PRINT_PC_ON_PANIC
 			{
 				void* panic_caller_location;
@@ -264,6 +285,7 @@ NORET_TYPE void panic(const char * fmt, ...)
 					aprdataprinted = 1;
 				}
 			}
+#endif
 #endif
 
 			/* displays current memory statistics; the return value is being ignored */
@@ -281,7 +303,7 @@ NORET_TYPE void panic(const char * fmt, ...)
                                 printk(KERN_EMERG "Memory dump disabled\n");
 #endif /* CONFIG_MOT_FEAT_MEMDUMP */
 
-#ifdef CONFIG_MOT_FEAT_LOG_SCHEDULE_EVENTS
+#ifdef CONFIG_MOT_FEAT_LOG_SCHEDULE_EVENTSS // old #ifdef CONFIG_DEBUG_GNPO
 			/* reuse the static buffer declared above */
 			memset(buf, 0, sizeof(buf));
 			va_start(args, fmt);
@@ -301,9 +323,13 @@ NORET_TYPE void panic(const char * fmt, ...)
 			dump_kpanic(buf);
 		}
 	}
-#ifdef CONFIG_MOT_POWER_IC_ATLAS
 	/* write the panic reason code */
+#ifdef CONFIG_MOT_POWER_IC_ATLAS
 	if (power_ic_backup_memory_write(POWER_IC_BACKUP_MEMORY_ID_ATLAS_BACKUP_PANIC, 1) < 0) {
+		printk(KERN_EMERG "Error: Could not write the panic reason code\n");
+	}
+#elif CONFIG_MOT_FEAT_POWER_IC_API
+	if(kernel_power_ic_backup_memory_write(KERNEL_BACKUP_MEMORY_ID_PANIC, 1) < 0) {
 		printk(KERN_EMERG "Error: Could not write the panic reason code\n");
 	}
 #endif /* CONFIG_MOT_POWER_IC_ATLAS */

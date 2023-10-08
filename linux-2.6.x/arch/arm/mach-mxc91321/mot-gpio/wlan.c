@@ -3,7 +3,7 @@
  *
  * ArgonLV implementation of Motorola GPIO API for WiFi support.
  *
- * Copyright 2006 Motorola, Inc.
+ * Copyright 2006-2007 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 /* Date         Author          Comment
  * ===========  ==============  ==============================================
  * 03-Nov-2006  Motorola        Initial revision.
+ * 09-Jul-2007  Motorola        Added gpio_free_irq_dev work around.
  */
 
 #include <linux/kernel.h>
@@ -111,7 +112,7 @@ void gpio_wlan_hostwake_free_irq(void *dev_id)
 {
     gpio_signal_config(GPIO_SIGNAL_WLAN_HOST_WAKE_B, GPIO_GDIR_INPUT,
             GPIO_INT_NONE);
-    gpio_signal_free_irq(GPIO_SIGNAL_WLAN_HOST_WAKE_B, GPIO_HIGH_PRIO);
+    gpio_signal_free_irq(GPIO_SIGNAL_WLAN_HOST_WAKE_B, GPIO_HIGH_PRIO, dev_id);
 }
 
 

@@ -29,7 +29,11 @@
  * 05/14/2007   Motorola  Support querying data left(not played) in apal driver from user space
  * 05/15/2007   Motorola  Mute Power IC when switching clocks
  * 05/29/2007   Motorola  Add hack to avoid noise when stopping SDMA during playback
+ * 05/14/2007   Motorola  Support querying data left(not played) in apal driver from user space 
  * 06/06/2007   Motorola  Support 0 buffer size write 
+ * 08/04/2007   Motorola  Change sdma include location
+ * 01/18/2008   Motorola  Add FM radio state
+ * 02/02/2008   Motorola  OSS source compliant 
  * 02/28/2008   Motorola  Supporting FM radio
  */
 
@@ -69,8 +73,16 @@
 #include "apal_driver.h"
 #include <linux/spinlock.h>
 #include <linux/dma-mapping.h>
+#include <linux/power_ic.h>
+#ifdef CONFIG_MOT_POWER_IC_ATLAS
 #include <linux/power_ic_kernel.h>
+#elif CONFIG_MOT_FEAT_POWER_IC_API
+#include <asm/power-ic-api.h>
+#endif
 #include <linux/poll.h>
+#include <asm/arch/gpio.h>
+#include <asm/mot-gpio.h>
+
 
 /*==================================================================================================
                                              CONSTANTS
@@ -246,6 +258,9 @@ static APAL_STDAC_CODEC_ENUM_T stdac_codec_in_use;
 
 /* flag for control of the vaudio on/off */
 static BOOL vaudio_on = FALSE;
+
+/* flag weather RAT mode is 2G or 3G */
+static int rat_mode=0;  /* GSM ref clk= 26Mhz */
 
 /* current playback size per buffer */
 static unsigned int current_size = 0;
@@ -703,15 +718,27 @@ apal_setup_codec
 
     mask |= AUDIOIC_SET_CDC_CLK2 | AUDIOIC_SET_CDC_CLK1 | AUDIOIC_SET_CDC_CLK0;
 
+#if defined(CONFIG_ARCH_MXC91231)
     /* If phone call is on then we need to use the corrected clock from BP which is 13Mhz */
     if (audio_route == APAL_AUDIO_ROUTE_PHONE) 
     { 
         /* value |= 0x0; , 000 = 13Mhz */
     }
     else /* For MM cases */
+#endif
     {
         value |= AUDIOIC_SET_CDC_CLK2;  /* 100 = 26Mhz */
     }
+
+#if defined(CONFIG_ARCH_MXC91321)
+    APAL_DEBUG_LOG ("Inside apal_setup_codec with audio_route=%d and rat_mode=%d\n", audio_route,
+                    rat_mode);
+    if ((audio_route == APAL_AUDIO_ROUTE_PHONE) && (rat_mode == 1)) /* 3G mode, change to 15.36 Mhz */
+    {
+        APAL_DEBUG_LOG ("Switching mode to 3G\n");
+        value = AUDIOIC_SET_CDC_CLK0;
+    }
+#endif
 
     mask |= AUDIOIC_SET_CDC_SM;
 
@@ -785,12 +812,14 @@ apal_setup_stdac
 
     mask |= AUDIOIC_SET_STDAC_CLK2 | AUDIOIC_SET_STDAC_CLK1 | AUDIOIC_SET_STDAC_CLK0;
 
+#if defined(CONFIG_ARCH_MXC91231)
     if (apal_driver_state.phone_call_on == TRUE)
     {
         APAL_DEBUG_LOG ("Phone call on so using 13Mhz clock for Stdac\n");
         /* value |= 0x0, 000 = 13Mhz */
     }
     else
+#endif
     {
         APAL_DEBUG_LOG ("Using 26 Mhz clock for Stdac\n");
         value |= AUDIOIC_SET_STDAC_CLK2;
@@ -873,7 +902,16 @@ apal_setup_ssi
         mod = SSI2;
 
         /* enable IPG clock */
+#if defined(CONFIG_ARCH_MXC91231)
         mxc_clks_enable(SSI2_IPG_CLK);  
+#endif
+
+        /* for bute there is no separate ioctl to control IPG clock.
+           both IPG and baud clocks are controlled by the same ioctl. 
+           so we need to enable BAUD ioctl in order to enable IPG clock. */
+#if defined(CONFIG_ARCH_MXC91321)
+        mxc_clks_enable(SSI2_BAUD);
+#endif
 
         /* NOTE: 8000 should be replace by the actual stdac sampling frequency being used. 8000 is 
                  just temporary. We don't use prescaler anyways because Atlas is always master */
@@ -908,7 +946,16 @@ apal_setup_ssi
         mod = SSI1;
 
         /* enable IPG clock */
+#if defined(CONFIG_ARCH_MXC91231)
         mxc_clks_enable(SSI1_IPG_CLK);
+#endif
+
+        /* for bute there is no separate ioctl to control IPG clock.
+           both IPG and baud clocks are controlled by the same ioctl. 
+           so we need to enable BAUD ioctl in order to enable IPG clock. */
+#if defined(CONFIG_ARCH_MXC91321)
+        mxc_clks_enable(SSI1_BAUD);
+#endif
 
         if (master_slave == APAL_ATLAS_SLAVE)
         {
@@ -1199,6 +1246,12 @@ apal_set_audio_route
         APAL_DEBUG_LOG("After setting,CSCR= %08x\n",(unsigned int)(*((volatile unsigned long*)
                        (IO_ADDRESS(CSCR)))));
 
+#elif defined(CONFIG_ARCH_MXC91321)
+        if (audio_route == APAL_AUDIO_ROUTE_PHONE) 
+        {
+            APAL_DEBUG_LOG ("Setting phone call on for Argon\n");
+            apal_driver_state.phone_call_on = TRUE;
+        }
 #elif defined(CONFIG_ARCH_MXC91331)
         /* Clear up first 7 bits of COSR register */
         (*((volatile unsigned long *)(IO_ADDRESS(COSR)))) &= 0xFFFFFF80;
@@ -1343,7 +1396,9 @@ apal_clear_audio_route
             ssi_tx_fifo_enable(apal_driver_state.mod, ssi_fifo_0, false);
             ssi_tx_flush_fifo (apal_driver_state.mod);
     	    ssi_transmit_enable (apal_driver_state.mod, false);
+#if defined(CONFIG_ARCH_MXC91231)
             mxc_clks_disable(SSI1_IPG_CLK);
+#endif
             mxc_clks_disable(SSI1_BAUD);
             break;
 
@@ -1354,7 +1409,9 @@ apal_clear_audio_route
             ssi_tx_fifo_enable(apal_driver_state.mod, ssi_fifo_0, false);
             ssi_tx_flush_fifo (apal_driver_state.mod);
     	    ssi_transmit_enable (apal_driver_state.mod, false);
+#if defined(CONFIG_ARCH_MXC91231)
             mxc_clks_disable(SSI2_IPG_CLK);
+#endif
             mxc_clks_disable(SSI2_BAUD);
             break;
 
@@ -1509,7 +1566,7 @@ apal_stop
         mxc_dma_stop (apal_tx_dma_config[stdac_codec_in_use].write_channel);
 
         /*@TODO: This is a hack to avoid the noise happening due to SDMA playing out old buffers 
-                 even after a stop and reset */
+                 even after a stop and reset LIBmm02890 */
         if (stdac_codec_in_use == APAL_STDAC)
         {
             /* fifo 0, SSI2 */
@@ -1938,9 +1995,26 @@ apal_ioctl
             ret_val = APAL_SUCCESS;
             break;
 
+        case APAL_IOCTL_RAT_MODE_CHANGE:
+            TRY ( get_user (rat_mode, (int*)arg) )
+            APAL_DEBUG_LOG ("APAL_IOCTL_RAT_MODE_CHANGE called with rat_mode = %d\n", rat_mode);
+
+            /* if we are in a call, then use the right clock */
+            if (apal_driver_state.phone_call_on == TRUE)
+            {
+                ret_val = apal_set_audio_route (APAL_AUDIO_ROUTE_PHONE);
+            }
+            else /* we are not in a phone call, so no need to set clk yet */
+            {
+                ret_val = APAL_SUCCESS;
+            }
+            break;
 	case APAL_GET_LEFT_WRITTEN_BYTES_IN_KERNEL:
-	    unplayed_buffer_number = (apal_tx_dma_config[stdac_codec_in_use].next_buffer_to_fill + APAL_NB_BLOCK_SDMA -
-					apal_tx_dma_config[stdac_codec_in_use].buffer_read)%APAL_NB_BLOCK_SDMA;
+	    unplayed_buffer_number = (
+                apal_tx_dma_config[stdac_codec_in_use].next_buffer_to_fill 
+                + APAL_NB_BLOCK_SDMA 
+                - apal_tx_dma_config[stdac_codec_in_use].buffer_read
+                )%APAL_NB_BLOCK_SDMA;
 	    unplayed_bytes = unplayed_buffer_number * current_size;
 	    copy_to_user((int*)arg, &unplayed_bytes, sizeof(int));
 	    ret_val = APAL_SUCCESS;
@@ -2481,6 +2555,7 @@ apal_suspend
     if (vaudio_on == FALSE)
     {
         /* All audio activity is already stopped and Power IC has been switched off */
+         APAL_DEBUG_LOG ("vaudio_on == FALSE\n");
     }
     else
     {
@@ -2488,6 +2563,7 @@ apal_suspend
         if (apal_driver_state.phone_call_on == TRUE)
         {
             /* Don't do anything. Power IC is already setup for voice call */
+             APAL_DEBUG_LOG ("apal_driver_state.phone_call_on == TRUE\n");
         }
         else if (apal_driver_state.fmradio_on == TRUE)
         {
@@ -2496,10 +2572,12 @@ apal_suspend
         }
         else if (apal_driver_state.stdac_in_use || apal_driver_state.codec_in_use)
         {
+            APAL_DEBUG_LOG ("apal_driver_state.stdac_in_use || apal_driver_state.codec_in_use\n");
             return -EBUSY;
         }
         else
         {
+            APAL_DEBUG_LOG ("apal_suspend: else condition \n");
             /* There is no active audio going on but the audio timer hasn't expired so vaudio_on is
                not set. Don't wait for the timer reset Power IC and go in DSM */
             apal_audioic_power_off();

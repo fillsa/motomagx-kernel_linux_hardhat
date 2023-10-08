@@ -1,6 +1,6 @@
 /*
  * Copyright 2005 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright 2006 Motorola, Inc.
+ * Copyright 2006-2007 Motorola, Inc.
  */
 
 /*
@@ -17,6 +17,8 @@
  * ===========  ==========  ==================================================
  * 26-Oct-2006  Motorola    Added board specific definitions for the Motorola
  *                          ArgonLV reference platform.
+ * 06-Feb-2007  Motorola    Added BT MAX_UART_BAUDRATE change
+ * 04-Apr-2006  Motorola    Added board-specific frequency definitions.
  */
 
 #ifndef __ASM_ARM_ARCH_BOARD_ARGONLVPHONE_H_
@@ -49,10 +51,14 @@
 /*! @{ */
 /*!
  * Specify the max baudrate for the MXC UARTs for your board, do not specify a max
- * baudrate greater than 1500000. This is used while specifying the UART Power
- * management constraints.
+ * baudrate greater than 1500000 unless needed for BT. This is used while specifying 
+ * the UART Power management constraints.
  */
+#ifdef CONFIG_MOT_FEAT_BT_MAXUARTBAUDRATE
+#define MAX_UART_BAUDRATE       3000000
+#else
 #define MAX_UART_BAUDRATE       1500000
+#endif /* CONFIG_MOT_FEAT_BT_MAXUARTBAUDRATE */
 /*!
  * Specifies if the Irda transmit path is inverting
  */
@@ -258,5 +264,11 @@
  */
 #define IPC_RX_CHANNEL 1
 #define IPC_TX_CHANNEL 2
+
+/*
+* Board specific AHB and IPG frequencies
+*/
+#define AHB_FREQ                128500000
+#define IPG_FREQ                64250000
 
 #endif /* __ASM_ARM_ARCH_BOARD_ARGONLVPHONE_H_ */

@@ -114,6 +114,12 @@
  *  Stephen Rothwell <sfr@canb.auug.org.au>, June, 2000.
  */
 
+/*  Copyright (C) 2008 Motorola, Inc.  */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 08/29/2008   Motorola        Add the stale of posix patch
+ */
 #include <linux/capability.h>
 #include <linux/file.h>
 #include <linux/fs.h>
@@ -1603,7 +1609,11 @@ out:
 /* Apply the lock described by l to an open file descriptor.
  * This implements both the F_SETLK and F_SETLKW commands of fcntl().
  */
+#ifdef CONFIG_MOT_FILELOCK_PATCH
+int fcntl_setlk(unsigned int fd, struct file *filp, unsigned int cmd, struct flock __user *l)
+#else
 int fcntl_setlk(struct file *filp, unsigned int cmd, struct flock __user *l)
+#endif
 {
 	struct file_lock *file_lock = locks_alloc_lock();
 	struct flock flock;
@@ -1632,6 +1642,9 @@ int fcntl_setlk(struct file *filp, unsigned int cmd, struct flock __user *l)
 		goto out;
 	}
 
+#ifdef CONFIG_MOT_FILELOCK_PATCH
+again:
+#endif
 	error = flock_to_posix_lock(filp, file_lock, &flock);
 	if (error)
 		goto out;
@@ -1660,7 +1673,7 @@ int fcntl_setlk(struct file *filp, unsigned int cmd, struct flock __user *l)
 	if (error)
 		goto out;
 
-	if (filp->f_op && filp->f_op->lock != NULL) {
+	if (filp->f_op && filp->f_op->lock != NULL) { 
 		error = filp->f_op->lock(filp, cmd, file_lock);
 #define MVISTA_NFS_11447
 #ifdef MVISTA_NFS_11447
@@ -1668,20 +1681,34 @@ int fcntl_setlk(struct file *filp, unsigned int cmd, struct flock __user *l)
 #endif
 			goto out;
 	}
+#ifdef CONFIG_MOT_FILELOCK_PATCH
+	else {
+#endif
+		for (;;) {
+			error = __posix_lock_file(inode, file_lock);
+		        if ((error != -EAGAIN) || (cmd == F_SETLK))
+			        break;
+		        error = wait_event_interruptible(file_lock->fl_wait,
+					!file_lock->fl_next);
+		        if (!error)
+			        continue;
 
-	for (;;) {
-		error = __posix_lock_file(inode, file_lock);
-		if ((error != -EAGAIN) || (cmd == F_SETLK))
-			break;
-		error = wait_event_interruptible(file_lock->fl_wait,
-				!file_lock->fl_next);
-		if (!error)
-			continue;
-
-		locks_delete_block(file_lock);
-		break;
+		        locks_delete_block(file_lock);
+		        break;
+	        }
+#ifdef CONFIG_MOT_FILELOCK_PATCH
 	}
 
+	/*
+         * Attempt to detect a close/fcntl race and recover by
+         * releasing the lock that was just acquired.
+         */
+	if (!error && cmd != F_UNLCK && fcheck(fd) != filp && flock.l_type != F_UNLCK) {
+		flock.l_type = F_UNLCK;
+		goto again;
+	}
+#endif
+	
  out:
 	locks_free_lock(file_lock);
 	return error;
@@ -1741,7 +1768,11 @@ out:
 /* Apply the lock described by l to an open file descriptor.
  * This implements both the F_SETLK and F_SETLKW commands of fcntl().
  */
+#ifdef CONFIG_MOT_FILELOCK_PATCH
+int fcntl_setlk64(unsigned int fd, struct file *filp, unsigned int cmd, struct flock64 __user *l)
+#else
 int fcntl_setlk64(struct file *filp, unsigned int cmd, struct flock64 __user *l)
+#endif
 {
 	struct file_lock *file_lock = locks_alloc_lock();
 	struct flock64 flock;
@@ -1770,6 +1801,9 @@ int fcntl_setlk64(struct file *filp, unsigned int cmd, struct flock64 __user *l)
 		goto out;
 	}
 
+#ifdef CONFIG_MOT_FILELOCK_PATCH
+again:
+#endif
 	error = flock64_to_posix_lock(filp, file_lock, &flock);
 	if (error)
 		goto out;
@@ -1801,24 +1835,37 @@ int fcntl_setlk64(struct file *filp, unsigned int cmd, struct flock64 __user *l)
 	if (filp->f_op && filp->f_op->lock != NULL) {
 		error = filp->f_op->lock(filp, cmd, file_lock);
 #ifdef MVISTA_NFS_11447
-		if (error < 0)
+	        if (error < 0)
 #endif
 			goto out;
 	}
+#ifdef CONFIG_MOT_FILELOCK_PATCH
+	else {
+#endif
+		for (;;) {
+			error = __posix_lock_file(inode, file_lock);
+			if ((error != -EAGAIN) || (cmd == F_SETLK64))
+			        break;
+		        error = wait_event_interruptible(file_lock->fl_wait,
+				        !file_lock->fl_next);
+		        if (!error)
+			        continue;
 
-	for (;;) {
-		error = __posix_lock_file(inode, file_lock);
-		if ((error != -EAGAIN) || (cmd == F_SETLK64))
-			break;
-		error = wait_event_interruptible(file_lock->fl_wait,
-				!file_lock->fl_next);
-		if (!error)
-			continue;
-
-		locks_delete_block(file_lock);
-		break;
+		        locks_delete_block(file_lock);
+		        break;
+		}
+#ifdef CONFIG_MOT_FILELOCK_PATCH
 	}
-
+	/*
+	 * Attempt to detect a close/fcntl race and recover by
+	 * releasing the lock that was just acquired.
+	 */
+	if (!error && cmd != F_UNLCK && fcheck(fd) != filp && flock.l_type != F_UNLCK) {
+		flock.l_type = F_UNLCK;
+		goto again;
+	}
+#endif
+	
 out:
 	locks_free_lock(file_lock);
 	return error;
@@ -1911,7 +1958,11 @@ void locks_remove_flock(struct file *filp)
 			 * the filp was closed for the last time. Just remove that too,
 			 * regardless of ownership, since nobody can own it.
 			 */
-			if (IS_FLOCK(fl) || IS_POSIX(fl)) {
+#ifdef CONFIG_MOT_FILELOCK_PATCH
+			if (IS_FLOCK(fl)) {
+#else
+                        if (IS_FLOCK(fl) || IS_POSIX(fl)) {
+#endif
 				locks_delete_lock(before);
 				continue;
 			}

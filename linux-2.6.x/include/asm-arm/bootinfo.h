@@ -23,7 +23,8 @@
  * 02/2007      Motorola        Added new defines.
  * 03/2007      Motorola        Renamed to BATTERY_CHARGER_PRESENT
  * 05/2007      Motorola        Add cli logo version.
- * 07/2008      Motorola        Add build lable support
+ * 04/2008      Motorola        Add build lable support
+ * 07/2008      Motorola        Add build lable support in LJ6.3
  */
 
 #ifndef __ASMARM_BOOTINFO_H

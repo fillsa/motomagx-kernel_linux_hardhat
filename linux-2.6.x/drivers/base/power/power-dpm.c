@@ -269,7 +269,7 @@ constraints_store(struct device * dev, struct device_attribute *attr,
 	}
 
 	if (paramid >= DPM_PP_NBR) {
-		printk("DP (Dynamic Power Management): Unknown power parameter name in device constraints\n");
+		printk("DPM (Dynamic Power Management): Unknown power parameter name in device constraints\n");
 		ret = -EINVAL;
 		goto out;
 	}

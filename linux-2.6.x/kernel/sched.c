@@ -27,7 +27,9 @@
  * 2006-06-26  Motorola	         Added 2 instances of local_irq_disable() 
  * 				 in preemption code
  * 2006-11-11  Motorola		 Added panic on scheduling while atomic support
+ * 2007-12-03  Motorola: Added DBG code
  * 2008-03-11  Motorola 	 Log the schedule events
+ * 2008-01-30  Motorola: Adjust the parameter to be identical with mem log mechnism.
  */
  
 
@@ -62,7 +64,7 @@
 #include <asm/tlb.h>
 #include <linux/ltt-events.h>
 
-#ifdef CONFIG_MOT_FEAT_LOG_SCHEDULE_EVENTS
+#ifdef CONFIG_MOT_FEAT_LOG_SCHEDULE_EVENTS // old #ifdef CONFIG_DEBUG_GNPO
 #include <linux/mem-log.h>
 #endif
 
@@ -3018,7 +3020,7 @@ switch_tasks:
 		prev = context_switch(rq, prev, next);
 		barrier();
 
-#ifdef CONFIG_MOT_FEAT_LOG_SCHEDULE_EVENTS
+#ifdef CONFIG_MOT_FEAT_LOG_SCHEDULE_EVENTS // old #ifdef CONFIG_DEBUG_GNPO
 		/* Log the value of current, it will be printed out in kpanic when 
 		 * phone panic  
 		 */

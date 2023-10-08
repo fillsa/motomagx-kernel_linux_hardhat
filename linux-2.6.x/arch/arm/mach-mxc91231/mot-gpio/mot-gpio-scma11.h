@@ -40,6 +40,7 @@
 
 #include "../iomux.h"
 
+
 /**
  * Contains an IOMUX pad register and its desired setting.
  */
@@ -49,8 +50,27 @@ struct iomux_pad_setting {
 };
 
 #define IOMUX_PAD_SETTING_COUNT 28 /* highest index in array is 27 */
+/**
+ * The bootloader initializes the SDRAM IOMUX pad registers.
+ */
 #define IOMUX_PAD_SETTING_START  9 /* MBM initializes SDRAM pad registers */
 #define IOMUX_PAD_SETTING_STOP  (IOMUX_PAD_SETTING_COUNT-1)
+/**
+ * The first SCM-A11 pad group is mapped to 0x0200 in the HWCFG schema.
+ */
+#define HWCFG_SCMA11_PAD_BASE   0x0200
+
+/**
+ * The number of entries in the hwcfg_pins array.
+ */
+#define HWCFG_IOMUX_PIN_COUNT   145
+
+
+/**
+ * The first SCM-A11 pin is mapped to 0x01B6 in the HWCFG schema.
+ */
+#define HWCFG_SCMA11_PIN_BASE   0x01B6
+
 
 extern struct iomux_pad_setting __initdata iomux_pad_register_settings[IOMUX_PAD_SETTING_COUNT];
 
@@ -72,9 +92,6 @@ extern void __init lido_iomux_mux_fixup(void);
 extern void __init pixl_gpio_signal_fixup(void);
 extern void __init pixl_iomux_mux_fixup(void);
 #endif
-
-extern void __init scma11_iomux_pad_init(void);
-extern void __init scma11_iomux_mux_init(void);
 
 extern void __init scma11phone_gpio_init(void);
 

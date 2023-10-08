@@ -18,6 +18,7 @@
  *
  * Date           Author            Comment
  * ===========  ==========  ====================================
+ * 10/02/2007   Motorola  Added FIQ C dispatcher in kernel.
  * 10/15/2007   Motorola    FIQ related modified.
  */
 #include <linux/config.h>

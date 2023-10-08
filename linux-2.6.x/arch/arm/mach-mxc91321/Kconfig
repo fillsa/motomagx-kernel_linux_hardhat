@@ -61,6 +61,7 @@ config MACH_MXC30030ADS
 config MACH_ARGONLVPHONE
         bool "Support Motorola ArgonLV-based Phones"
         default n
+#in 7.1	depends on MOT_FEAT_POWER_IC_API
         help
           Include support for Motorola products based on the ArgonLV SOC.
 

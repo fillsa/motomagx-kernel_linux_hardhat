@@ -1,9 +1,10 @@
 /*
- * Copyright 2006 Motorola, Inc.              
+ * Copyright (C) 2006,2008 Motorola, Inc.              
  *
  * Date		Author		Comment
  * 10/2006	Motorola 	Added SUAPI task event flags.
  * 31-Oct-2006  Motorola        Added inotify 
+ * 27-Jun-2008  Motorola	Prevent duplicated coredump.
  */
 
 #ifndef _LINUX_SCHED_H
@@ -367,6 +368,11 @@ struct mm_struct {
 	unsigned long saved_auxv[42]; /* for /proc/PID/auxv */
 
 	unsigned dumpable:1;
+#if 0
+#ifdef CONFIG_MOT_FEAT_APP_DUMP 
+	unsigned mot_dumped:1;
+#endif  /* CONFIG_MOT_FEAT_APP_DUMP */
+#endif
 	cpumask_t cpu_vm_mask;
 
 	/* Architecture-specific MM context */

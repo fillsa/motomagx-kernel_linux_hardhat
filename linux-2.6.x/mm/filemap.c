@@ -7,7 +7,8 @@
 
 /* Date         Author          Comment
  * ===========  ==============  ==============================================
- * 13-Nov-2007  Motorola        Fix deadlock problem in JFFS2.
+ * 18-Oct-2007  Motorola        Fix deadlock problem in JFFS2.
+ * 13-Nov-2007  Motorola        Fix deadlock problem in JFFS2 in LJ6.3.
  */
 
 /*

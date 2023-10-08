@@ -17,6 +17,12 @@
  *  2000-10-05  Implemented scalable SMP per-CPU timer handling.
  *                              Copyright (C) 2000, 2001, 2002  Ingo Molnar
  *              Designed by David S. Miller, Alexey Kuznetsov and Ingo Molnar
+ *  
+ *  Copyright (C) 2007 Motorola, Inc.
+ *  
+ *  Date	Author		Comment
+ *  2007-11-07  Motorola	Add check_timer_func for timer function addr check.
+ *  2007-11-22  Motorola	Correct logical issue in check_timer_func. 
  */
 
 #include <linux/kernel_stat.h>
@@ -60,7 +66,7 @@ static inline void set_running_timer(tvec_base_t *base,
 }
 /* Fake initialization */
 DEFINE_PER_CPU(tvec_base_t, tvec_bases) = { SPIN_LOCK_UNLOCKED };
-
+extern void _text, _etext;
 
 static void check_timer_failed(struct timer_list *timer)
 {
@@ -86,12 +92,21 @@ static inline void check_timer(struct timer_list *timer)
 		check_timer_failed(timer);
 }
 
-
+static inline void check_timer_func(struct timer_list *timer)
+{
+	/*cause a oops if timer function is not in the module space or kernel code space*/
+	if (! (((TASK_SIZE <= (unsigned long)timer->function) && ((unsigned long)timer->function <= PAGE_OFFSET - 1))
+		 || (((&_text) <= timer->function) && (timer->function < (&_etext)))))
+		BUG();
+}
+		 
 static void internal_add_timer(tvec_base_t *base, struct timer_list *timer)
 {
 	unsigned long expires = timer->expires;
 	unsigned long idx = expires - base->timer_jiffies;
 	struct list_head *vec;
+
+	check_timer_func(timer);
 
 	if (idx < TVR_SIZE) {
 		int i = expires & TVR_MASK;

@@ -1,6 +1,6 @@
 /*
  * Copyright 2005-2006 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright 2005-2006 Motorola, Inc.
+ * Copyright (C) 2006-2007 Motorola, Inc.
  */
 
 /*
@@ -22,6 +22,8 @@
 /* Date         Author          Comment
  * ===========  ==============  ==============================================
  * 04-Oct-2006  Motorola        Add check for SCM-A11 Pass 1 revision.
+ * 23-Oct-2007  Motorola        Add mpm adivce calls and clock gating.
+ *
  */
 
 
@@ -51,6 +53,11 @@
 #ifdef CONFIG_MACH_SCMA11REF
 #include <asm/arch/mxc91231.h>
 #endif /* CONFIG_MACH_SCMA11REF */
+
+#ifdef SAHARA_MOT_FEAT_PM 
+#include <linux/mpm.h>
+#include <asm/atomic.h>
+#endif /* SAHARA_MOT_FEAT_PM */
 
 #ifdef PERF_TEST
 #define interruptible_sleep_on(x) sah_Handle_Interrupt()
@@ -162,6 +169,12 @@ static struct file_operations Fops =
 static char Diag_msg[DIAG_MSG_SIZE];
 #endif
 
+#ifdef SAHARA_MOT_FEAT_PM
+/* The device number which is registered mpm. */
+int mpm_sahara_dev_num;
+/* The current user who are using the sahara. */
+static atomic_t user = ATOMIC_INIT(0);
+#endif /* SAHARA_MOT_FEAT_PM */
 
 /*!
 *******************************************************************************
@@ -203,6 +216,10 @@ OS_DEV_INIT(sah_init)
     }
 #endif /* MXC91231 */
 
+#ifdef SAHARA_MOT_FEAT_PM
+    SAHARA_CLOCK_ENABLE(); 
+#endif
+
     if (os_error_code == 0) {
         sah_hw_version = sah_HW_Read_Version();
 
@@ -213,6 +230,9 @@ OS_DEV_INIT(sah_init)
             LOG_KDIAG("Sahara HW Version was not expected value.");
 #endif
             os_error_code = OS_ERROR_FAIL_S;
+#ifdef DIAG_DRV_IF
+            printk(KERN_ALERT"sahara_init: sah_hw_version =%d, SAHARA_VERSION2 = %d\n",sah_hw_version, SAHARA_VERSION2);
+#endif
         }
     }
 
@@ -224,6 +244,17 @@ OS_DEV_INIT(sah_init)
         /* Do any memory-routine initialization */
         os_error_code = sah_Init_Mem_Map ();
     }
+
+#ifdef SAHARA_MOT_FEAT_PM
+    /* Register mpm advise */
+    if (os_error_code == 0) {
+        mpm_sahara_dev_num = mpm_register_with_mpm("sahara2");
+        if(mpm_sahara_dev_num < 0) {
+            os_error_code = mpm_sahara_dev_num;
+            printk(KERN_ERR "%d: Sahara failed to register with mpm\n", mpm_sahara_dev_num);
+        }
+    }
+#endif /* SAHARA_MOT_FEAT_PM */
 
     if (os_error_code == 0) {
 #ifdef DIAG_DRV_IF
@@ -322,7 +353,14 @@ OS_DEV_INIT(sah_init)
 #endif  /* CONFIG_DEVFS_FS */
 
     if (os_error_code != 0) {
+#ifdef DIAG_DRV_IF
+        printk(KERN_ALERT"sahara_init: failed!\n");
+#endif
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0))
+#ifdef SAHARA_MOT_FEAT_PM
+        /* Unregister MPM advice*/
+        mpm_unregister_with_mpm(mpm_sahara_dev_num);
+#endif /* SAHARA_MOT_FEAT_PM */
         cleanup_module();
 #else
         sah_cleanup();
@@ -333,6 +371,9 @@ OS_DEV_INIT(sah_init)
         sprintf(err_string, "Sahara major node is %d\n", Major);
         LOG_KDIAG(err_string);
     }
+#endif
+#ifdef SAHARA_MOT_FEAT_PM
+    SAHARA_CLOCK_DISABLE();
 #endif
 
     os_dev_init_return(os_error_code);
@@ -386,6 +427,13 @@ OS_DEV_SHUTDOWN(sah_cleanup)
     sah_dpm_close();
 #endif
 
+#ifdef SAHARA_MOT_FEAT_PM
+#ifdef DIAG_DRV_IF
+    printk(KERN_ALERT"mpm_unregister_with_mpm\n");
+#endif
+    /* Unregister mpm advise*/
+    mpm_unregister_with_mpm(mpm_sahara_dev_num);
+#endif /* SAHARA_MOT_FEAT_PM */
     os_dev_shutdown_return(OS_ERROR_OK_S);
 }
 
@@ -405,6 +453,16 @@ OS_DEV_SHUTDOWN(sah_cleanup)
 */
 OS_DEV_OPEN(device_open)
 {
+#ifdef SAHARA_MOT_FEAT_PM
+    if (unlikely(atomic_read(&user) == 0)) {
+        SAHARA_CLOCK_ENABLE();
+    }
+    atomic_inc(&user);
+#ifdef DIAG_DRV_IF
+    printk(KERN_ALERT"sahara(device_open): current user number = %d\n", atomic_read(&user));
+#endif
+#endif /* SAHARA_MOT_FEAT_PM */
+
 
 #if defined(LINUX_VERSION) && (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,10))
     MOD_INC_USE_COUNT;
@@ -449,7 +507,15 @@ OS_DEV_CLOSE(device_release)
              Device_in_use);
     LOG_KDIAG(Diag_msg);
 #endif
-
+#ifdef SAHARA_MOT_FEAT_PM
+    atomic_dec(&user);
+    if (unlikely(atomic_read(&user) == 0)) {
+        SAHARA_CLOCK_DISABLE();
+    }
+#ifdef DIAG_DRV_IF
+    printk(KERN_ALERT"sahara(device_release): current user number = %d\n", atomic_read(&user));
+#endif
+#endif /* SAHARA_MOT_FEAT_PM */
     if (user_ctx != NULL) {
         sah_handle_deregistration(user_ctx);
         os_free_memory(user_ctx);

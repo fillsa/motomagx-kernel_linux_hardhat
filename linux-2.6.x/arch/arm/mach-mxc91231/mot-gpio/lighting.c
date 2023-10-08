@@ -22,8 +22,9 @@
  * Date           Author        Comments
  * ============  ==========    ====================================================
  * 01-Jan-2006  Motorola        Intial version.
- * 20-Mar-2008   Motorola      Remove code not related to signal in Nevis product 
  * 28-Jun-2007  Motorola        Removed and renamed MARCO specific signal code in relation to xPIXL.
+ * 10/16/2007   Motorola  Added support for SCMA11REF
+ * 20-Mar-2008   Motorola      Remove code not related to signal in Nevis product 
  * 03-Jul-2008  Motorola        OSS CV fix.
  */
 
@@ -120,14 +121,14 @@ void gpio_lcd_backlight_enable(bool enable)
     /* PWM_BKL (GP_AP_B17) is no longer connected to the backlight driver
      * on P1A and P1D wingboards. It is only connected to the ETM connectors.
      */
-#ifndef CONFIG_MACH_XPIXL
+#ifdef CONFIG_MACH_XPIXL
+	gpio_signal_set_data(GPIO_SIGNAL_LCD_BACKLIGHT,
+			     enable ? GPIO_DATA_HIGH : GPIO_DATA_LOW);
+#else
     gpio_signal_set_data(GPIO_SIGNAL_PWM_BKL,
             enable ? GPIO_DATA_HIGH : GPIO_DATA_LOW);
     gpio_signal_set_data(GPIO_SIGNAL_MAIN_BKL,
             enable ? GPIO_DATA_HIGH : GPIO_DATA_LOW);
-#else
-	gpio_signal_set_data(GPIO_SIGNAL_LCD_BACKLIGHT,
-			     enable ? GPIO_DATA_HIGH : GPIO_DATA_LOW);
 #endif
 }
 
@@ -138,10 +139,10 @@ void gpio_lcd_backlight_enable(bool enable)
  */
 int gpio_get_lcd_backlight(void)
 {
-#ifndef CONFIG_MACH_XPIXL
-    return gpio_signal_get_data_check(GPIO_SIGNAL_MAIN_BKL);
-#else
+#ifdef CONFIG_MACH_XPIXL
 	return gpio_signal_get_data_check(GPIO_SIGNAL_LCD_BACKLIGHT);
+#else
+    return gpio_signal_get_data_check(GPIO_SIGNAL_MAIN_BKL);
 #endif
 }
 #endif /* CONFIG_MOT_FEAT_GPIO_API_LIGHTING_LCD */

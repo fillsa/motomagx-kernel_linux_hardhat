@@ -18,9 +18,13 @@
  * ----------   --------  ---------------------
  * 10/06/2006   Motorola  Remove ptrace support
  * 11/28/2006   Motorola  Add support for Marvell WiFi on SDHC2
+ * 11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
+ * 02/28/2007   Motorola  Control which SDHCs are assigned to MMC.
  * 03/11/2007   Motorola  Control which SDHCs are assigned to MMC
+ * 03/02/2007   Motorola  Add Lido boardrev check for MMC.
  * 04/27/2007   Motorola  Integrated FSL SDMA changes
  * 05/30/2007   Motorola  Updated mxc_sdma_get_script_info function
+ * 10/24/2007   Motorola  Integrated changes related to FSL SS13 patch
  *
  */
 #include <linux/config.h>
@@ -34,7 +38,12 @@
 #include <asm/arch/spba.h>
 #include <asm/arch/sdma.h>
 #include "sdma_script_code.h"
+
+#ifdef CONFIG_MXC_IPC_V2 //  11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
+#include "sdma_script_code_pass2_ipcv2.h"
+#else
 #include "sdma_script_code_pass2.h"
+#endif
 
 #if 0
 int board_device_enable(u32 device_id);
@@ -128,7 +137,11 @@ void mxc_sdma_get_script_info(sdma_script_start_addrs * sdma_script_addr)
 		sdma_script_addr->mxc_sdma_mcu_2_ata_addr = -1;
 		sdma_script_addr->mxc_sdma_mcu_2_firi_addr = -1;
 		sdma_script_addr->mxc_sdma_mcu_2_mshc_addr = -1;
+#ifdef CONFIG_MXC_IPC_V2
+		sdma_script_addr->mxc_sdma_mcu_2_shp_addr = mcu_2_shp_patched_ADDR_2; //  10/24/2007   Motorola  Integrated changes related to FSL SS13 patch
+#else
 		sdma_script_addr->mxc_sdma_mcu_2_shp_addr = mcu_2_shp_ADDR_2;
+#endif
 		sdma_script_addr->mxc_sdma_mcu_interrupt_only_addr =
 		    mcu_interrupt_only_ADDR_2;
 		sdma_script_addr->mxc_sdma_mshc_2_mcu_addr = -1;

@@ -18,13 +18,16 @@
  *  Naturally it's not a 1:1 relation, but there are similarities.
  */
 /*
- * Copyright (C) 2007 Motorola, Inc.
+ * Copyright (C) 2007-2008 Motorola, Inc.
  *
  * Date           Author            Comment
  * ===========  ==========  ====================================
+ * 10/02/2007   Motorola  Added FIQ C dispatcher in kernel.
  * 10/15/2007   Motorola    FIQ related modified.
+ * 12/03/2007   Motorola  Added DBG code.
+ * 01/11/2008   Motorola  Remove print log in mem log.
  */
-
+ 
 #include <linux/config.h>
 #include <linux/kernel_stat.h>
 #include <linux/module.h>

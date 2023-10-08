@@ -1,7 +1,7 @@
 /******************************************************************************
  *
  * Copyright 2005 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright (C) 2008-2009 Motorola, Inc.
+ * Copyright (C) 2007-2009 Motorola, Inc.
  *
  *
  * The code contained herein is licensed under the GNU General Public
@@ -24,6 +24,7 @@
  *
  * DATE          AUTHOR         COMMMENT
  * ----          ------         --------
+ * 03/06/2007    Motorola       Added FSL IPCv2 changes for WFN487
  * 08/01/2008    Motorola       Add protection for channel 0 to fix dropped WiFi call issue.
  * 01/29/2009    Motorola	Corrected copyright year
  * 
@@ -98,6 +99,25 @@
 #define BD_RROR  0x10
 #define BD_LAST  0x20
 #define BD_EXTD  0x80
+
+#ifdef CONFIG_MOT_WFN487
+/**
+ * Data Node descriptor status values.
+ */
+#define DND_END_OF_FRAME  0x80
+#define DND_END_OF_XFER   0x40
+#define DND_DONE          0x20
+#define DND_UNUSED        0x01
+
+/**
+ * IPCV2 descriptor status values.
+ */
+#define BD_IPCV2_END_OF_FRAME  0x40
+
+
+#define IPCV2_MAX_NODES        50
+#endif
+
 /**
  * Error bit set in the CCB status field by the SDMA, 
  * in setbd routine, in case of a transfer error
@@ -194,6 +214,59 @@ enum {
  */
 
 /**
+ * Mode/Count of data node descriptors - IPCv2
+ */ 
+
+#ifdef CONFIG_MOT_WFN487
+#if (ENDIANNESS==B_I_G_ENDIAN)
+typedef struct iapi_modeCount_ipcv2 {
+  unsigned long  status          :  8; /**< L, E , D bits stored here */
+  unsigned long  reserved  :  8; 
+  unsigned long  count         : 16; /**< <size of the buffer pointed by this BD  */
+} modeCount_ipcv2;
+#else
+typedef struct iapi_modeCount_ipcv2 {
+  unsigned long  count         : 16; /**<size of the buffer pointed by this BD */
+  unsigned long  reserved      :  8; /**Reserved*/
+  unsigned long  status        :  8; /**< L, E , D bits stored here */
+} modeCount_ipcv2;
+#endif
+/**
+ * Data Node descriptor - IPCv2
+ * (differentiated between evolutions of SDMA)
+ */
+typedef struct iapi_dataNodeDescriptor {
+  modeCount_ipcv2  mode;          /**<command, status and count */
+  void *           bufferAddr;    /**<address of the buffer described */
+} dataNodeDescriptor;
+
+#if (ENDIANNESS==B_I_G_ENDIAN)
+typedef struct iapi_modeCount_ipcv1_v2 {
+  unsigned long   endianness: 1;
+  unsigned long   reserved: 7;  
+  unsigned long   status  :  8; /**< E,R,I,C,W,D status bits stored here */
+  unsigned long   count   : 16; /**< size of the buffer pointed by this BD */
+} modeCount_ipcv1_v2;
+#else
+typedef struct iapi_modeCount_ipcv1_v2 {
+  unsigned long  count   : 16; /**<size of the buffer pointed by this BD */
+  unsigned long  status  :  8; /**< E,R,I,C,W,D status bits stored here */
+  unsigned long   reserved: 7;  
+  unsigned long   endianness: 1;
+} modeCount_ipcv1_v2;
+#endif
+/**
+ * Buffer descriptor 
+ * (differentiated between evolutions of SDMA)
+ */
+typedef struct iapi_bufferDescriptor_ipcv1_v2 {
+  modeCount_ipcv1_v2  mode; /**<command, status and count */
+  void *     bufferAddr;    /**<address of the buffer described */
+  void *     extBufferAddr; /**<extended buffer address */
+} bufferDescriptor_ipcv1_v2;
+#endif
+
+/**
  * Command/Mode/Count of buffer descriptors
  */ 
 
@@ -210,6 +283,7 @@ typedef struct iapi_modeCount {
   unsigned long  command :  8; /**< command mostlky used for channel 0 */
 } modeCount;
 #endif
+
 /**
  * Buffer descriptor
  * (differentiated between evolutions of SDMA)

@@ -3,7 +3,7 @@
  *
  * ArgonLV implementation of SD GPIO signal control.
  *
- * Copyright 2006 Motorola, Inc.
+ * Copyright 2006-2007 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,8 @@
 /* Date         Author          Comment
  * ===========  ==============  ==============================================
  * 01-Nov-2006  Motorola        Initial revision.
+ * 09-Jul-2007  Motorola        Added gpio_free_irq_dev work around.
+ * 08-Aug-2007  Motorola        Modified function sdhc_get_max_clock.
  */
 
 #include <linux/errno.h>
@@ -83,7 +85,7 @@ int sdhc_intr_setup(int module, void *host, gpio_irq_handler handler)
 void sdhc_intr_destroy(int module, void *host)
 {
     if(module == 0) {
-        gpio_signal_free_irq(GPIO_SIGNAL_SD1_DET_B, GPIO_HIGH_PRIO);
+        gpio_signal_free_irq(GPIO_SIGNAL_SD1_DET_B, GPIO_HIGH_PRIO, host);
     }
 }
 
@@ -128,7 +130,7 @@ unsigned int sdhc_get_min_clock(enum mxc_clocks clk)
  */
 unsigned int sdhc_get_max_clock(enum mxc_clocks clk)
 {
-    return mxc_get_clocks(SDHC1_CLK) / 4;
+    return mxc_get_clocks(SDHC1_CLK) / 2;
 }
 
 

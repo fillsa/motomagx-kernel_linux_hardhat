@@ -16,11 +16,18 @@
  * 01/05/2007    Motorola       Add datalog improvement
  * 04/20/2007    Motorola       Add SDMA dump ioctl
  * 05/04/2007    Mototola       Fix defines for export
- * 12/14/2007    Motorola       Edit SDMA dump function to support new ioctl
+ * 10/17/2007    Motorola       Edit SDMA dump function to support new ioctl
+ * 12/14/2007    Motorola       Edit SDMA dump function to support new ioctl in LJ6.3
  */
 
 /*!
  * @defgroup IPC InterProcessor Communication (IPC)
+ */
+
+/*
+ * DATE          AUTHOR         COMMMENT
+ * ----          ------         --------
+ * 03/06/2007    Motorola       Added FSL IPCv2 changes for WFN487
  */
 
 /*!
@@ -54,7 +61,12 @@ typedef enum {
 typedef enum {
 	HW_CTRL_IPC_SET_READ_CALLBACK = 0,
 	HW_CTRL_IPC_SET_WRITE_CALLBACK,
+#if !defined(__KERNEL__) || defined(CONFIG_MOT_WFN487)
+	HW_CTRL_IPC_SET_NOTIFY_CALLBACK,
+	HW_CTRL_IPC_SET_MAX_CTRL_STRUCT_NB
+#else
 	HW_CTRL_IPC_SET_NOTIFY_CALLBACK
+#endif
 } HW_CTRL_IPC_IOCTL_ACTION_T;
 
 /*!
@@ -241,6 +253,31 @@ typedef struct {
 	void (*notify_callback) (HW_CTRL_IPC_NOTIFY_STATUS_T * status);
 } HW_CTRL_IPC_OPEN_T;
 
+#if !defined(__KERNEL__) || defined(CONFIG_MOT_WFN487)
+/*!@param *data_control_struct_ipcv2 
+ *   Data Node Descriptor (Buffer Descriptor):
+ *------------------------------------------------------------------------------
+ *| 31	30	29	28	27	26	25	24	23	22	21	20	19	18	17	16	15	 	  0|
+ *------------------------------------------------------------------------------
+ *| L	E	D	R	R	R	R	R	|<---- Reserved          ---->  |<- Length-> |
+ *------------------------------------------------------------------------------
+ *| <---------------------------- Data Ptr ----------------------------------->|
+ *------------------------------------------------------------------------------
+ *
+ * L bit (LAST): If set, means that this buffer of data is the last buffer of the frame
+ * E bit (END): If set, we reached the end of the buffers passed to the function
+ * D bit (DONE): Only valid on the read callback. When set, means that the buffer has been 
+ * filled by the SDMA.
+ * Length: Length of data pointed by this node in bytes
+ * Data Ptr: Pointer to the data pointed to by this node.
+ */
+typedef struct ipc_dataNodeDescriptor {
+	unsigned short length;
+	unsigned short comand;
+	void *data_ptr;
+} HW_CTRL_IPC_DATA_NODE_DESCRIPTOR_T;
+#endif
+
 /*!
  * This function is called when kernel is loading the module.
  * It initializes all low-level resources needed by the POSIX
@@ -318,25 +355,23 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_write(HW_CTRL_IPC_CHANNEL_T * channel,
  * @return              returns HW_CTRL_IPC_STATUS_OK on success, an error code
  *                      otherwise.
  */
-HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_write_ex(HW_CTRL_IPC_CHANNEL_T * channel,
-					  HW_CTRL_IPC_WRITE_PARAMS_T * mem_ptr);
-
-
-/*!
- * Writes data to an IPC link. This function can be called directly by kernel
- * modules. It accepts a linked list or contiguous data.
- *
- * @param channel       handler to the virtual channel where read has
- *                      been requested.
- * @param mem_ptr       of type HW_CTRL_IPC_WRITE_PARAMS_T.
- *
- * @return              returns HW_CTRL_IPC_STATUS_OK on success, an error code
- *                      otherwise.
- */
 HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_write_ex(HW_CTRL_IPC_CHANNEL_T* channel,
                                           HW_CTRL_IPC_WRITE_PARAMS_T* mem_ptr);
 
 
+#if !defined(__KERNEL__) || defined(CONFIG_MOT_WFN487)
+/*!
+ * Used to set various channel parameters
+ *
+ * @param channel handler to the virtual channel where read has
+ *                been requested.
+ * @param action  IPC driver control action to perform.
+ * @param param   parameters required to complete the requested action
+ */
+HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_ioctl(HW_CTRL_IPC_CHANNEL_T * channel,
+				       HW_CTRL_IPC_IOCTL_ACTION_T action,
+				       void *param);
+#else
 /*!
  * Executes custom actions on the IPC links. This functions can be called directly by kernel
  * modules. POSIX implementation of the IPC Driver also calls it.
@@ -349,6 +384,41 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_write_ex(HW_CTRL_IPC_CHANNEL_T* channel,
  */
 HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_ioctl(HW_CTRL_IPC_IOCTL_ACTION_T action,
 				       void *param);
+#endif
+
+#if !defined(__KERNEL__) || defined(CONFIG_MOT_WFN487)
+/*!
+ * This function is a variant on the write() function, and is used to send a
+ * group of frames made of various pieces each to the IPC driver.
+ * It is mandatory to allow high throughput on IPC while minimizing the time
+ * spent in the drivers / interrupts.
+ *
+ * @param channel       handler to the virtual channel where read has
+ *                      been requested.
+ * @param ctrl_ptr      Pointer on the control structure.
+ *
+ * @return              returns HW_CTRL_IPC_STATUS_OK on success, an error code
+ *                      otherwise.
+ */
+HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_write_ex2(HW_CTRL_IPC_CHANNEL_T * channel,
+					   HW_CTRL_IPC_DATA_NODE_DESCRIPTOR_T *
+					   ctrl_ptr);
+
+/*!
+ * This function is used to give a set of buffers to the IPC and enable data
+ * transfers.
+ *
+ * @param channel       handler to the virtual channel where read has
+ *                      been requested.
+ * @param ctrl_ptr      Pointer on the control structure.
+ *
+ * @return              returns HW_CTRL_IPC_STATUS_OK on success, an error code
+ *                      otherwise.
+ */
+HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_read_ex2(HW_CTRL_IPC_CHANNEL_T * channel,
+					  HW_CTRL_IPC_DATA_NODE_DESCRIPTOR_T *
+					  ctrl_ptr);
+#endif
 
 #if !defined(__KERNEL__) || defined(CONFIG_MOT_FEAT_PM)
 #define MXC_IPC_DATALOG_FLUSH_COMPLETE		_IO('q', 0x4)

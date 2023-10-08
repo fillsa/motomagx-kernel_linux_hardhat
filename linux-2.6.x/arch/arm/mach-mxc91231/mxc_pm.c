@@ -31,13 +31,14 @@
  *                        changing PLL settings.
  * 05/12/2007   Motorola  Changed comments.
  * 06/05/2007   Motorola  Changed comments.
- * 07/31/2007   Motorola  Fix the problem that KernelPanic when inserted USB cable with PC.
+ * 07/31/2007   Motorola  Fix the problem that Kernel Panic when inserted USB cable with PC.
  * 08/09/2007   Motorola  Add comments.
  * 25/09/2007   Motorola  Change max value of PPM for PLL dithering from 1000 to 2000.
  * 11/23/2007   Motorola  Add BT LED debug option processing
  * 01/08/2008   Motorola  Changed some debug information. 
  * 		EXL, Ant-On, fill.sa add cpu core overclock freq 636 and 740 & test stable and temperature
  * 		        fill.sa add right and max cpu core overclock freq 665 and 780
+ * 03/19/2008   Motorola  Fix dead loop in wait for end of dithering cycle.
  */
 
 
@@ -180,7 +181,7 @@ static DEFINE_RAW_SPINLOCK(dvfs_lock);
 /*
  * De-sense feature: Max value of PPM for PLL dithering
  */
-#define MAX_PLL_PPM_VALUE                       2000
+#define MAX_PLL_PPM_VALUE                       1000 // 03/19/2008   Motorola  Fix dead loop in wait for end of dithering cycle.
 
 /* ESDCTL MDDREN bit description used for automatic SDR / DDR detection */
 #define ESDCTL_MISC                             IO_ADDRESS(ESDCTL_BASE_ADDR + 0x10)
@@ -996,7 +997,13 @@ static void mxc_pm_chgfreq_common(dvfs_op_point_index_t dvfs_op_index)
 	__raw_writel(opinfo[dvfs_op_index].ap_pll_dp_hfs_mfd, pll_dp_hfs_mfdreg[MCUPLL]);
 	__raw_writel(opinfo[dvfs_op_index].ap_pll_dp_hfs_mfn, pll_dp_hfs_mfnreg[MCUPLL]);
 
-	
+#if 0 //E8 03/19/2008   Motorola  Fix dead loop in wait for end of dithering cycle.	
+	/* Setup dithering of AP Core Normal PLL, if dithering enabled */
+	if ((__raw_readl(pll_dp_mfn_togc[MCUPLL]) & TOG_DIS) == 0)
+	{
+		mxc_pm_dither_pll_setup(MCUPLL, &opinfo[dvfs_op_index]);
+	}
+#endif	
 	/* Request MCUPLL.  When this returns, the MCUPLL is started and locked. */
 	mxc_pll_request_pll(MCUPLL);
 	
@@ -1043,10 +1050,10 @@ static void mxc_pm_chgfreq_common(dvfs_op_point_index_t dvfs_op_index)
  * To change AP core frequency and/or voltage suitably
  *
  * @param   dvfs_op    The values are,
- *                     CORE_133 - ARM desired to run @133MHz, LoV (1.2V)
- *                     CORE_266 - ARM desired to run @266MHz, LoV (1.2V)
- *                     CORE_399 - ARM desired to run @399MHz, LoV (1.2V)
- *                     CORE_532 - ARM desired to run @133MHz, HiV (1.6V)
+ *                     CORE_NORMAL_3(CORE_133) - ARM desired to run @133MHz, LoV (1.2V)
+ *                     CORE_NORMAL_2(CORE_266) - ARM desired to run @266MHz, LoV (1.2V)
+ *                     CORE_NORMAL_1(CORE_399) - ARM desired to run @399MHz, LoV (1.2V)
+ *                     CORE_TURBO(CORE_532) - ARM desired to run @133MHz, HiV (1.6V)
  *                     The table or sequence os as follows where dividers
  *                     ratio includes, LFDF:ARM:AHB:IPG.
  *                          x ==> LFDF or DFS(Dynamic Frequency Scaling) dividers bypassed
@@ -1095,7 +1102,7 @@ static int mxc_pm_chgfreq(dvfs_op_point_t dvfs_op)
 
 	switch (dvfs_op) {
 
-	case CORE_133:
+	case /*CORE_NORMAL_2*/CORE_133:
 		/* INTEGER SCALING */
 		if (CRM_ISSUE && MXC91231_PASS_1()) {
 			/*
@@ -1139,7 +1146,7 @@ static int mxc_pm_chgfreq(dvfs_op_point_t dvfs_op)
 
 		break;
 
-	case CORE_266:
+	case /*CORE_NORMAL_1*/CORE_266:
 		/* INTEGER SCALING */
 		if (CRM_ISSUE && MXC91231_PASS_1()) {
 			/*
@@ -1180,7 +1187,7 @@ static int mxc_pm_chgfreq(dvfs_op_point_t dvfs_op)
 
 		break;
 
-	case CORE_399:
+	case /*CORE_NORMAL*/CORE_399:
 		/* PLL RELOCKING */
 		/*
 		 * if DFS_DIV_EN = 0 and LOW voltage implies core is running at
@@ -1361,8 +1368,8 @@ static int mxc_pm_chgfreq(dvfs_op_point_t dvfs_op)
 int mxc_pm_dvfs(unsigned long armfreq, long ahbfreq, long ipfreq)
 {
 	int ret_val = -1;
-	dvfs_op_point_t dvfs_op_point = -1;
 	unsigned long flags;
+	dvfs_op_point_t dvfs_op_point = -1;
 
 	/* Acquiring Lock */
 	spin_lock_irqsave(&dvfs_lock, flags);
@@ -1411,6 +1418,7 @@ int mxc_pm_dvfs(unsigned long armfreq, long ahbfreq, long ipfreq)
 		break;
 	}
 
+	/* Changing Frequency/Voltage */
 	ret_val = mxc_pm_chgfreq(dvfs_op_point);
 
 	/* Releasing lock */

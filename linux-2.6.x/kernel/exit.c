@@ -11,6 +11,7 @@
  * 06-12-2020	fill.sa		Delet Dump out the exit process infomation in do_exit()
  */
 
+#include <linux/module.h>
 #include <linux/config.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
@@ -261,6 +262,8 @@ void reparent_to_init(void)
 	write_unlock_irq(&tasklist_lock);
 	switch_uid(INIT_USER);
 }
+EXPORT_SYMBOL(reparent_to_init);
+
 
 void __set_special_pids(pid_t session, pid_t pgrp)
 {

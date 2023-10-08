@@ -26,6 +26,7 @@
  *                        rather than recursion and add two new struct,
  *                        struct node_sibling_struct and struct 
  *                        flattree_node_stemma
+ * 12/06/2007   Motorola  Fixed the synchronization issue of mothwcfg_get_node_by_path()
  */
 
 #include <linux/config.h>
@@ -967,6 +968,7 @@ MOTHWCFGNODE *mothwcfg_get_node_by_path(const char * name)
         if (*cur == '\0')
         {
             n = container_of(to_kset(ko), struct mothwcfg_node, kset);
+            n = mothwcfg_get_node(n);
             break;
         }
 

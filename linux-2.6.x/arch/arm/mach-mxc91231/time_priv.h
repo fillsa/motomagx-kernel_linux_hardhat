@@ -23,7 +23,11 @@
  * ----------   --------  --------------------
  * 01/12/2007   Motorola  Added watchdog debug support
  * 02/09/2007   Motorola  Rewirte the check start code of wdog make it more readable
- * 11/13/2007   Motorola  Reset the time out and service period of the watchdog      
+ * 11/13/2007   Motorola  Reset the time out and service period of the watchdog 
+ * 11/22/2007   Motorola  Change wd1 timeout to 10 seconds for I2C ESD recovery
+ * 01/14/2008   Motorola  Changed the timeout of watchdog2.
+ * 01/17/2008   Motorola  Changed the watchdog kick off time to 1s.
+ * 02/29/2008   Motorola  Changed wd1 timeout to 32 seconds.
  * 03/11/2008   Motorola  Set WDOG2 time out to (WDOG1_TIMEOUT - 2000)       
  */
 
@@ -159,6 +163,9 @@
 #endif/* CONFIG_MOT_FEAT_DEBUG_WDOG */
 
 #if defined(CONFIG_MOT_FEAT_WDOG_CLEANUP) || defined (CONFIG_MOT_FEAT_DEBUG_WDOG)
+#if (WDOG1_TIMEOUT < 1000)
+#error WDOG1_TIMEOUT must be greater than 1000!
+#endif
 #define WDOG2_TIMEOUT           (WDOG1_TIMEOUT - 2000)	/* WDOG2 timeout in ms */
 #if ((WDOG1_TIMEOUT/1000) < 20)
 #define WDOG_SERVICE_PERIOD     (WDOG1_TIMEOUT / 2)    /* time interval in ms to service WDOGs */

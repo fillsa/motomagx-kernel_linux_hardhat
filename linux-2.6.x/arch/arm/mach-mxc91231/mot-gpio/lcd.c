@@ -27,6 +27,8 @@
  * 03/10/2007   Motorola        Replace msleep with mdelay.
  * 2007-May-30  Motorola        Added support for xPIXL PWM backlight
  * 28-Jun-2007  Motorola        Removed MARCO specific signal code in relation to xPIXL.
+ * 09/21/2007   Motorola        Added Pianosa support.
+ * 12/14/2007   Motorola  	Add support for new keypad
  * 28-Apr-2008  Motorola        Added iomux reconfig in gpio_lcd_active()
  */
 
@@ -65,7 +67,7 @@ void gpio_lcd_active(void)
 #endif
     /* delay before enabling pixel clock */
     udelay(50);
-#ifdef CONFIG_MACH_ELBA /*When LCD comes to active state from inactive state restore pin polarity*/
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA)  /*When LCD comes to active state from inactive state restore pin polarity*/
     change_polarity_ipu_sdc_signals(0, 0, 0);
     udelay(50);
 #endif    
@@ -144,7 +146,7 @@ void gpio_lcd_inactive(void)
 #else
     ipu_disable_sdc();/*turn off dotclk, hsynch, vsynch*/
 #endif
-#ifdef CONFIG_MACH_ELBA /*When LCD is shutdown vysnch, hsynch and dotclock output should be low*/
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) /*When LCD is shutdown vysnch, hsynch and dotclock output should be low*/
     change_polarity_ipu_sdc_signals(1, 1, 1);
 #endif
 #ifndef CONFIG_MACH_XPIXL
@@ -167,6 +169,8 @@ void gpio_lcd_inactive(void)
 #endif /* CONFIG_MACH_XPIXL */
 }
 
+///WTF in LJ6.3 on mxc91231?
+#if defined(CONFIG_ARCH_MXC91321) /* ArgonLV */
 /**
  *  Set the display backlight intensity.
  *
@@ -200,6 +204,7 @@ int value = 0;
 
 	return (unsigned char)value;
 }
+#endif /* CONFIG_ARCH_MXC91321 */
 
 #if defined(CONFIG_MACH_NEVIS)
 /*!

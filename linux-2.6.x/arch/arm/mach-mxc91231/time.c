@@ -29,10 +29,16 @@
  * 02/09/2007   Motorola  Rewirte the check start code of wdog make it more readable
  * 03/28/2007   Motorola  FN482: Fixed the calculation of timer
  *                        interrupt match in schedule_hr_timer_int 
+ * 04/17/2007   Motorola  Improved mxc_gettimeoffset()
  * 04/24/2007   Motorola  Added 32KHz clock support for GPT.
  * 11/13/2007   Motorola  Start the kernel thread to kick the watch dog 
+ * 12/03/2007   Motorola  Enable Watchdog in DSM mode
+ * 12/27/2007   Motorola  Enabled wdog2 functionality.
+ * 02/13/2008   Motorola  Changed priority of wdog kick thread 
+ * 03/05/2008   Motorola  Enable APR for wdog2 panic
  * 03/11/2008   Motorola  Adapted WDOG2 FIQ handler to FIQ handler in C language
  * 04/14/2008   Motorola  Improved mxc_gettimeoffset()
+ * 04/23/2008   Motorola  Added PC in wdog2 interrupt handler
  */
 
 /*!
@@ -51,6 +57,9 @@
 #include <linux/wait.h>
 #include <linux/proc_fs.h>
 #include <linux/rtc.h>
+#ifdef CONFIG_MOT_FEAT_ENABLE_WD_IN_DSM
+#include <linux/device.h>
+#endif /* CONFIG_MOT_FEAT_ENABLE_WD_IN_DSM */
 #include <asm/mach/time.h>
 #include <asm/io.h>
 #include "time_priv.h"
@@ -184,7 +193,11 @@ void mxc_wd_init(int port)
 	if (port == 0) {
 		/* enable WD, suspend WD in DEBUG mode and low power mode */
 		wdog_base[port]->WDOG_WCR = timeout | WCR_WOE_BIT |
+#ifdef CONFIG_MOT_FEAT_ENABLE_WD_IN_DSM
+			WCR_SRS_BIT | WCR_WDA_BIT | WCR_WDE_BIT | WCR_WDBG_BIT;
+#else
 		    WCR_SRS_BIT | WCR_WDA_BIT | WCR_WDE_BIT | WCR_WDBG_BIT | WCR_WDZST_BIT;
+#endif /* CONFIG_MOT_FEAT_ENABLE_WD_IN_DSM */
 	} else {
 		/* enable WD, suspend WD in DEBUG, low power modes and WRE=1 */
 #ifndef CONFIG_MOT_FEAT_DEBUG_WDOG
@@ -230,11 +243,19 @@ static unsigned short wdog_reset_status = 0;
 
 //#define MXC_WDT_KICK_THREAD_DEBUG	1
 
+#ifdef CONFIG_MOT_FEAT_ENABLE_WD_IN_DSM
+#define WATCHDOG_TIMEOUT_IN_DSM		120	/* second */
+
+static unsigned int g_wd1_timeout = 0;
+static rtc_sw_task_t g_rtc_task;
+#endif /* CONFIG_MOT_FEAT_ENABLE_WD_IN_DSM */
+
 static int mxc_wdt_kick_thread(void *unused)
 {
 	int ret;
 
 	daemonize("mxcwdt_kick");
+	set_user_nice(current, -20); //  * 02/13/2008   Motorola  Changed priority of wdog kick thread 
 #ifdef MXC_WDT_KICK_THREAD_DEBUG
 	allow_signal(SIGKILL);
 #endif
@@ -254,7 +275,139 @@ static int mxc_wdt_kick_thread(void *unused)
 
 	return 0;
 }
-#endif
+
+#ifdef CONFIG_MOT_FEAT_ENABLE_WD_IN_DSM
+static int wd_in_dsm_enabled(int wd)
+{
+	if(wd < 0 || wd > 1)
+	{
+		printk(KERN_ERR"Invalid watchdog parameter: %d.\n", wd);
+		return 0;
+	}
+	return !(wdog_base[wd]->WDOG_WCR & WCR_WDZST_BIT);
+}
+
+static unsigned int wd_get_timeout(int wd)
+{
+	unsigned int timeout;
+
+	if(wd < 0 || wd > 1)
+	{
+		printk(KERN_ERR"Invalid watchdog parameter: %d.\n", wd);
+		return 0;
+	}
+
+	timeout = (wdog_base[wd]->WDOG_WCR >> WDOG_WT) & 0xff;
+	return (timeout + 1) / 2;
+}
+
+static void wd_set_timeout(int wd, int seconds)
+{
+	unsigned int timeout;
+
+	if(wd < 0 || wd > 1)
+	{
+		printk(KERN_ERR"Invalid watchdog parameter: %d.\n", wd);
+		return;
+	}
+	if(seconds < 1 || seconds > 128)
+	{
+		printk(KERN_ERR"Invalid watchdog timeout: %d.\n", seconds);
+		return;
+	}
+	timeout = wdog_base[wd]->WDOG_WCR;
+	timeout &= ~(0xff << WDOG_WT);
+	timeout |= (seconds * 2 - 1) << WDOG_WT;
+
+	wdog_base[wd]->WDOG_WCR = timeout;
+}
+
+static void rtc_kicking(unsigned long tick)
+{
+	/* 
+	 * We needn't do anything here. After waking up, kernel timer will
+	 * wake up kernel thread to kick wd.
+	 */
+}
+
+static int watchdog_suspend(struct device *dev, u32 state, u32 level)
+{
+	unsigned int min_rtc_timeout;
+
+	if(level != SUSPEND_POWER_DOWN)
+		return 0;
+
+	kick_wd();
+
+	min_rtc_timeout = rtc_sw_get_closest_timeout();
+	wd_set_timeout(0, WATCHDOG_TIMEOUT_IN_DSM);
+
+	if((min_rtc_timeout > WATCHDOG_TIMEOUT_IN_DSM * 1000 / 2) || !min_rtc_timeout)
+		rtc_sw_task_schedule(WATCHDOG_TIMEOUT_IN_DSM * 1000 / 2, &g_rtc_task);
+
+	return 0;
+}
+
+static int watchdog_resume(struct device *dev, u32 level)
+{
+	if(level != RESUME_POWER_ON)
+		return 0;
+
+	kick_wd();
+
+	/* Restore original awaking WD timeout setting */
+	wd_set_timeout(0, g_wd1_timeout);
+
+	return 0;
+}
+
+static struct platform_device mxc_wd_device = {
+	.name = "watchdog",
+	.id = 0,
+};
+
+static struct device_driver wd_driver = {
+	.name = "watchdog",
+	.bus = &platform_bus_type,
+	.suspend = watchdog_suspend,
+	.resume = watchdog_resume,
+};
+
+static int __init wd_rtc_driver_init(void)
+{
+	int ret;
+	ret = driver_register(&wd_driver);
+	if (ret != 0) {
+		printk(KERN_ERR "Wddog can't register rtc_sw driver: %d\n", ret);
+		return ret;
+	}
+}
+
+static int __init wd_rtc_device_init(void)
+{
+        int ret;
+
+	/* Checking whether Wdog enabled in DSM mode or not. */
+	if(!wd_in_dsm_enabled(0))
+	{
+		printk(KERN_NOTICE"WD is disabed in DSM mode.\n");
+		return 0;
+	}
+
+	g_wd1_timeout = wd_get_timeout(0);
+        ret = platform_device_register(&mxc_wd_device);
+	if (ret != 0) {
+		printk(KERN_ERR "Wddog can't register device: %d\n", ret);
+		return ret;
+	}
+
+        rtc_sw_task_init(&g_rtc_task, rtc_kicking, 0);
+}
+
+late_initcall(wd_rtc_device_init);
+module_init(wd_rtc_driver_init);
+#endif /* ONFIG_MOT_FEAT_ENABLE_WD_IN_DSM */
+#endif /* WDOG_SERVICE_PERIOD */
 
 /*!
  * This is the timer interrupt service routine to do required tasks.
@@ -363,9 +516,9 @@ static struct irqaction timer_irq = {
 };
 
 #ifdef CONFIG_MOT_FEAT_DEBUG_WDOG
-
 static irqreturn_t wdog2_irq_handler(int irq, void *did, struct pt_regs *regs)
 {
+	printk ("dead PC: %p\n",(void *) instruction_pointer(regs)); //  * 04/23/2008   Motorola  Added PC in wdog2 interrupt handler
 	printk("Current Process: %s, PID: %d.\n", current->comm, current->pid);
 	dump_stack();
 	panic("Watchdog timeout");
@@ -377,6 +530,7 @@ static struct irqaction wdog2_irq = {
 	.flags = SA_INTERRUPT,
 	.handler = wdog2_irq_handler
 };
+
 #endif /* CONFIG_MOT_FEAT_DEBUG_WDOG */
 
 /*!

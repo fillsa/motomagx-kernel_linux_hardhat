@@ -1,5 +1,6 @@
 /*
  * Copyright 2005-2006 Freescale Semiconductor, Inc. All Rights Reserved.
+ * Copyright (c) 2007 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,6 +17,11 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * Implementation based on omap gpio.c
+ */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 06-Jul-2007  Motorola        Added gpio_free_irq_dev work around.
  */
 
 #include <linux/config.h>
@@ -669,6 +675,44 @@ void gpio_free_irq(u32 port, u32 sig_no, enum gpio_prio prio)
 	spin_unlock(&port_p->lock);
 }
 
+#if defined(CONFIG_MOT_FEAT_GPIO_API)
+/*!
+ * This function un-registers an ISR with the GPIO interrupt module.
+ * FIXED ME: for backward compatible. to be removed!
+ *
+ * @param  port         specified port with 0 for GPIO port 1 and 1 for GPIO port 2
+ * @param  sig_no       specified GPIO signal (0 based)
+ * @param  prio         priority as defined in \b enum \b #gpio_prio
+ * @param  dev_id       some unique information for the ISR
+ */
+void gpio_free_irq_dev(u32 port, u32 sig_no, enum gpio_prio prio, void *dev_id)
+{
+	u32 gpio = PORT_SIG_TO_GPIO(port, sig_no);
+	struct gpio_port *port_p;
+
+	if (check_gpio(gpio) < 0)
+		return;
+
+	port_p = get_gpio_port(gpio);
+
+	free_irq(MXC_GPIO_TO_IRQ(gpio), dev_id);
+
+	spin_lock(&port_p->lock);
+	if ((!(port_p->reserved_map & (1 << sig_no)))) {
+		printk(KERN_ERR "GPIO port %d, pin %d wasn't reserved!\n",
+		       port_p->num, sig_no);
+		dump_stack();
+		spin_unlock(&port_p->lock);
+		return;
+	}
+	port_p->reserved_map &= ~(1 << sig_no);
+	_set_gpio_direction(port_p, sig_no, 1);
+	_set_gpio_irqenable(port_p, sig_no, 0);
+	_clear_gpio_irqstatus(port_p, sig_no);
+	spin_unlock(&port_p->lock);
+}
+#endif /* CONFIG_MOT_FEAT_GPIO_API */
+
 EXPORT_SYMBOL(mxc_request_gpio);
 EXPORT_SYMBOL(mxc_free_gpio);
 EXPORT_SYMBOL(mxc_set_gpio_direction);
@@ -682,5 +726,8 @@ EXPORT_SYMBOL(gpio_get_data);
 EXPORT_SYMBOL(gpio_clear_int);
 EXPORT_SYMBOL(gpio_request_irq);
 EXPORT_SYMBOL(gpio_free_irq);
+#if defined(CONFIG_MOT_FEAT_GPIO_API)
+EXPORT_SYMBOL(gpio_free_irq_dev);
+#endif /* CONFIG_MOT_FEAT_GPIO_API */
 
 postcore_initcall(mxc_gpio_init);

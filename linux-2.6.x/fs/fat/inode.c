@@ -15,9 +15,15 @@
  * 
  * ChangeLog:
  * (mm-dd-yyyy)  Author    Comment
- * 10-24-2007    Motorola  Added direct sync system call to FAT
+ * 08-23-2007    Motorola  Added direct sync system call to FAT
+ * 10-24-2007    Motorola  Added direct sync system call to FAT in LJ6.3
+ * 10-31-2007    Motorola  Added hidden and system attr to inode
+ * 11-20-2007    Motorola  Added simple auto repair FAT
  * 11-15-2007    Motorola  Upmerge from 6.1 (Added conditional sync dirt mark and added hidde and system attr to inode)
- * 02-20-2008    Motorola  remove sticky mode
+ * 01-25-2008    Motorola  Remove repair FAT and fix issue in App
+ * 02-20-2008    Motorola  Remove sticky mode
+ * 06-25-2008    Motorola  Change lookup position for the lookup.
+ * 10-15-2008	 Motorola  Fix file corruption.
  */
 
 #include <linux/module.h>
@@ -593,6 +599,9 @@ static int fat_read_root(struct inode *inode)
 	inode->i_mtime.tv_nsec = inode->i_atime.tv_nsec = inode->i_ctime.tv_nsec = 0;
 	MSDOS_I(inode)->i_ctime_ms = 0;
 	inode->i_nlink = fat_subdirs(inode)+2;
+#ifdef CONFIG_MOT_FAT_LOOKUP
+	MSDOS_I(inode)->i_epos = 0;
+#endif
 
 	return 0;
 }
@@ -770,6 +779,9 @@ static void init_once(void * foo, kmem_cache_t * cachep, unsigned long flags)
 		spin_lock_init(&ei->cache_lru_lock);
 		ei->nr_caches = 0;
 		ei->cache_valid_id = FAT_CACHE_VALID + 1;
+#ifdef CONFIG_MOT_FAT_LOOKUP
+		ei->i_epos = 0;
+#endif
 		INIT_LIST_HEAD(&ei->cache_lru);
 		INIT_HLIST_NODE(&ei->i_fat_hash);
 		inode_init_once(&ei->vfs_inode);
@@ -1215,6 +1227,14 @@ static int fat_fill_inode(struct inode *inode, struct msdos_dir_entry *de)
 		MSDOS_I(inode)->i_start = le16_to_cpu(de->start);
 		if (sbi->fat_bits == 32)
 			MSDOS_I(inode)->i_start |= (le16_to_cpu(de->starthi) << 16);
+#ifdef CONFIG_MOT_FAT_CHECKDIR
+		else
+			if (de->starthi != 0)
+				return -ENOENT;
+				
+		if (le32_to_cpu(de->size)!=0)
+			return -ENOENT;
+#endif
 
 		MSDOS_I(inode)->i_logstart = MSDOS_I(inode)->i_start;
 		error = fat_calc_dir_size(inode);
@@ -1244,6 +1264,10 @@ static int fat_fill_inode(struct inode *inode, struct msdos_dir_entry *de)
 	if(de->attr & ATTR_SYS)
 		if (sbi->options.sys_immutable)
 			inode->i_flags |= S_IMMUTABLE;
+#ifndef CONFIG_MOT_FEAT_ENABLE_HIDE_SYSFILE
+	if(de->attr & ATTR_INV)
+		inode->i_mode |= S_ISVTX;
+#endif
 	MSDOS_I(inode)->i_attrs = de->attr & ATTR_UNUSED;
 	/* this is as close to the truth as we can get ... */
 	inode->i_blksize = sbi->cluster_size;
@@ -1302,6 +1326,10 @@ retry:
 	}
 	raw_entry->attr |= MSDOS_MKATTR(inode->i_mode) |
 	    MSDOS_I(inode)->i_attrs;
+#ifndef CONFIG_MOT_FEAT_ENABLE_HIDE_SYSFILE
+	if(inode->i_mode & S_ISVTX)
+		raw_entry->attr |= ATTR_INV;
+#endif
 	raw_entry->start = cpu_to_le16(MSDOS_I(inode)->i_logstart);
 	raw_entry->starthi = cpu_to_le16(MSDOS_I(inode)->i_logstart >> 16);
 	fat_date_unix2dos(inode->i_mtime.tv_sec, &raw_entry->time, &raw_entry->date);

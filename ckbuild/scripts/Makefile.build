@@ -1,7 +1,7 @@
 #
 # This file is derived from the Linux kernel's scripts/Makefile.build file.
 #
-# Copyright (C) 2006-2007 Motorola
+# Copyright (C) 2006-2007 Motorola, Inc.
 #
 # Motorola  2006-Nov-13 - Adapted for clearmake-compliant build of external
 #                         modules.

@@ -48,8 +48,11 @@
  *                       60 seconds of uptime.
  * 05-21-2007  Motorola  update NFC_CLK dividsors to be 4 for Toshiba and STM parts.
  * 10-10-2007  Motorola  Add mpm_hanle_ioi to delay phone goto DSM when read from nand.
+ * 10-18-2007  Motorola  Add mpm_hanle_ioi to delay phone goto DSM when read from nand.
  * 02-26-2008  Motorola  Remove mpm_handle_ioi.
  *                       Add busy flag for suspend rejection and mpm advise interface.
+ * 02-29-2008  Motorola  Remove mpm_handle_ioi.
+ *                       Add mpm advice mechanism for dynamic PM.
  * 11-13-2008  Motorola  update NFC_CLK divisors to be 4 for Hynix part.
  */
 
@@ -490,6 +493,14 @@ static void send_read_page_lp(bool bSpareOnly)
 	if (nand_debug)
 		DEBUG (MTD_DEBUG_LEVEL3, "send_read_page_lp (%d)\n", bSpareOnly);
 
+#ifdef MENSHE_E8_71_01_8BR
+#ifdef CONFIG_MOT_FEAT_PM
+        /* Send IOI to MPM in order to not sleep during NAND access */
+        mpm_handle_ioi();
+#endif
+#endif
+	
+		
 	/* Only issues the first 512 byte read.  The rest are issued in
          * mxc_nfc_irq().  The LP flash is not readable when
          * kpanic_in_progress since kpanic_in_progress only polls and
@@ -1298,6 +1309,9 @@ static void mxc_nand_command(struct mtd_info *mtd, unsigned command,
 		      "mxc_nand_command (cmd = 0x%x, col = 0x%x, page = 0x%x)\n",
 		      command, column, page_addr);
 
+#ifdef CONFIG_MOT_FEAT_PM
+        mpm_driver_advise(mxc_nand_mpm_advice_id, MPM_ADVICE_DRIVER_IS_BUSY);
+#endif
 	/*
 	 * Reset command state information
 	 */
@@ -1472,6 +1486,9 @@ static void mxc_nand_command(struct mtd_info *mtd, unsigned command,
 	case NAND_CMD_ERASE2:
 		break;
 	}
+#ifdef CONFIG_MOT_FEAT_PM
+        mpm_driver_advise(mxc_nand_mpm_advice_id, MPM_ADVICE_DRIVER_IS_NOT_BUSY);
+#endif
 }
 
 #ifdef CONFIG_MXC_NAND_LOW_LEVEL_ERASE
@@ -1639,10 +1656,17 @@ static int __init mxcnd_probe(struct device *dev)
 			mxc_set_clocks_div(NFC_CLK, 6);
 			break;
 		case NAND_MFR_HYNIX:
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA)
+			/* Read/Write Access time at 90ns has NOT been validated yet,
+			 * NFC clock rate is set to 19 MHz (with DIV:7 - 0x0110)
+			 */
+			mxc_set_clocks_div(NFC_CLK, 7);
+#else
                         /* Read/Write Access time at 60ns has been validated, and
                          * NFC clock rate will be set to 33.3Mhz (with DIV:4 - 0x0011)
                          */			
 			mxc_set_clocks_div(NFC_CLK, 4);
+#endif
 			break;
 		default:
 			/* default, NFC clock at 16.7MHz */
@@ -2021,7 +2045,8 @@ static void __exit mxc_nd_cleanup (void)
 	platform_device_unregister(&mxcnd_device);
 	driver_unregister(&mxcnd_driver);
 #ifdef CONFIG_MOT_FEAT_PM
-        mpm_unregister_with_mpm(mxc_nand_mpm_advice_id);
+        if (mxc_nand_mpm_advice_id >= 0)
+          mpm_unregister_with_mpm(mxc_nand_mpm_advice_id);
 #endif        
 }
 

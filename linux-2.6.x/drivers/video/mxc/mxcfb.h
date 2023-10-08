@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2005 Freescale Semiconductor, Inc.
+ * Copyright 2004-2006 Freescale Semiconductor, Inc. All Rights Reserved.
  * Copyright (C) 2006-2007 Motorola, Inc.
  */
 
@@ -14,6 +14,7 @@
  * Date     Author    Comment
  * 10/2006  Motorola  Added support to panel_info for the HVGA display driver.
  * 04/2007  Motorola  Removed support for the HVGA driver
+ * 06/2007  Motorola  Removed support for the HVGA driver
  */
 
 /*

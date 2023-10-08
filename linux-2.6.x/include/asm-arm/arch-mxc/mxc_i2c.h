@@ -1,13 +1,18 @@
 /*
  * Copyright 2004-2006 Freescale Semiconductor, Inc. All Rights Reserved.
  *
+ * Copyright (C) 2008 Motorola, Inc.
  * The code contained herein is licensed under the GNU General Public
  * License. You may obtain a copy of the GNU General Public License
  * Version 2 or later at the following locations:
  *
  * http://www.opensource.org/licenses/gpl-license.html
  * http://www.gnu.org/copyleft/gpl.html
+ *
+ * Date		Author		Comment
+ * 05/2008	Motorola	Add error code for different i2c failure case. 
  */
+
 
 #ifndef MXC_I2C_H
 
@@ -35,6 +40,16 @@
 
 #define MXC_I2C_FLAG_READ	0x01	/* if set, is read; else is write */
 #define MXC_I2C_FLAG_POLLING	0x02	/* if set, is polling mode; else is interrupt mode */
+
+/*!
+ * This defines the error code which used to report to application
+ */
+#define EBUSBUSYT	101 /*bus busy bit is set before transfer*/
+#define EARBLOSTT	102 /*arbitration lost,in single master mode,it may caused by one of i2c device malfunction*/
+#define ESTARTFAILT	103 /*master fails to sent a start bit*/
+#define EINTLOSTT	104 /*transfer failure caused by lost interrupt*/
+#define EACKLOSTT	105 /*transfer failure caused by lost ACK*/
+#define EPWLOWT		106 /*I2C module is in low power mode*/ 	
 
 /*!
  * Function used to read the register of the i2c slave device. This function

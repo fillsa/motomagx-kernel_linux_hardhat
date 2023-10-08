@@ -22,9 +22,10 @@
  * Date          Author      Comments
  * ===========   =========   ====================================================
  * 01-Jan-2006  Motorola        Initial version.
+ * 27-Feb-2007  Motorola        Initial revision.
+ * 28-Jun-2007  Motorola        Removed MARCO specific signal code in relation to xPIXL.
  * 20-Mar-2008   Motorola    Remove code not related to signals in Nevis produst
  * 23-June-2008  Motorola    Add code to check GPIO_SIGNAL_GND to detect Embedded TFlash of Nevis 
- * 28-Jun-2007  Motorola        Removed MARCO specific signal code in relation to xPIXL.
  * 03-Jul-2008  Motorola        OSS CV fix.
  */
 
@@ -63,10 +64,19 @@ void gpio_sdhc_active(int module)
             break;
 
         case 1:
+// ни на что не влияет, но у LJ7.1+ свой механизм определения GPIO_API_WLAN 
+#if defined(CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE)
+            if(GPIO_SIGNAL_IS_VALID(GPIO_SIGNAL_WLAN_RESET))
+#else
 #if defined(CONFIG_MOT_FEAT_GPIO_API_WLAN)
-            /* SDHC slot 2 is the WLAN controller on scma11ref and Marco */
-            gpio_signal_set_data(GPIO_SIGNAL_WLAN_PWR_DWN_B, GPIO_DATA_HIGH);
-            gpio_signal_set_data(GPIO_SIGNAL_WLAN_RESET, GPIO_DATA_HIGH);
+#endif
+            {
+                /* SDHC slot 2 is the WLAN controller on scma11ref and Marco */
+                gpio_signal_set_data(GPIO_SIGNAL_WLAN_PWR_DWN_B, GPIO_DATA_HIGH);
+                gpio_signal_set_data(GPIO_SIGNAL_WLAN_RESET, GPIO_DATA_HIGH);
+            }
+#if ! defined(CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE)
+#endif /* CONFIG_MOT_FEAT_GPIO_API_WLAN */
 #endif
             break;
     
@@ -90,11 +100,21 @@ void gpio_sdhc_inactive(int module)
             break;
 
         case 1:
+// ни на что не влияет, но у LJ7.1+ свой механизм определения GPIO_API_WLAN 
+#if defined(CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE)
+            if(GPIO_SIGNAL_IS_VALID(GPIO_SIGNAL_WLAN_RESET))
+#else
 #if defined(CONFIG_MOT_FEAT_GPIO_API_WLAN)
-            /* SDHC slot 2 is the WLAN controller on scma11ref and Marco */
-            gpio_signal_set_data(GPIO_SIGNAL_WLAN_RESET, GPIO_DATA_LOW);
-            gpio_signal_set_data(GPIO_SIGNAL_WLAN_PWR_DWN_B, GPIO_DATA_LOW);
 #endif
+            {
+                /* SDHC slot 2 is the WLAN controller on scma11ref and Marco */
+                gpio_signal_set_data(GPIO_SIGNAL_WLAN_RESET, GPIO_DATA_LOW);
+                gpio_signal_set_data(GPIO_SIGNAL_WLAN_PWR_DWN_B, GPIO_DATA_LOW);
+            }
+#if ! defined(CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE)
+#endif /* CONFIG_MOT_FEAT_GPIO_API_WLAN */
+#endif
+
             break;
     
         default:

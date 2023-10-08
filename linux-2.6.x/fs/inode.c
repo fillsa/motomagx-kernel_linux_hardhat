@@ -301,12 +301,13 @@ static void dispose_list(struct list_head *head)
 
 		if (inode->i_data.nrpages)
 			truncate_inode_pages(&inode->i_data, 0);
-   
-                clear_inode(inode);
-            
+		clear_inode(inode);
+    		
+#ifdef CONFIG_MOT_FEAT_ENABLE_JFFS2VFS_PATCH   
                 spin_lock(&inode_lock);
                 hlist_del_init(&inode->i_hash);
                 spin_unlock(&inode_lock);
+#endif 
 
 		destroy_inode(inode);
 		nr_disposed++;
@@ -345,6 +346,9 @@ static int invalidate_list(struct list_head *head, struct super_block * sb, stru
 			continue;
 		invalidate_inode_buffers(inode);
 		if (!atomic_read(&inode->i_count)) {
+#ifndef CONFIG_MOT_FEAT_ENABLE_JFFS2VFS_PATCH
+                        hlist_del_init(&inode->i_hash);
+#endif		
 			list_move(&inode->i_list, dispose);
 			inode->i_state |= I_FREEING;
 			count++;
@@ -482,6 +486,10 @@ static void prune_icache(int nr_to_scan)
 			if (!can_unuse(inode))
 				continue;
 		}
+
+#ifndef CONFIG_MOT_FEAT_ENABLE_JFFS2VFS_PATCH
+                hlist_del_init(&inode->i_hash);
+#endif
 		list_move(&inode->i_list, &freeable);
 		inode->i_state |= I_FREEING;
 		nr_pruned++;

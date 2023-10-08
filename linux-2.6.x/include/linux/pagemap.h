@@ -10,7 +10,8 @@
  * ===========  ==============  ==============================================
  * 31-Jan-2007  Motorola        Fix the bug about st_ctime, and st_mtime field 
  *                              of a mapped region, and msync()
- * 13-Nov-2007  Motorola        Fix deadlock problem in JFFS2.
+ * 18-Oct-2007  Motorola        Fix deadlock problem in JFFS2.
+ * 13-Nov-2007  Motorola        Upmerge in 6.3 (Fix deadlock problem in JFFS2)
  */
 
 #include <linux/mm.h>

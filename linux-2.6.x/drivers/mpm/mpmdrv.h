@@ -27,13 +27,18 @@
  * 10/04/2006  Motorola          Initial version.
  * 01/18/2007  Motorola          Tie DSM to IDLE and reduce IOI timeout to 10ms
  * 02/14/2007  Motorola          Resolved race condition in DSM code.
- * 03/31/2008  Motorola          Move declaration of mpm_set_awake_state to kernel mpm.h
+ * 08/03/2007  Motorola          Move declaration of mpm set awake to kernel mpm.h
+ * 03/31/2008  Motorola          Move declaration of mpm_set_awake_state to kernel mpm.h inlj63
+ * 10/25/2007  Motorola          Improved periodic job state collection for debug.
  */
 
 
 #ifdef __KERNEL__
 
 #include <asm/arch/mxc_pm.h>
+
+#define COMM_SIZE 16
+#define MAX_BUCKETS 10
 
 typedef struct {
     mpm_op_t cpu_freq;
@@ -48,6 +53,35 @@ typedef struct mpm_opst_list{
     mpm_opstat_t opst;
 } mpm_opst_list_t;
 
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)
+typedef struct {
+    unsigned long cur_time;
+    unsigned long minduration;
+    unsigned long maxduration;
+    unsigned long averageduration[MAX_BUCKETS];
+    int durationcount[MAX_BUCKETS];
+    int wakeuptimes[MAX_BUCKETS];
+    int count;
+    int waiting;
+} mpm_pjstat_t;
+
+struct mpm_pjist_list;
+
+typedef struct mpm_pjist_list{
+    struct mpm_pjist_list *next;
+    unsigned long orig_func;
+    mpm_pjstat_t pjstat;
+} mpm_pjist_list_t;
+
+struct mpm_pjcst_list;
+
+typedef struct mpm_pjcst_list{
+    struct mpm_pjcst_list *next;
+    int pid;
+    char process_comm[COMM_SIZE];
+    mpm_pjstat_t pjstat;
+} mpm_pjcst_list_t;
+#endif
 
 
 #define ssec(n)      ((n)->opst.start_time.tv_sec)

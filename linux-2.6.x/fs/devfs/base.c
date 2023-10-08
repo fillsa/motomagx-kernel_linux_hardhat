@@ -654,6 +654,13 @@
 	       Added locking when updating FCB flags.
   v1.22
 */
+/*
+ * Copyright (C) 2008 Motorola, Inc.
+ *
+ * Date		Author		Comment
+ * 1/2008	Motorola	If de->inode.dentry has been updated before devfs_d_iput,ignore it.
+ *
+ */ 
 #include <linux/types.h>
 #include <linux/errno.h>
 #include <linux/time.h>
@@ -2096,6 +2103,7 @@ static void devfs_d_iput(struct dentry *dentry, struct inode *inode)
 	DPRINTK(DEBUG_D_IPUT,
 		"(%s): dentry: %p inode: %p de: %p de->dentry: %p\n", de->name,
 		dentry, inode, de, de->inode.dentry);
+	/*If de->inode.dentry has been updated and pointed to other dentry,just ignore it*/
 	if (de->inode.dentry && (de->inode.dentry != dentry))
 		OOPS("(%s): de: %p dentry: %p de->dentry: %p\n",
 		     de->name, de, dentry, de->inode.dentry);

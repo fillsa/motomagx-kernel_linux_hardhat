@@ -64,6 +64,30 @@
  *		Angelo Dell'Aera:	TCP Westwood+ support
  */
 
+/*
+ * Copyright (C) 2008 Motorola, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+/*
+ * Date          Author        Comment
+ * ========      ===========   =================================================
+ * 10/14/2008    Motorola      Disable the tcp window scaling and sack for AT&T
+ */
+
 #include <linux/config.h>
 #include <linux/mm.h>
 #include <linux/module.h>
@@ -73,8 +97,13 @@
 #include <linux/ipsec.h>
 
 int sysctl_tcp_timestamps = 1;
+#ifdef CONFIG_MOT_FEAT_DISABLE_TCP_WINDOW_SCALING_SACK
+int sysctl_tcp_window_scaling = 0;
+int sysctl_tcp_sack = 0;
+#else
 int sysctl_tcp_window_scaling = 1;
 int sysctl_tcp_sack = 1;
+#endif
 int sysctl_tcp_fack = 1;
 int sysctl_tcp_reordering = TCP_FASTRETRANS_THRESH;
 int sysctl_tcp_ecn;

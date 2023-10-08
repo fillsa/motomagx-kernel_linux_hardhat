@@ -18,7 +18,9 @@
  * 12/05/2006  Motorola          Dynamic PLL lock/unlock
  * 12/07/2006  Motorola          Added etm_enable_trigger_clock.
  * 04/16/2007  Motorola          Implement USB / SSI clock splitting.
+ * 05/29/2007  Motorola          Implement USB / SSI clock splitting.
  *                               Enable PLL request / release logic.
+ * 10/30/2007  Motorola          Add Support OWIRE_CLK for mxc_get_clocks()
  */
 
 /*!
@@ -920,6 +922,7 @@ static unsigned long mxc_get_clocks_pass2(enum mxc_clocks clk)
                                    mxc_peri_clock_divider(CSI_BAUD);
                 }
                 break;
+        case OWIRE_CLK:
         case I2C_CLK:
                 ret_val = ap_unc_pat_ref;
                 break;

@@ -2,10 +2,17 @@
  *  linux/arch/arm/kernel/signal.c
  *
  *  Copyright (C) 1995-2002 Russell King
+ *  Copyright 2007 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Date     Author     Comment
+ * 02/2007  Motorola   Incorporated patch from 2.6.13-rc1 to move
+ *                     sigreturn code to exception vector page
+ * 02/2007  Motorola   Moved sys_restart to exception vector page
+ *
  */
 #include <linux/config.h>
 #include <linux/errno.h>
@@ -20,6 +27,10 @@
 #include <asm/unistd.h>
 
 #include "ptrace.h"
+
+#ifdef CONFIG_MOT_WFN422
+#include "signal.h"
+#endif /* CONFIG_MOT_WFN422 */
 
 #define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
 
@@ -42,7 +53,22 @@
 #define SWI_THUMB_SIGRETURN	(0xdf00 << 16 | 0x2700 | (__NR_sigreturn - __NR_SYSCALL_BASE))
 #define SWI_THUMB_RT_SIGRETURN	(0xdf00 << 16 | 0x2700 | (__NR_rt_sigreturn - __NR_SYSCALL_BASE))
 
+#ifdef CONFIG_MOT_WFN422
+/*
+ * Call to sys_restart_syscall and return to previous PC
+ */
+#define SWI_OABI_SYSRESTART	(0xef000000|(__NR_restart_syscall - __NR_SYSCALL_BASE + __NR_OABI_SYSCALL_BASE))
+/* Restore previous PC with: ldr  pc, [sp], #8 */
+#define LDR_PC_OABI_SYSRESTART	0xe49df008
+
+const unsigned long sysrestart_codes[2] = {
+	SWI_OABI_SYSRESTART, LDR_PC_OABI_SYSRESTART,
+};
+
+const unsigned long sigreturn_codes[7] = {
+#else
 static const unsigned long retcodes[7] = {
+#endif /* CONFIG_MOT_WFN422 */
 	MOV_R7_NR_SIGRETURN,    SWI_SYS_SIGRETURN,    SWI_THUMB_SIGRETURN,
 	MOV_R7_NR_RT_SIGRETURN, SWI_SYS_RT_SIGRETURN, SWI_THUMB_RT_SIGRETURN,
 };
@@ -507,18 +533,35 @@ setup_return(struct pt_regs *regs, struct k_sigaction *ka,
 		if (ka->sa.sa_flags & SA_SIGINFO)
 			idx += 3;
 
+#ifdef CONFIG_MOT_WFN422
+		if (__put_user(sigreturn_codes[idx],   rc) ||
+		    __put_user(sigreturn_codes[idx+1], rc+1))
+#else
 		if (__put_user(retcodes[idx],   rc) ||
 		    __put_user(retcodes[idx+1], rc+1))
+#endif /* CONFIG_MOT_WFN422 */
 			return 1;
 
-		/*
-		 * Ensure that the instruction cache sees
-		 * the return code written onto the stack.
-		 */
-		flush_icache_range((unsigned long)rc,
-				   (unsigned long)(rc + 2));
+#ifdef CONFIG_MOT_WFN422
+		if (cpsr & MODE32_BIT) {
+			/*
+			 * 32-bit code can use the new high-page
+			 * signal return code support.
+			 */
+			retcode = KERN_SIGRETURN_CODE + (idx << 2) + thumb;
+		} else {
+#endif /* CONFIG_MOT_WFN422 */
+			/*
+			 * Ensure that the instruction cache sees
+			 * the return code written onto the stack.
+			 */
+			flush_icache_range((unsigned long)rc,
+							   (unsigned long)(rc + 2));
 
-		retcode = ((unsigned long)rc) + thumb;
+			retcode = ((unsigned long)rc) + thumb;
+#ifdef CONFIG_MOT_WFN422
+		}
+#endif /* CONFIG_MOT_WFN422 */
 	}
 
 	regs->ARM_r0 = usig;
@@ -735,32 +778,50 @@ static int do_signal(sigset_t *oldset, struct pt_regs *regs, int syscall)
 				regs->ARM_pc -= 4;
 #else
 				u32 __user *usp;
-				u32 swival = __NR_restart_syscall;
+#ifdef CONFIG_MOT_WFN422
+				if (regs->ARM_cpsr & MODE32_BIT) {
+					/* Grow the stack by 8 bytes */
+					regs->ARM_sp -= 8;
+					/* Store the PC to return to after sys_restart_syscall */
+					usp = (u32 __user *)regs->ARM_sp;
+					put_user(regs->ARM_pc, &usp[0]);
 
-				regs->ARM_sp -= 12;
-				usp = (u32 __user *)regs->ARM_sp;
+					/* 	
+					 * Set the current PC to our call to sys_restart_syscall
+					 * which is in the vector exception page 
+					 */	
+					regs->ARM_pc = KERN_SYSRESTART_CODE;
+				} else {
+#endif /* CONFIG_MOT_WFN422 */
+					u32 swival = __NR_restart_syscall;
 
-				/*
-				 * Either we supports OABI only, or we have
-				 * EABI with the OABI compat layer enabled.
-				 * In the later case we don't know if user
-				 * space is EABI or not, and if not we must
-				 * not clobber r7.  Always using the OABI
-				 * syscall solves that issue and works for
-				 * all those cases.
-				 */
-				swival = swival - __NR_SYSCALL_BASE + __NR_OABI_SYSCALL_BASE;
+					regs->ARM_sp -= 12;
+					usp = (u32 __user *)regs->ARM_sp;
 
-				put_user(regs->ARM_pc, &usp[0]);
-				/* swi __NR_restart_syscall */
-				put_user(0xef000000 | swival, &usp[1]);
-				/* ldr	pc, [sp], #12 */
-				put_user(0xe49df00c, &usp[2]);
-
-				flush_icache_range((unsigned long)usp,
-						   (unsigned long)(usp + 3));
-
-				regs->ARM_pc = regs->ARM_sp + 4;
+					/*
+					 * Either we supports OABI only, or we have
+					 * EABI with the OABI compat layer enabled.
+					 * In the later case we don't know if user
+					 * space is EABI or not, and if not we must
+					 * not clobber r7.  Always using the OABI
+					 * syscall solves that issue and works for
+					 * all those cases.
+					 */
+					swival = swival - __NR_SYSCALL_BASE + __NR_OABI_SYSCALL_BASE;
+	
+					put_user(regs->ARM_pc, &usp[0]);
+					/* swi __NR_restart_syscall */
+					put_user(0xef000000 | swival, &usp[1]);
+					/* ldr	pc, [sp], #12 */
+					put_user(0xe49df00c, &usp[2]);
+				
+					flush_icache_range((unsigned long)usp,
+									   (unsigned long)(usp + 3));
+					
+					regs->ARM_pc = regs->ARM_sp + 4;
+#ifdef CONFIG_MOT_WFN422
+				}
+#endif /* CONFIG_MOT_WFN422 */
 #endif
 			}
 		}

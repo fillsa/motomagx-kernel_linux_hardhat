@@ -19,8 +19,13 @@
  *                    compatibility IOCTLs.
  * 11/2006  Motorola  Adjusted ArgonLV related defines.
  * 01/2007  Motorola  Added support for dynamic IPU pool config.
+ * 01/2007  Motorola  abstracted PowerIC APIs.
+ * 04/2007  Motorola  Remove calls to power_ic lighting
+ * 08/2007  Motorola  Chagne CONFIG_PM to CONFIG_PM_NOMEDL to remove the suspend
+ *                    and resume routines which have been done in medl.
  * 08/2007  Motorola  remove unused mxcfb_suspend/resume definition
  * 09/2007  Motorola  Modified comments.
+ * 10/2007  Motorola  Remove memset for keywest and paros.
  * 11/2007  Motorola  remove display init calls in open/close.
  * 11/2007  Motorola  add function to set global variables in ipu sdc
  * 03/2008  Motorola  remove calls to power_ic lighting
@@ -54,7 +59,10 @@
 #include <linux/fb.h>
 #if defined(CONFIG_MOT_FEAT_IPU_IOCTL)
 #include <linux/motfb.h>    /* Motorola specific FB iotcl definitions */
+#if 1 //CR libll50024: Remove calls to power_ic lighting
 #include <linux/power_ic.h> /* Phone's backlights ioctls */
+#include <linux/lights_backlight.h>
+#endif //CR libll50024: Remove calls to power_ic lighting
 #endif
 #include <linux/delay.h>
 #include <linux/init.h>
@@ -299,7 +307,9 @@ struct panel_info *mxcfb_panel = &tvout_pal_panel;
 #if defined(CONFIG_MOT_FEAT_IPU_IOCTL_EZX_COMPAT)
 #include <linux/console.h>	/* acquire_console_sem() */
 static struct global_state mxcfb_global_state;
+#if 1 //CR libll50024: Remove calls to power_ic lighting 
 static LIGHTS_BACKLIGHT_IOCTL_T backlight_set;
+#endif //CR libll50024: Remove calls to power_ic lighting
 #endif
 
 
@@ -900,9 +910,15 @@ static int mxcfb_ioctl(struct inode *inode, struct file *file,
 #if defined(CONFIG_MOT_FEAT_GPIO_API_LIGHTING_LCD)
                         gpio_lcd_backlight_enable(false);
 #elif defined(CONFIG_MACH_MARCO)
+#if 1 //CR libll50024: Remove calls to power_ic lighting
 			/* Ascension does not have a separate GPIO to control
                          * backlight on/off */
-			lights_backlightset(LIGHTS_BACKLIGHT_DISPLAY, 0);
+			#ifdef CONFIG_MOT_POWER_IC_ATLAS
+			lights_backlightset(LIGHTS_BACKLIGHT_DISPLAY, 0); 
+			#elif CONFIG_MOT_FEAT_POWER_IC_API
+			// LJ7.2 kernel_power_ic_backlightset(KERNEL_BACKLIGHT_DISPLAY, 0);
+			#endif	
+#endif //CR libll50024: Remove calls to power_ic lighting
 #endif /* CONFIG_MOT_FEAT_GPIO_API_LIGHTING_LCD */
 			mxcfb_global_state.backlight_state &= ~BKLIGHT_ON;
 			MXCFB_UP(&mxcfb_global_state.g_sem);
@@ -912,10 +928,16 @@ static int mxcfb_ioctl(struct inode *inode, struct file *file,
 #if defined(CONFIG_MOT_FEAT_GPIO_API_LIGHTING_LCD)
                         gpio_lcd_backlight_enable(true);
 #elif defined(CONFIG_MACH_MARCO)
+#if 1 //CR libll50024: Remove calls to power_ic lighting
 			/* Ascension does not have a separate GPIO to control
                          * backlight on/off */
-			lights_backlightset(LIGHTS_BACKLIGHT_DISPLAY,
-                                    mxcfb_global_state.brightness);
+			#ifdef CONFIG_MOT_POWER_IC_ATLAS
+			lights_backlightset(LIGHTS_BACKLIGHT_DISPLAY, mxcfb_global_state.brightness);
+			#elif CONFIG_MOT_FEAT_POWER_IC_API
+			// LJ7.2 kernel_power_ic_backlightset(KERNEL_BACKLIGHT_DISPLAY, mxcfb_global_state.brightness);
+			#endif	
+			  
+#endif //CR libll50024: Remove calls to power_ic lighting
 #endif /* CONFIG_MOT_FEAT_GPIO_API_LIGHTING_LCD */
 			mxcfb_global_state.backlight_state |= BKLIGHT_ON;
 			MXCFB_UP(&mxcfb_global_state.g_sem);
@@ -953,27 +975,36 @@ static int mxcfb_ioctl(struct inode *inode, struct file *file,
 			break;
 		}
 		MXCFB_DOWN_INTERRUPTIBLE(&mxcfb_global_state.g_sem);
-#if defined(CONFIG_MACH_MXC27530EVB) || defined(CONFIG_MACH_I30030EVB) \
-			           || defined(CONFIG_MACH_MXC91131EVB)
+#if defined(CONFIG_MACH_MXC27530EVB) || defined(CONFIG_MACH_I30030EVB) || defined(CONFIG_MACH_MXC91131EVB)
 		if ((retval = ipu_sdc_set_brightness(arg)) != 0) {
 			MXCFB_UP(&mxcfb_global_state.g_sem);
 			retval = -EFAULT;
 			break;
 		}
-#elif defined(CONFIG_MACH_ARGONLVPHONE) \
-                && defined(CONFIG_MOT_FEAT_GPIO_API_LIGHTING_LCD)
+#elif defined(CONFIG_MACH_ARGONLVPHONE) && defined(CONFIG_MOT_FEAT_GPIO_API_LIGHTING_LCD)
 	        pwm_set_lcd_bkl_brightness(arg);	
 #else	
+#if 1 //CR libll50024: Remove calls to power_ic lighting
+		#ifdef CONFIG_MOT_POWER_IC_ATLAS
 		backlight_set.bl_select = LIGHTS_BACKLIGHT_DISPLAY;
+		#elif CONFIG_MOT_FEAT_POWER_IC_API
+		// LJ7.1 backlight_set.bl_select = KERNEL_BACKLIGHT_DISPLAY;
+		#endif	
 		backlight_set.bl_brightness = arg;
+#endif //CR libll50024: Remove calls to power_ic lighting
 #if defined(CONFIG_MACH_MARCO)		
 #if !defined(CONFIG_MACH_SCMA11REF) 
 		/* Do not change the brightness if the backlight state is
                  * currently off */
 		if (mxcfb_global_state.backlight_state & BKLIGHT_ON) {
 #endif /* !CONFIG_MACH_SCMA11REF */
-		lights_backlightset(backlight_set.bl_select,
-                                    backlight_set.bl_brightness);
+#if 1 //CR libll50024: Remove calls to power_ic lighting
+		#ifdef CONFIG_MOT_POWER_IC_ATLAS
+		lights_backlightset(backlight_set.bl_select, backlight_set.bl_brightness);
+		#elif CONFIG_MOT_FEAT_POWER_IC_API
+		// LJ7.1 kernel_power_ic_backlightset(backlight_set.bl_select, backlight_set.bl_brightness);
+		#endif	
+#endif //CR libll50024: Remove calls to power_ic lighting
 #if !defined(CONFIG_MACH_SCMA11REF)
 		}
 #endif /* !CONFIG_MACH_SCMA11REF */
@@ -1552,8 +1583,9 @@ static irqreturn_t mxcfb_irq_handler(int irq, void *dev_id,
 	return IRQ_HANDLED;
 }
 
-/* remove unused mxcfb_suspend/resume definition for LJ6.3
-#ifdef CONFIG_PM
+
+// just to remove the suspend and resume routines, since these operation has been done in medl 
+#ifdef CONFIG_PM_NOMEDL  /* remove unused mxcfb_suspend/resume definition for LJ6.3*/
 
 /* 
  * XXX : Testing of the LPMC hardware uncovered an unexpected and infrequent 
@@ -1561,7 +1593,6 @@ static irqreturn_t mxcfb_irq_handler(int irq, void *dev_id,
  * identified.  Also, please note that this is not a real Kconfig option, but 
  * rather is intended to #if 0 the LPMC code out.
  */
-/*
 #undef CONFIG_MOT_FEAT_ENABLE_LPMC
 
 /*
@@ -1572,7 +1603,6 @@ static irqreturn_t mxcfb_irq_handler(int irq, void *dev_id,
 /*
  * Suspends the framebuffer and blanks the screen. Power management support
  */
-/*
 static int mxcfb_suspend(struct device *dev, u32 state, u32 level)
 {
 	struct mxcfb_data *drv_data = dev_get_drvdata(dev);
@@ -1588,7 +1618,6 @@ static int mxcfb_suspend(struct device *dev, u32 state, u32 level)
 #endif
 #endif /* CONFIG_MOT_FEAT_ENABLE_LPMC */
 
-/*
 	FUNC_START;
 	DPRINTK("level = %d\n", level);
 
@@ -1615,19 +1644,16 @@ static int mxcfb_suspend(struct device *dev, u32 state, u32 level)
 #else
 			ipu_disable_channel(MEM_SDC_BG, true);
 #endif /* CONFIG_MOT_FEAT_ENABLE_LPMC */
-/*
 #if defined(CONFIG_MOT_FEAT_IPU_GPIO)
 			gpio_lcd_inactive();
 #endif
 #else /* !defined(CONFIG_FB_MXC_INTERNAL_MEM) */
-/*
 			ipu_disable_channel(MEM_SDC_BG, true);
 #if defined(CONFIG_MOT_FEAT_IPU_GPIO)
 			gpio_lcd_inactive();
 #endif
 			ipu_sdc_set_brightness(0);
-#endif /* defined(CONFIG_FB_MXC_INTERNAL_MEM) */
-/*		
+#endif /* defined(CONFIG_FB_MXC_INTERNAL_MEM) */		
 		}
 		break;
 	case SUSPEND_POWER_DOWN:
@@ -1640,7 +1666,6 @@ static int mxcfb_suspend(struct device *dev, u32 state, u32 level)
 /*
  * Resumes the framebuffer and unblanks the screen. Power management support
  */
-/*
 static int mxcfb_resume(struct device *dev, u32 level)
 {
 	struct mxcfb_data *drv_data = dev_get_drvdata(dev);
@@ -1669,7 +1694,6 @@ static int mxcfb_resume(struct device *dev, u32 level)
 			gpio_lcd_active();
 #endif
 #else /* !defined(CONFIG_FB_MXC_INTERNAL_MEM) */
-/*			
 			ipu_enable_channel(MEM_SDC_BG);
 #if defined(CONFIG_MOT_FEAT_IPU_GPIO)
 			gpio_lcd_active();
@@ -1688,13 +1712,10 @@ static int mxcfb_resume(struct device *dev, u32 level)
 	FUNC_END;
 	return 0;
 }
-#else
-*/
+#else /* CONFIG_PM_NOMEDL */
 #define mxcfb_suspend   NULL
 #define mxcfb_resume    NULL
-/*
-#endif
-*/
+#endif /* CONFIG_PM_NOMEDL */
 
 /*
  * Main framebuffer functions
@@ -1765,7 +1786,9 @@ static int mxcfb_map_video_memory(struct fb_info *fbi, bool use_internal_ram)
         if(fbi != mxcfb_drv_data.fbi)
 #endif
 	/* Clear the screen */
+#ifndef CONFIG_MACH_ARGONLVPHONE 	
 	memset((char *)fbi->screen_base, 0, fbi->fix.smem_len);
+#endif
 
 	return 0;
 }
@@ -2039,9 +2062,10 @@ static int mxcfb_probe(struct device *dev)
 #if defined(CONFIG_MOT_FEAT_GPIO_API_LIGHTING_LCD)
         gpio_lcd_backlight_enable(true);
 #elif defined(CONFIG_MACH_MARCO)
+#if 1 //CR libll50024: Remove calls to power_ic lighting
         /* Ascension does not have a separate GPIO to control backlight on/off */
-        lights_backlightset(LIGHTS_BACKLIGHT_DISPLAY,
-                            mxcfb_global_state.bklight_main_brightness);
+        lights_backlightset(LIGHTS_BACKLIGHT_DISPLAY, mxcfb_global_state.bklight_main_brightness); // LJ7.1  kernel_power_ic_backlightset(KERNEL_BACKLIGHT_DISPLAY, mxcfb_global_state.bklight_main_brightness);
+#endif //CR libll50024: Remove calls to power_ic lighting
 #endif /* CONFIG_MOT_FEAT_GPIO_API_LIGHTING_LCD */
 #endif /* CONFIG_MOT_FEAT_BOOT_BACKLIGHT */
 

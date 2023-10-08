@@ -25,6 +25,7 @@
  */
 /*
  * Date         Author          Comment
+ * 12/06/2007	Motorola	Add up function in uart_pm_functions.
  * 01/03/2008   Motorola        Add up function in uart_pm_functions.
 */
 

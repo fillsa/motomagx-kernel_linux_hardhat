@@ -23,8 +23,11 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
  * OF SUCH DAMAGE. 
  *
+ * Motorola 2007-Oct-11 - Add new IOCTL for enabling / disabling SIM clock
+ * Motorola 2007-Aug-08 - Updated doxygen comments
  * Motorola 2007-May-23 - Add new IOCTLs
- * Motorola 2007-Feb-27 - Update license
+ * Motorola 2007-May-04 - Created independent module
+ * Motorola 2007-Feb-27 - Updated license
  * Motorola 2007-Jan-08 - Update copyright
  * Motorola 2006-Aug-31 - Remove some functionality from the driver
  * Motorola 2006-Aug-21 - Add support for all peripheral clock frequencies
@@ -38,13 +41,15 @@
 #define __SMART_CARD_H__
 
 #include <linux/ioctl.h>
-/*******************************************************************************************
- * Ioctl commands
+/*******************************************************************************************/
+/*!
+ * @name Ioctl commands
  *
- *    These are the ioctl commands for the SIM interface module driver. These will not be used directly
+ * @brief These are the ioctl commands for the SIM interface module driver. These will not be used directly
  *    from user-space, but are used to construct the request parameters used in ioctl() 
- *    calls to the driver. 
- ******************************************************************************************/
+ *    calls to the driver.  */
+/*@{*/
+/*******************************************************************************************/
 
 #define SIM_IOC_CMD_CORE_CONFIGURE_GPIO                (0x00)
 #define SIM_IOC_CMD_CORE_GET_CWTCNT                    (0x01)
@@ -68,14 +73,18 @@
 #define SIM_IOC_CMD_CORE_WRITE_SIM_REG_DATA            (0x13)
 #define SIM_IOC_CMD_CORE_ALL_TX_DATA_SENT              (0x14)
 #define SIM_IOC_CMD_CORE_RESET_ALL_TX_DATA_SENT        (0x15)
-#define SIM_IOC_CMD_CORE_LAST_CMD                       SIM_IOC_CMD_CORE_RESET_ALL_TX_DATA_SENT
+#define SIM_IOC_CMD_CORE_SET_PERIPHERAL_CLOCK_STATUS   (0x16)
+#define SIM_IOC_CMD_CORE_LAST_CMD                       SIM_IOC_CMD_CORE_SET_PERIPHERAL_CLOCK_STATUS
 
-/*******************************************************************************************
- * Ioctl requests
+/*******************************************************************************************/
+/*!
+ * @name Ioctl requests
  *
- *    These are the requests that can be passed to ioctl() to request operations on the
+ * @brief These are the requests that can be passed to ioctl() to request operations on the
  *    SIM interface module driver.
- ******************************************************************************************/
+ */
+/*@{*/
+/******************************************************************************************/
 #define SIM_IOCTL_CONFIGURE_GPIO \
         _IOW(SIM_NUM, SIM_IOC_CMD_CORE_CONFIGURE_GPIO, UINT8)
 #define SIM_IOCTL_GET_CWTCNT \
@@ -120,5 +129,8 @@
        _IOR(SIM_NUM, SIM_IOC_CMD_CORE_ALL_TX_DATA_SENT, BOOLEAN *)
 #define SIM_IOCTL_RESET_ALL_TX_DATA_SENT \
        _IO(SIM_NUM, SIM_IOC_CMD_CORE_RESET_ALL_TX_DATA_SENT)
+#define SIM_IOCTL_SET_PERIPHERAL_CLOCK_STATUS \
+       _IOW(SIM_NUM, SIM_IOC_CMD_CORE_SET_PERIPHERAL_CLOCK_STATUS, UINT32 *)    
+/*@}*/
 
 #endif /* __SMART_CARD_H__ */

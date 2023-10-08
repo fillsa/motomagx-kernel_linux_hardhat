@@ -1,10 +1,11 @@
 /*
  * binfmts.h
  *
- * Copyright (C) 2008 Motorola, Inc.
+ * Copyright (C) 2007-2008 Motorola, Inc.
  *
  * Date         Author     Comment
- * 2008-02-28  Motorola   Fix full coredump core pattern issue
+ * 12/2007  Motorola   Fix full coredump core pattern issue
+ * 2008-02-28  Motorola   Fix full coredump core pattern issue in LJ6.3
  */
 
 

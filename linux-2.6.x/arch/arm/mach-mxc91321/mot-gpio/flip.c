@@ -59,7 +59,7 @@ int  gpio_flip_request_irq(gpio_irq_handler handler, unsigned long irq_flags,
  */
 int  gpio_flip_free_irq(void *dev_id)
 {
-    return gpio_signal_free_irq(GPIO_SIGNAL_FLIP_DETECT, GPIO_HIGH_PRIO);
+    return gpio_signal_free_irq(GPIO_SIGNAL_FLIP_DETECT, GPIO_HIGH_PRIO, dev_id);
 }
 
 

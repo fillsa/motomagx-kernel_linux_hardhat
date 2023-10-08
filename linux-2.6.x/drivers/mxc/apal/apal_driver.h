@@ -29,6 +29,9 @@
  * 06/28/2004   Motorola  File creation 
  * 12/11/2006   Motorola  Fixed bug, audio loss after wakeup from DSM
  * 05/14/2007   Motorola  Support querying data left(not played) in apal driver from user space
+ * 05/14/2007   Motorola  Support querying data left(not played) in apal driver from user space 
+ * 01/18/2008   Motorola  Add FM radio state flag for DSM purposes
+ * 02/02/2008   Motorola  OSS source compliant 
  * 02/28/2008   Motorola  Supporting FM radio
  */
 
@@ -81,13 +84,14 @@ GENERAL DESCRIPTION: This file contains the APAL (Audio Platform Abstraction Lay
 #define  APAL_IOCTL_PAUSE                      6
 #define  APAL_IOCTL_STOP_SDMA                  7
 #define  APAL_GET_LEFT_WRITTEN_BYTES_IN_KERNEL 8
+#define  APAL_IOCTL_RAT_MODE_CHANGE           15
 
 /****end IOCTL list ****/
 
 #if defined(CONFIG_ARCH_MXC91231)
 #define ACR  0x50048044  /* AP CKO Register */
 #define CSCR 0x5004400C  /* CRM (Clock and Reset Module) System Control Register */
-#elif defined(CONFIG_ARCH_MXC91331)
+#elif defined(CONFIG_ARCH_MXC91331) ||  defined(CONFIG_ARCH_MXC91321)
 #define COSR 0x53F80018  /* Argon+ COSR register for setting clock */
 #endif
 

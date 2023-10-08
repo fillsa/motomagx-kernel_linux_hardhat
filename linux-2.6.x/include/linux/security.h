@@ -1,6 +1,7 @@
 /*
  * Linux Security plug
  *
+ * Copyright (C) 2007 Motorola Inc.
  * Copyright (C) 2001 WireX Communications, Inc <chris@wirex.com>
  * Copyright (C) 2001 Greg Kroah-Hartman <greg@kroah.com>
  * Copyright (C) 2001 Networks Associates Technology, Inc <ssmalley@nai.com>
@@ -17,6 +18,12 @@
  *	without placing your module under the GPL.  Please consult a lawyer for
  *	advice before doing this.
  *
+ */
+
+/*
+ * ChangeLog:
+ * (mm-dd-yyyy) Author    Comment
+ * 05-24-2007   Motorola  Add allow_full_coredump hook.
  */
 
 #ifndef __LINUX_SECURITY_H
@@ -1230,6 +1237,10 @@ struct security_operations {
 	int (*sk_alloc_security) (struct sock *sk, int family, int priority);
 	void (*sk_free_security) (struct sock *sk);
 #endif	/* CONFIG_SECURITY_NETWORK */
+
+#ifdef CONFIG_MOT_FEAT_DRM_COREDUMP
+	int (*allow_full_coredump) (void);
+#endif
 };
 
 /* global variables */
@@ -2763,6 +2774,13 @@ static inline void security_sk_free(struct sock *sk)
 {
 }
 #endif	/* CONFIG_SECURITY_NETWORK */
+
+#ifdef CONFIG_MOT_FEAT_DRM_COREDUMP
+static inline int security_allow_full_coredump(void)
+{
+	return security_ops->allow_full_coredump ();
+}
+#endif
 
 #endif /* ! __LINUX_SECURITY_H */
 

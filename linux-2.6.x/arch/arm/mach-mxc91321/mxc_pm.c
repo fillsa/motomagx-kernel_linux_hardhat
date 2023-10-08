@@ -1,6 +1,6 @@
 /*
  * Copyright 2004 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright 2006 Motorola, Inc.
+ * Copyright (C) 2006-2008 Motorola, Inc.
  */
 
 /*
@@ -36,6 +36,17 @@
  * 10/04/2006  Motorola  ifdef'd out unneeded code for PMIC handshake.
  * 12/25/2006  Motorola  Changed local_irq_disable/local_irq_enable to
  *                       local_irq_save/local_irq_restore.
+ * 03/09/2007  Motorola  Added DVFS support
+ * 04/04/2007  Motorola  Add code for DSM statistics gathering.
+ * 05/15/2007  Motorola  Use AHB_FREQ instead of CLOCK_TICK_RATE when
+ *                       determining AHB frequency.
+ * 08/07/2007  Motorola  Remove code of clearing up DPE bit.
+ * 10/31/2007  Motorola  Integrate the patch for removing WFI SW workaround.
+ * 11/14/2007  Motorola  Add fix for errata issues.
+ * 08/25/2008  Motorola  Force panic when neither DFSI or DFSP bits is correct
+ *                       for freq switching.
+ * 11/07/2008  Motorola  Disable PMICHE and set PMIC_HS_CNT to 80us as
+ *                       a work around for WD2 apmd panic issue.
  */
 
 /*!
@@ -63,6 +74,10 @@
 #include <linux/devfs_fs_kernel.h>
 #include <linux/circ_buf.h>
 #include <linux/delay.h>
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+#include <linux/mpm.h>
+#include <linux/rtc.h>
+#endif
 #include <asm/arch/timex.h>
 #include <asm/arch/mxc_pm.h>
 #include <asm/arch/system.h>
@@ -75,6 +90,10 @@
 #include <asm/hardware.h>
 #include <asm/mach/time.h>
 #include <asm/arch/gpio.h>
+#if CONFIG_MOT_FEAT_PM
+#include <asm/arch/mxc_mu.h>
+#include <asm/bootinfo.h>
+#endif
 
 #include "crm_regs.h"
 
@@ -105,12 +124,32 @@
 #define TURBO_MASK              0x0000083F
 
 /*
+ * PMIC HS count values for max DVS speed setting
+ */
+#ifdef CONFIG_MOT_FEAT_PM
+/*
+ * Adds a 40us CKIH delay to allow POWER_RDY to go low after voltage change.
+ */
+/* #define PMCR1_PMIC_HS_CNT       0x420 */
+
+/* 
+ * As a workaround to avoid blocking at PMIC HS, PMICHE is disabled
+ * Adjust 80us waiting for voltage change
+ */
+#define PMCR1_PMIC_HS_CNT       0x820
+#else
+#define PMIC_HS_CNT             0x204
+#endif
+
+#ifndef CONFIG_MOT_FEAT_PM
+/*
  * Currently MXC91321 1.0 is unstable when AHB is 133MHz. So, clock
  * tick rate used is hardcoded to 100MHz assuming AHB clock is always
  * maintained at 100MHz. Therefor, the operating points will vary depending
  * on this #define
  */
 #define AHB_CLOCK_100		   3
+#endif
 
 #ifdef AHB_CLOCK_100
 /*!
@@ -142,12 +181,21 @@ typedef enum {
  * Enumerations of operating points
  */
 typedef enum {
+#ifdef CONFIG_MOT_FEAT_PM
+	CORE_NORMAL_4 = 128000000,
+	CORE_NORMAL_3 = 165000000,
+	CORE_NORMAL_2 = 193000000,
+	CORE_NORMAL_1 = 231000000,
+	CORE_NORMAL = 385000000,
+	CORE_TURBO = 514000000,
+#else
 	CORE_NORMAL_4 = 133000000,
 	CORE_NORMAL_3 = 171000000,
 	CORE_NORMAL_2 = 200000000,
 	CORE_NORMAL_1 = 240000000,
 	CORE_NORMAL = 399000000,
 	CORE_TURBO = 532000000,
+#endif
 	/*
 	 * The following points are currently not implemented.
 	 * These operating points are used only when
@@ -189,8 +237,8 @@ typedef enum {
 /*
  * Timer Interrupt
  */
-#define AVIC_TIMER_DIS		0xC7FFFFFF
-#define AVIC_TIMER_EN		0x38000000
+#define AVIC_TIMER_DIS		0xDFFFFFFF
+#define AVIC_TIMER_EN		0x20000000
 
 /*
  * COSR Register Mask for ARM, AHB, IPG clock
@@ -208,6 +256,60 @@ extern void gpio_pmhs_inactive(void);
  * frequency when previous transition is not finished
  */
 static DEFINE_RAW_SPINLOCK(dvfs_lock);
+
+#ifdef CONFIG_MOT_FEAT_PM
+/*!
+ * Perform software workaround of a chip errata that results in
+ * an L1 instruction cache corruption.  This function must be
+ * called with interrupts disabled and just before the call to
+ * cpu_do_idle.
+ *
+ * @return  unsigned long     Saved value of MPDR0.
+ */
+unsigned long mxc_pm_l1_instr_cache_corruption_fix_before_wfi(void)
+{
+	unsigned long mpdr0;
+
+        /*
+         * There is an IC issue which causes a missing clock to part
+         * of the ARM platform. This causes the ARM core to behave
+         * erratically and could result in lockups or CPU exceptions.
+         * The fix below changes the BRMM mux to set the core clock to
+         * the AHB which will prevent the clock synchronization issue
+         * which was the root cause of the missing clock.
+         */
+
+        /* Save MPDR0 */
+        mpdr0 = __raw_readl(MXC_CCM_MPDR0);
+
+        /* Set the BRMM bits to mux AHB to ARM core. */
+        __raw_writel((mpdr0 & ~MXC_CCM_MPDR0_BRMM_MASK) | 
+                    (MPDR0_BRMM_4 << MXC_CCM_MPDR0_BRMM_OFFSET),
+                     MXC_CCM_MPDR0);
+
+        /* 3 AHB clock delay for clock switch. */
+        __raw_readl(MXC_CCM_MPDR0);
+
+        /* 3 AHB clock delay for clock switch. */
+        __raw_readl(MXC_CCM_MPDR0);
+
+	return mpdr0;
+}
+
+/*!
+ * Perform software workaround of a chip errata that results in
+ * an L1 instruction cache corruption.  This function must be
+ * called with interrupts disabled and just after the call to
+ * cpu_do_idle.
+ *
+ * @param   mpdr0     Saved value of MPDR0.
+ */
+void mxc_pm_l1_instr_cache_corruption_fix_after_wfi(unsigned long mpdr0)
+{
+	/* Restore MPDR0 */
+	__raw_writel(mpdr0, MXC_CCM_MPDR0);
+}
+#endif /* CONFIG_MOT_FEAT_PM */
 
 /*!
  * To check status of DFSP, frequency switch
@@ -234,12 +336,24 @@ static dfs_switch_t mxc_pm_chk_dfsp(void)
 static int mxc_pm_dvsenable(void)
 {
 	unsigned long pmcr;
+#ifdef CONFIG_MOT_FEAT_PM
+	unsigned long pmic_hs_cnt;
+#endif
 
 	if (mxc_pm_chk_dfsp() == DFS_NO_SWITCH) {
-		pmcr = ((((__raw_readl(MXC_CCM_PMCR0) | (MXC_CCM_PMCR0_DVSE)) |
-			  (MXC_CCM_PMCR0_PMICHE)) | (MXC_CCM_PMCR0_EMIHE)) |
+		/* Enable DVS, EMI handshake disable PMIC handshake and mask DFSI interrupt */
+		pmcr = ((((__raw_readl(MXC_CCM_PMCR0) | (MXC_CCM_PMCR0_DVSE)) &
+			  (~MXC_CCM_PMCR0_PMICHE)) | (MXC_CCM_PMCR0_EMIHE)) |
 			(MXC_CCM_PMCR0_DFSIM));
 		__raw_writel(pmcr, MXC_CCM_PMCR0);
+#ifdef CONFIG_MOT_FEAT_PM
+                pmic_hs_cnt = __raw_readl(MXC_CCM_PMCR1) & 
+					~(MXC_CCM_PMCR1_PMIC_HS_CNT_MASK);
+                pmic_hs_cnt |= PMCR1_PMIC_HS_CNT;
+
+		__raw_writel(pmic_hs_cnt, MXC_CCM_PMCR1);
+#endif
+
 	} else {
 		return ERR_DFSP_SWITCH;
 	}
@@ -297,7 +411,11 @@ static int mxc_pm_setturbo(dvfs_op_point_t dvfs_op_reqd)
 		/*
 		 * Set MAX clock divider to 4 or 5 for AHB at 133 or 100MHz
 		 */
+#ifdef CONFIG_MOT_FEAT_32KHZ_GPT
+                if (AHB_FREQ > 100 * MEGA_HERTZ) {
+#else
 		if ((CLOCK_TICK_RATE / MEGA_HERTZ) > 10) {
+#endif /* CONFIG_MOT_FEAT_32KHZ_GPT */
 			mpdr = (mpdr & (~MXC_CCM_MPDR0_MAX_PDF_MASK)) |
 			    (MAX_PDF_4);
 		} else {
@@ -317,7 +435,11 @@ static int mxc_pm_setturbo(dvfs_op_point_t dvfs_op_reqd)
 		/*
 		 * Set MAX clock divider to 3 or 4 for AHB at 133 or 100MHz
 		 */
+#ifdef CONFIG_MOT_FEAT_32KHZ_GPT
+                if (AHB_FREQ > 100 * MEGA_HERTZ) {
+#else
 		if ((CLOCK_TICK_RATE / MEGA_HERTZ) > 10) {
+#endif /* CONFIG_MOT_FEAT_32KHZ_GPT */
 			mpdr = (mpdr & (~MXC_CCM_MPDR0_MAX_PDF_MASK)) |
 			    (MAX_PDF_3);
 		} else {
@@ -383,6 +505,10 @@ static int mxc_pm_setturbo(dvfs_op_point_t dvfs_op_reqd)
 static int mxc_pm_chgfreq(dvfs_op_point_t dvfs_op)
 {
 	int retval = 0;
+#ifdef CONFIG_MOT_FEAT_PM
+        char buf[80];
+        int ms = 0;
+#endif
 
 	switch (dvfs_op) {
 
@@ -485,13 +611,55 @@ static int mxc_pm_chgfreq(dvfs_op_point_t dvfs_op)
 			 * will occur as soon as the switch completes
 			 * by setting DFSI
 			 */
-			while (((__raw_readl(MXC_CCM_PMCR0) >> 24) & 1) != 1) ;
+#ifdef CONFIG_MOT_FEAT_PM
+                        /* Delay 5s for switch complete with DFSI setting and DFSP clear */
+                        while (ms < 5000)
+                        {
+                        	if (((__raw_readl(MXC_CCM_PMCR0) >> 24) & 1) == 1)
+                        		break;
+                        	mdelay(1);
+                        	ms++;
+                        }
+                          
+                        /* if DFSI bit is not set and DFSP bit is not cleared
+                         * which indicates switch is not complete, then dump register
+                         * and panic.
+                         */
+                        if (ms >= 5000 && mxc_pm_chk_dfsp() == DFS_SWITCH)
+                        {
+                          /* Get the register context */
+                        	snprintf(buf, sizeof(buf),\
+                                         " MPDR0=0x%x\n PMCR0=0x%x\n PMCR1=0x%x\n MCR=0x%x\n powerup_reason = 0x%08x\n", \
+                                         __raw_readl(MXC_CCM_MPDR0), \
+                                         __raw_readl(MXC_CCM_PMCR0), \
+                                         __raw_readl(MXC_CCM_PMCR1), \
+                                         __raw_readl(MXC_CCM_MCR), \
+                                         mot_powerup_reason());
+                        	panic("Switch from TPLL to MPLL failed.\n Current registers context:\n%s", buf);
+                        }
+                        
+                        /* Check the DFSI and DFSP bit after switching complete */
+                        if (mxc_pm_chk_dfsp() == DFS_SWITCH)
+                        	printk(KERN_WARNING "DFSP bit not clear when TPLL to MPLL.\n");
+                        if (((__raw_readl(MXC_CCM_PMCR0) >> 24) & 1) != 1)
+                        	printk(KERN_WARNING "DFSI bit not set when TPLL to MPLL.\n");
+#else
+                        while (((__raw_readl(MXC_CCM_PMCR0) >> 24) & 1) != 1) ;
+#endif
 
 			/*
 			 * Clear DFSI interrupt
 			 */
 			__raw_writel((__raw_readl(MXC_CCM_PMCR0) |
 				      MXC_CCM_PMCR0_DFSI), MXC_CCM_PMCR0);
+
+#ifdef CONFIG_MOT_FEAT_PM
+			/*
+			 * Disable the now unused TPLL
+			 */
+                	__raw_writel((__raw_readl(MXC_CCM_MCR) & 
+					~MXC_CCM_MCR_TPE), MXC_CCM_MCR);
+#endif
 
 		} else {
 			/*
@@ -511,6 +679,15 @@ static int mxc_pm_chgfreq(dvfs_op_point_t dvfs_op)
 			 * If TPSEL is clear then the PLL freq is 399MHz.
 			 * So, switch from MPLL to TPLL should occur.
 			 */
+                
+#ifdef CONFIG_MOT_FEAT_PM
+			/*
+			 * Enable the TPLL
+			 */
+                	__raw_writel((__raw_readl(MXC_CCM_MCR) | 
+					MXC_CCM_MCR_TPE), MXC_CCM_MCR);
+#endif
+
 			/*
 			 * Set Turbo Mode
 			 */
@@ -530,7 +707,41 @@ static int mxc_pm_chgfreq(dvfs_op_point_t dvfs_op)
 			 * will occur as soon as the switch completes
 			 * by setting DFSI
 			 */
-			while (((__raw_readl(MXC_CCM_PMCR0) >> 24) & 1) != 1) ;
+#ifdef CONFIG_MOT_FEAT_PM
+                        /* Delay 5s for switch complete with DFSI setting and DFSP clear */
+                        while (ms < 5000)
+                        {
+                        	if (((__raw_readl(MXC_CCM_PMCR0) >> 24) & 1) == 1)
+                        		break;
+                        	mdelay(1);
+                        	ms++;
+                        }
+
+                        /* if DFSI bit is not set and DFSP bit is not cleared
+                         * which indicates switch is not complete, then dump register
+                         * and panic.
+                         */
+                        if (ms >= 5000 && mxc_pm_chk_dfsp() == DFS_SWITCH)
+                        {
+                          /* Get the register context */
+                        	snprintf(buf, sizeof(buf),\
+                                         " MPDR0=0x%x\n PMCR0=0x%x\n PMCR1=0x%x\n MCR=0x%x\n powerup_reason = 0x%08x\n", \
+                                         __raw_readl(MXC_CCM_MPDR0), \
+                                         __raw_readl(MXC_CCM_PMCR0), \
+                                         __raw_readl(MXC_CCM_PMCR1), \
+                                         __raw_readl(MXC_CCM_MCR), \
+                                         mot_powerup_reason());
+                        	panic("Switch from MPLL to TPLL failed.\n Current registers context:\n%s", buf);
+                        }
+
+                        /* Check the DFSI and DFSP bit after switching complete */
+                        if (mxc_pm_chk_dfsp() == DFS_SWITCH)
+                        	printk(KERN_WARNING "DFSP bit not clear when MPLL to TPLL.\n");
+                        if (((__raw_readl(MXC_CCM_PMCR0) >> 24) & 1) != 1)
+                        	printk(KERN_WARNING "DFSI bit not set when MPLL to TPLL.\n");
+#else
+                        while (((__raw_readl(MXC_CCM_PMCR0) >> 24) & 1) != 1) ;
+#endif
 
 			/*
 			 * Clear DFSI interrupt
@@ -591,10 +802,23 @@ int mxc_pm_dvfs(unsigned long armfreq, long ahbfreq, long ipfreq)
 void mxc_pm_lowpower(int mode)
 {
 	unsigned int crm_ctrl;
+	int gpt_intr_dis_flag = 0;
 #ifdef CONFIG_MOT_WFN478
         unsigned long flags;
 #endif
+#ifdef CONFIG_MOT_FEAT_PM
+	unsigned long mpdr0;
+#endif
 
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+        u32 avic_nipndh;
+        u32 avic_nipndl;
+        u32 rtc_before = 0; 
+        u32 rtc_after = 0;
+	mpm_test_point_t exit_test_point = 0;
+#endif
+
+#ifndef CONFIG_MOT_FEAT_PM
 	if ((__raw_readl(AVIC_VECTOR) & MXC_WFI_ENABLE) == 0) {
 		/*
 		 * If JTAG is connected then WFI is not enabled
@@ -602,6 +826,7 @@ void mxc_pm_lowpower(int mode)
 		 */
 		return;
 	}
+#endif
 
 	/* Check parameter */
 	if ((mode != WAIT_MODE) && (mode != STOP_MODE) && (mode != DSM_MODE) &&
@@ -614,6 +839,12 @@ void mxc_pm_lowpower(int mode)
 #else
 	local_irq_disable();
 #endif
+	if ((__raw_readl(AVIC_INTENABLEL) & AVIC_TIMER_DIS) != AVIC_TIMER_DIS) {
+		__raw_writel((__raw_readl(AVIC_INTENABLEL) & AVIC_TIMER_DIS),
+			     AVIC_INTENABLEL);
+		gpt_intr_dis_flag = 1;
+	}
+
 	switch (mode) {
 	case WAIT_MODE:
 		/*
@@ -621,6 +852,9 @@ void mxc_pm_lowpower(int mode)
 		 * There are no LPM bits for WAIT mode which
 		 * are set by software
 		 */
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+                exit_test_point = MPM_TEST_WAIT_EXIT;
+#endif
 		break;
 	case DOZE_MODE:
 		/* Disable Timer interrupt source */
@@ -631,44 +865,111 @@ void mxc_pm_lowpower(int mode)
 		    ((__raw_readl(MXC_CCM_MCR) & (~MXC_CCM_MCR_LPM_MASK)) |
 		     (MXC_CCM_MCR_LPM_2));
 		__raw_writel(crm_ctrl, MXC_CCM_MCR);
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+                exit_test_point = MPM_TEST_DOZE_EXIT;
+#endif
 		break;
 	case STOP_MODE:
 		/* Disable Timer interrupt source */
 		__raw_writel((__raw_readl(LO_INTR_EN) & AVIC_TIMER_DIS),
 			     LO_INTR_EN);
+#ifndef CONFIG_MACH_ARGONLVPHONE
 		__raw_writel((__raw_readl(MXC_CCM_MCR) & (~MXC_CCM_MCR_DPE)),
 			     MXC_CCM_MCR);
+#endif
 		/* Writing '11' to CRM_lpmd bits */
 		crm_ctrl =
 		    ((__raw_readl(MXC_CCM_MCR) & (~MXC_CCM_MCR_LPM_MASK)) |
 		     (MXC_CCM_MCR_LPM_3));
 		__raw_writel(crm_ctrl, MXC_CCM_MCR);
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+                exit_test_point = MPM_TEST_STOP_EXIT;
+#endif
 		break;
 	case DSM_MODE:
 		__raw_writel((__raw_readl(MXC_CCM_MCR) | (MXC_CCM_MCR_WBEN)),
 			     MXC_CCM_MCR);
 		__raw_writel((__raw_readl(MXC_CCM_MCR) | (MXC_CCM_MCR_SBYOS)),
 			     MXC_CCM_MCR);
+
+#ifdef CONFIG_MOT_FEAT_PM
+                /* Enable EPIT Interrupt */
+                __raw_writel((__raw_readl(LO_INTR_EN) | (1<<28)), LO_INTR_EN);
+#else
 		/* Disable Timer interrupt source */
 		__raw_writel((__raw_readl(LO_INTR_EN) & AVIC_TIMER_DIS),
 			     LO_INTR_EN);
+#endif
+#ifndef CONFIG_MACH_ARGONLVPHONE
 		__raw_writel((__raw_readl(MXC_CCM_MCR) & (~MXC_CCM_MCR_DPE)),
 			     MXC_CCM_MCR);
+#endif
 		/* Writing '11' to CRM_lpmd bits */
 		crm_ctrl =
 		    ((__raw_readl(MXC_CCM_MCR) & (~MXC_CCM_MCR_LPM_MASK)) |
 		     (MXC_CCM_MCR_LPM_3));
 		__raw_writel(crm_ctrl, MXC_CCM_MCR);
+
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+                MPM_REPORT_TEST_POINT(1, MPM_TEST_DSM_ENTER);
+                exit_test_point = MPM_TEST_DSM_EXIT;
+#endif
 		break;
 	}
 	/* Executing CP15 (Wait-for-Interrupt) Instruction */
-	arch_idle();
+
+#ifdef CONFIG_MOT_FEAT_PM_STATS 
+        /* Read the clock before we go to wait/stop/dsm. */
+	rtc_before = rtc_sw_get_internal_ticks();
+#endif /* CONFIG_MOT_FEAT_PM_STATS */
+
+#ifdef CONFIG_MOT_FEAT_PM
+        mpdr0 = mxc_pm_l1_instr_cache_corruption_fix_before_wfi();
+
+	/*
+	 * Call the MU function that informs the DSP that we're about
+	 * to enter DSM mode.  We do this to work around a chip erratum
+	 * that can cause the MCU CCM to lock up if the DSP exits DOZE
+	 * or STOP mode at just the wrong time (~136ns window).
+	 *
+	 * Due to DSP timing requirements, this call must be as close
+	 * to the WFI instruction as possible.
+	 */
+	mxc_mu_inform_dsp_dsm_mode();
+#endif
+
+	cpu_do_idle();
+
+#ifdef CONFIG_MOT_FEAT_PM
+	mxc_mu_inform_dsp_run_mode();
+        mxc_pm_l1_instr_cache_corruption_fix_after_wfi(mpdr0);
+#endif
+
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+	rtc_after = rtc_sw_get_internal_ticks();
+
+        /*      
+	 * Retrieve the pending interrupts.  These are the
+	 * interrupt(s) that woke us up.
+         */
+        avic_nipndh = __raw_readl(AVIC_NIPNDH);
+        avic_nipndl = __raw_readl(AVIC_NIPNDL);
+#endif
+
 	/* Enable timer interrupt */
-	__raw_writel((__raw_readl(LO_INTR_EN) | AVIC_TIMER_EN), LO_INTR_EN);
+	if (gpt_intr_dis_flag == 1) {
+		__raw_writel((__raw_readl(AVIC_INTENABLEL) | AVIC_TIMER_EN),
+			     AVIC_INTENABLEL);
+	}
 #ifdef CONFIG_MOT_WFN478
         local_irq_restore(flags);
 #else
 	local_irq_enable();
+#endif
+
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+        MPM_REPORT_TEST_POINT(5, exit_test_point, rtc_before, rtc_after,
+                              avic_nipndl, avic_nipndh);
 #endif
 }
 
@@ -711,9 +1012,15 @@ static int __init mxc_pm_init_module(void)
 	/*
 	 * IOMUX configuration for GPIO9 and GPIO20
 	 */
-#ifndef CONFIG_MOT_FEAT_PM_BUTE
+#ifndef CONFIG_MOT_FEAT_PM
 	gpio_pmhs_active();
 #endif
+
+#ifdef CONFIG_MOT_FEAT_PM
+	/* Debug code until the MBM initializes the TPLL to 514 MHz */
+	__raw_writel(0x00194817, MXC_CCM_TPCTL);
+#endif
+
 	printk("Low-Level PM Driver module loaded\n");
 	return 0;
 }
@@ -723,7 +1030,7 @@ static int __init mxc_pm_init_module(void)
  */
 static void __exit mxc_pm_cleanup_module(void)
 {
-#ifndef CONFIG_MOT_FEAT_PM_BUTE
+#ifndef CONFIG_MOT_FEAT_PM
 	gpio_pmhs_inactive();
 #endif
 	printk("Low-Level PM Driver module Unloaded\n");
@@ -736,6 +1043,11 @@ EXPORT_SYMBOL(mxc_pm_dvfs);
 EXPORT_SYMBOL(mxc_pm_lowpower);
 EXPORT_SYMBOL(mxc_pm_pllscale);
 EXPORT_SYMBOL(mxc_pm_intscale);
+
+#ifdef CONFIG_MOT_FEAT_PM
+EXPORT_SYMBOL(mxc_pm_l1_instr_cache_corruption_fix_before_wfi);
+EXPORT_SYMBOL(mxc_pm_l1_instr_cache_corruption_fix_after_wfi);
+#endif
 
 MODULE_AUTHOR("Freescale Semiconductor, Inc.");
 MODULE_DESCRIPTION("MXC91321 Low-level PM Driver");

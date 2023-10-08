@@ -1,7 +1,7 @@
 /*
  * fs/dcache.c
  *
- * Copyright (C) 2006 Motorola Inc
+ * Copyright (C) 2006-2007 Motorola Inc
  *
  * Complete reimplementation
  * (C) 1997 Thomas Schoebel-Theuer,
@@ -20,6 +20,9 @@
  * (mm-dd-yyyy) Author    Comment
  * 06-23-2006   Motorola  Add abs_d_path() interface to retrieve full 
  *			  absolute pathname given a dentry and vfsmnt.
+ *
+ * 02-26-2007   Motorola  Rename MOT_FEAT_SECURE_DRM to 
+ *                        MOT_FEAT_FASTPATHNAME
  */
 
 
@@ -1403,7 +1406,7 @@ char * d_path(struct dentry *dentry, struct vfsmount *vfsmnt,
 	return res;
 }
 
-#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+#if defined(CONFIG_MOT_FEAT_FASTPATHNAME) || defined(CONFIG_MOT_FEAT_SECURE_DRM)
 /* write full, absolute pathname into buffer and return start of pathname */
 char * abs_d_path(struct dentry *dentry, struct vfsmount *vfsmnt,
 				char *buf, int buflen)
@@ -1432,7 +1435,7 @@ char * abs_d_path(struct dentry *dentry, struct vfsmount *vfsmnt,
 	mntput(rootmnt);
 	return res;
 }
-#endif /* CONFIG_MOT_FEAT_SECURE_DRM */
+#endif /* CONFIG_MOT_FEAT_FASTPATHNAME */
 
 /*
  * NOTE! The user-level library version returns a
@@ -1716,9 +1719,9 @@ EXPORT_SYMBOL(d_invalidate);
 EXPORT_SYMBOL(d_lookup);
 EXPORT_SYMBOL(d_move);
 EXPORT_SYMBOL(d_path);
-#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+#if defined(CONFIG_MOT_FEAT_FASTPATHNAME) || defined(CONFIG_MOT_FEAT_SECURE_DRM)
 EXPORT_SYMBOL(abs_d_path);
-#endif /* CONFIG_MOT_FEAT_SECURE_DRM */
+#endif /* CONFIG_MOT_FEAT_FASTPATHNAME */
 EXPORT_SYMBOL(d_prune_aliases);
 EXPORT_SYMBOL(d_rehash);
 EXPORT_SYMBOL(d_splice_alias);

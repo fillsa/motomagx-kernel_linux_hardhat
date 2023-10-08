@@ -13,6 +13,7 @@
  * Date     Author      Comment
  * 10/2006  Motorola    Removed unnecessary delays in ipu_adc_write_cmd
  *                      and filed a WFN bug fix for DISP2 clock polarity.
+ * 02/2007  Motorola    Added ipu_adc_read_cmd() function
  * 06/2007  Motorola    Fix to support setting of ADC serial interface
  *                      bit width in ipu driver.
  * 08/2007  Motorola    Add comments for oss compliance.
@@ -234,6 +235,16 @@ ipu_adc_write_cmd(display_port_t disp, cmddata_t type,
 	        }
         }
 	return 0;
+}
+
+uint32_t
+ipu_adc_read_cmd(display_port_t disp, uint32_t cmd)
+{
+	__raw_writel((uint32_t) (disp << 1 | 0x10), DI_DISP_LLA_CONF);
+	__raw_writel(cmd, DI_DISP_LLA_DATA);
+
+	__raw_writel((uint32_t) (disp << 1 | 0x11), DI_DISP_LLA_CONF);
+	return __raw_readl(DI_DISP_LLA_DATA);
 }
 
 int32_t ipu_adc_set_update_mode(ipu_channel_t channel,
@@ -790,4 +801,5 @@ EXPORT_SYMBOL(ipu_adc_write_cmd);
 EXPORT_SYMBOL(ipu_adc_set_update_mode);
 EXPORT_SYMBOL(ipu_adc_init_panel);
 EXPORT_SYMBOL(ipu_adc_init_ifc_timing);
+EXPORT_SYMBOL(ipu_adc_read_cmd);
 EXPORT_SYMBOL(ipu_adc_set_ifc_width);

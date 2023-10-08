@@ -3,10 +3,13 @@
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
  *
- *  Copyright 2006 Motorola Inc.
+ *  Copyright 2006-2007 Motorola Inc.
  * Date         Author          Comment
  * 10/2006      Motorola        Added DRM MAC security support & 
  *				APLogger suppor
+ *
+ * 02/2007      Motorola        Removed DRM MAC security support
+ *
  */
 
 /*

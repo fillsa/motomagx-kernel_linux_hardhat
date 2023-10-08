@@ -11,7 +11,8 @@
  * 10/2006      Motorola        Added security feature to disallow 
  *				privileged applications from mapping in 
  *				pages that aren't from the root filesystem
- * 13/Jul/2007  Motorola        Fix the bug about st_ctime, and st_mtime field 
+ * 31/Jan/2007  Motorola        Fix the bug about st_ctime, and st_mtime field 
+ * 13/Jul/2007  Motorola        Fix the bug about st_ctime, and st_mtime field in LJ6.3
  *                              of a mapped region, and msync()
  */
 

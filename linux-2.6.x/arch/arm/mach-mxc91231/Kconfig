@@ -11,6 +11,7 @@ config MACH_MXC27530EVB
 config MACH_SCMA11PHONE
         bool "Support Motorola SCM-A11-based Phones"
         default n
+#LJ7.1     depends on MOT_FEAT_POWER_IC_API
         help
           Include support for Motorola products based on the SCM-A11 SOC.
 
@@ -45,6 +46,12 @@ config MACH_ELBA
 	bool "Support Motorola Product: elba"
 	help
 	  Include support for Motorola Product: elba. This includes 
+	  specific configurations for the board and its peripherals.
+
+config MACH_PIANOSA
+	bool "Support Motorola Product: pianosa"
+	help
+	  Include support for Motorola Product: pianosa. This includes 
 	  specific configurations for the board and its peripherals.
 
 config MACH_PICO

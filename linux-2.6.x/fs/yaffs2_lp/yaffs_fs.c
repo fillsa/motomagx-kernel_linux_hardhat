@@ -46,7 +46,9 @@
  * 10-24-2006    Motorola  Added shredding support to YAFFS2
  *                         Added the check point mount option
  * 12-15-2006    Motorola  Added the middleOfMounting flag
- * 10-24-2007    Motorola  Enable the sync system call for yaffs2
+ * 08-23-2007    Motorola  Enable the sync system call for yaffs2
+ * 10-24-2007    Motorola  Enable the sync system call for yaffs2 in LJ6.3
+ * 10-29-2007    Motorola  Modify the sync system call for yaffs2
  */
 
 const char *yaffs_fs_c_version =

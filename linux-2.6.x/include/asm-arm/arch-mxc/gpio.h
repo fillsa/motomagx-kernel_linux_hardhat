@@ -1,5 +1,6 @@
 /*
  * Copyright 2004-2006 Freescale Semiconductor, Inc. All Rights Reserved.
+ * Copyright (c) 2007 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,6 +15,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 09-Jul-2007  Motorola        Added gpio_free_irq_dev work around.
  */
 #ifndef __ASM_ARCH_MXC_GPIO_H__
 #define __ASM_ARCH_MXC_GPIO_H__
@@ -30,6 +36,7 @@
  * @ingroup GPIO
  */
 
+#include <linux/config.h>
 #include <asm/sizes.h>
 #include <linux/interrupt.h>
 #include <asm/hardware.h>
@@ -119,6 +126,19 @@ int gpio_request_irq(__u32 port, __u32 sig_no, enum gpio_prio prio,
  * @param  prio         priority as defined in \b enum \b #gpio_prio
  */
 void gpio_free_irq(__u32 port, __u32 sig_no, enum gpio_prio prio);
+
+#if defined(CONFIG_MOT_FEAT_GPIO_API)
+/*!
+ * This function un-registers an ISR with the GPIO interrupt module.
+ *
+ * @param  port         specified port with 0-GPIO port 1; 1-GPIO port 2
+ * @param  sig_no       specified GPIO signal (0 based)
+ * @param  prio         priority as defined in \b enum \b #gpio_prio
+ * @param  dev_id       some unique information for the ISR
+ */
+void gpio_free_irq_dev(__u32 port, __u32 sig_no, enum gpio_prio prio,
+        void *dev_id);
+#endif
 
 /*!
  * Request ownership for a GPIO pin. The caller has to check the return value

@@ -2,6 +2,7 @@
  * Stub functions for the default security function pointers in case no
  * security model is loaded.
  *
+ * Copyright (C) 2007 Motorola Inc.
  * Copyright (C) 2001 WireX Communications, Inc <chris@wirex.com>
  * Copyright (C) 2001-2002  Greg Kroah-Hartman <greg@kroah.com>
  * Copyright (C) 2001 Networks Associates Technology, Inc <ssmalley@nai.com>
@@ -10,6 +11,11 @@
  *	it under the terms of the GNU General Public License as published by
  *	the Free Software Foundation; either version 2 of the License, or
  *	(at your option) any later version.
+ */
+
+/* ChangeLog:
+ * (mm-dd-yyyy) Author    Comment
+ * 05-24-2007   Motorola  Add dummy_allow_full_coredump().
  */
 
 #undef DEBUG
@@ -862,6 +868,13 @@ static inline void dummy_sk_free_security (struct sock *sk)
 }
 #endif	/* CONFIG_SECURITY_NETWORK */
 
+#ifdef CONFIG_MOT_FEAT_DRM_COREDUMP
+static int dummy_allow_full_coredump (void)
+{
+	return 0;
+}
+#endif
+
 static int dummy_register_security (const char *name, struct security_operations *ops)
 {
 	return -EINVAL;
@@ -1042,5 +1055,8 @@ void security_fixup_ops (struct security_operations *ops)
 	set_to_dummy_if_null(ops, sk_alloc_security);
 	set_to_dummy_if_null(ops, sk_free_security);
 #endif	/* CONFIG_SECURITY_NETWORK */
+#ifdef CONFIG_MOT_FEAT_DRM_COREDUMP
+	set_to_dummy_if_null(ops, allow_full_coredump);
+#endif
 }
 

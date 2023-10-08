@@ -26,6 +26,7 @@
  * 19-Oct-2006  Motorola        Initial revision.
  * 02-Jan-2007  Motorola        Added support for Lido P2.
  * 31-Jan-2007  Motorola        Bluetooth current drain improvements.
+ * 20-Feb-2007  Motorola        Update to use HWCFG tree.
  * 28-Jun-2007  Motorola        Pin remapping for xPIXL.
  * 13-Aug-2008  Motorola	GP_AP_C8 toggle workaround for 300uA BT power issue.
  */
@@ -41,12 +42,11 @@
  */
 void __init scma11phone_gpio_init(void)
 {
-    int i;
-
     /* set iomux pad registers to the prescribed state */
-    scma11_iomux_pad_init();
+    mot_iomux_pad_init();
 
-    /* make board-specific fixups */
+    /* make board-specific gpio fixups */
+#if !defined(CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE)
 #if defined(CONFIG_MACH_SCMA11REF)
     scma11ref_gpio_signal_fixup();
 #elif defined(CONFIG_MACH_ELBA)
@@ -56,45 +56,30 @@ void __init scma11phone_gpio_init(void)
 #elif defined(CONFIG_MACH_XPIXL)
     pixl_gpio_signal_fixup();
 #endif
+#endif
+
+
+#if defined(CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE)
+    /* read the GPIO signal mappings from the HWCFG tree */
+    mot_gpio_update_mappings();
+#endif
 
     /* configure GPIO registers to desired initial state */
-    for(i = 0; i < MAX_GPIO_SIGNAL; i++) {
-        if(initial_gpio_settings[i].port != GPIO_INVALID_PORT) {
-            gpio_tracemsg("GPIO port: 0x%08x signal: 0x%08x output: 0x%08x "
-                    "data: 0x%08x",
-                    initial_gpio_settings[i].port,
-                    initial_gpio_settings[i].sig_no,
-                    initial_gpio_settings[i].out,
-                    initial_gpio_settings[i].data);
-
-            /* 
-             * We set the data for a signal and then configure the direction
-             * of the signal.  Section 52.3.1.1 (GPIO Data Register) of
-             * the SCM-A11 DTS indicates that this is a reasonable thing to do.
-             */
-            if(initial_gpio_settings[i].data != GPIO_DATA_INVALID) {
-                gpio_set_data(initial_gpio_settings[i].port,
-                        initial_gpio_settings[i].sig_no,
-                        initial_gpio_settings[i].data);
-            }
-
-            gpio_config(initial_gpio_settings[i].port,
-                    initial_gpio_settings[i].sig_no,
-                    initial_gpio_settings[i].out,
-                    GPIO_INT_NONE); /* setup interrupts later */
-        }
-    }
+    mot_gpio_init();
     
     /* configure IOMUX settings to their prescribed initial state */
-    scma11_iomux_mux_init();
+    mot_iomux_mux_init();
+   
 
-    /* make board-specific fixups */
+    /* make board-specific iomux fixups */
+#if !defined(CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE)
 #if defined(CONFIG_MACH_SCMA11REF)
     scma11ref_iomux_mux_fixup();
 #elif defined(CONFIG_MACH_LIDO)
     lido_iomux_mux_fixup();
 #elif defined(CONFIG_MACH_XPIXL)
     pixl_iomux_mux_fixup();
+#endif
 #endif
 
 #if defined(CONFIG_MOT_FEAT_GPIO_API_BTPOWER)

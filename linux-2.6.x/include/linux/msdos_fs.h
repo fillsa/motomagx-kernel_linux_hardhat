@@ -1,13 +1,16 @@
 /*
  *  linux/include/linux/msdos_fs.h
  *
- *  Copyright (C) 2007-2008 Motorola Inc.
+ *  Copyright (C) 2007-2008 Motorola, Inc. 
  *
  */
 /* ChangeLog:
  * (mm-dd-yyyy)  Author    Comment
+ * 10-31-2007    Motorola  Added hidden and system attr interface
  * 11-21-2007    Motorola  Upmerge from 6.1 (Added hidden and system attr interface)
- * 02-20-2008    Motorola  remove sticky mode
+ * 11-20-2007    Motorola  Added simple auto  repair FAT
+ * 01-25-2008    Motorola  Remove repair FAT and fix in App
+ * 02-20-2008    Motorola  Remove sticky mode
  */
 
 
@@ -53,6 +56,11 @@
 /* bits that are used by the Windows 95/Windows NT extended FAT */
 #define ATTR_EXT     (ATTR_RO | ATTR_HIDDEN | ATTR_SYS | ATTR_VOLUME)
 
+#ifndef CONFIG_MOT_FEAT_ENABLE_HIDE_SYSFILE 
+/* bits that are used for systerm and hidden by the Windows 95/NT/XP */
+#define ATTR_INV     (ATTR_HIDDEN | ATTR_SYS)
+#endif
+
 #define CASE_LOWER_BASE 8	/* base is lower case */
 #define CASE_LOWER_EXT  16	/* extension is lower case */
 
@@ -60,7 +68,12 @@
 #define IS_FREE(n) (!*(n) || *(n) == DELETED_FLAG)
 
 /* valid file mode bits */
+#ifdef CONFIG_MOT_FEAT_ENABLE_HIDE_SYSFILE
 #define MSDOS_VALID_MODE (S_IFREG | S_IFDIR | S_IRWXU | S_IRWXG | S_IRWXO)
+#else
+#define MSDOS_VALID_MODE (S_ISVTX | S_IFREG | S_IFDIR | S_IRWXU | S_IRWXG | S_IRWXO)
+#endif
+
 /* Convert attribute bits and a mask to the UNIX mode. */
 #define MSDOS_MKMODE(a, m) (m & (a & ATTR_RO ? S_IRUGO|S_IXUGO : S_IRWXUGO))
 /* Convert the UNIX mode to MS-DOS attribute bits. */

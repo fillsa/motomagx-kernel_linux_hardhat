@@ -1,7 +1,7 @@
 /*
  *  linux/fs/namespace.c
  *
- * Copyright (C) 2006 Motorola Inc
+ * Copyright (C) 2006-2007 Motorola Inc
  * (C) Copyright Al Viro 2000, 2001
  *	Released under GPL v2.
  *
@@ -11,6 +11,9 @@
  * (mm-dd-yyyy) Author    Comment
  * 07-03-2006   Motorola  Add link from super_block to vfsmount 
  *			  structure to support later name lookups.
+ *
+ * 02-26-2007   Motorola  Rename MOT_FEAT_SECURE_DRM to 
+ *                        MOT_FEAT_FASTPATHNAME
  */
 
 /* Based on code from fs/super.c, copyright Linus Torvalds and others.
@@ -825,12 +828,12 @@ int do_add_mount(struct vfsmount *newmnt, struct nameidata *nd,
 		spin_unlock(&vfsmount_lock);
 	}
 
-#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+#ifdef CONFIG_MOT_FEAT_FASTPATHNAME // old #ifdef CONFIG_MOT_FEAT_SECURE_DRM
 	/* Store a back-pointer to the vfsmount structure in the
 	   super_block to allow name lookup later, when the nameidata
 	   isn't available */
 	newmnt->mnt_sb->s_vfsmount = newmnt;
-#endif /* CONFIG_MOT_FEAT_SECURE_DRM */
+#endif /* CONFIG_MOT_FEAT_FASTPATHNAME */
 unlock:
 	up_write(&current->namespace->sem);
 	mntput(newmnt);

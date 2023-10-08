@@ -1,7 +1,7 @@
 /*
  *  linux/include/asm-arm/boardrev.h
  *
- * Copyright 2006 Motorola, Inc.
+ * Copyright 2006-2007 Motorola, Inc.
  *
  * This file contains board rev information.
  *
@@ -22,10 +22,13 @@
  * Date     Author    Comment
  * 10/2006  Motorola  Initial version.  Added support for managing and 
  *                    querying board revision information.
+ * 06/2007  Motorola  Include the file config.h.
  */
 
 #ifndef __ASM_ARM_BOARDREV_H
 #define __ASM_ARM_BOARDREV_H
+
+#include <linux/config.h>
 
 #ifdef CONFIG_MOT_FEAT_BRDREV
 

@@ -46,6 +46,27 @@ enum iomux_input_config {
  * various IOMUX pad functions
  */
 enum iomux_pad_config {
+#ifdef CONFIG_MOT_WFN485
+	PAD_CTL_NOLOOPBACK = 0x0 << 9,
+	PAD_CTL_LOOPBACK = 0x1 << 9,
+	PAD_CTL_PKE_NONE = 0x0 << 8,
+	PAD_CTL_PKE_ENABLE = 0x1 << 8,
+	PAD_CTL_PUE_KEEPER = 0x0 << 7,
+	PAD_CTL_PUE_PUD = 0x1 << 7,
+	PAD_CTL_100K_PD = 0x0 << 5,
+	PAD_CTL_100K_PU = 0x1 << 5,
+	PAD_CTL_47K_PU = 0x2 << 5,
+	PAD_CTL_22K_PU = 0x3 << 5,
+	PAD_CTL_HYS_CMOS = 0x0 << 4,
+	PAD_CTL_HYS_SCHMITZ = 0x1 << 4,
+	PAD_CTL_ODE_CMOS = 0x0 << 3,
+	PAD_CTL_ODE_OpenDrain = 0x1 << 3,
+	PAD_CTL_DS_NORMAL = 0x0 << 1,
+	PAD_CTL_DS_HIGH = 0x2 << 1,
+	PAD_CTL_DS_MAX = 0x1 << 1,
+	PAD_CTL_SRE_SLOW = 0x0 << 0,
+	PAD_CTL_SRE_FAST = 0x1 << 0
+#else
 	PAD_CTL_NOLOOPBACK = 0x0 << 8,
 	PAD_CTL_LOOPBACK = 0x1 << 8,
 	PAD_CTL_PKE_NONE = 0x0 << 7,
@@ -64,6 +85,7 @@ enum iomux_pad_config {
 	PAD_CTL_DSE0_HIGH = 0x1 << 1,
 	PAD_CTL_SRE_SLOW = 0x0 << 0,
 	PAD_CTL_SRE_FAST = 0x1 << 0
+#endif
 };
 
 /*!

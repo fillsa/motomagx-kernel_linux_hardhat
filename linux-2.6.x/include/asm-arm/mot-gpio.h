@@ -30,7 +30,12 @@
  * 02-Jan-2007  Motorola        Update high speed USB API.
  * 07-Jan-2007  Motorola        Support P3C SCM-A11 wingboard.
  * 26-Jan-2007  Motorola        Bluetooth current drain improvements.
+ * 12-Feb-2007  Motorola        Adapt to use hw config tree.
+ * 13-Mar-2007  Motorola        Added more gpio_signal IRQ manipulators.
+ * 20-Mar-2007  Motorola        Remove unused flip/slider functions.
+ * 23-Mar-2007  Motorola        Add GPIO_SIGNAL_ANT_MMC_EN.
  * 28-Jun-2007  Motorola        Added xPIXL specific signal names.
+ * 19-Jul-2007  Motorola        Add dev_id to free_irq.
  * 24-Sep-2007  Motorola        Added lens cover signal name.
  * 16-Mar-2008  Motorola	Modify signals for Nevis.
  * 04-Apr-2008  Motorola        Removed Nevis's code change in gpio_signal of Marco.
@@ -106,13 +111,91 @@ enum gpio_signal_assertion {
  * ***********************************************************************/
 
 /**
- * This enumeration is used as an index into the initial_gpio_settings
+ * This enumeration is used as an index into the initial_gpio_settings(gpio_signal_mapping)
  * array as defined in the <board>_gpio.c files.
  * 
  * MAX_GPIO_SIGNAL should always be the last name defined in the enum.
  */
 enum gpio_signal {
-#if defined(CONFIG_MACH_ARGONLVPHONE)
+#if defined(CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE)
+    GPIO_SIGNAL_APP_CLK_EN_B = 0,
+    GPIO_SIGNAL_UART_DETECT,
+    GPIO_SIGNAL_U1_TXD,
+    GPIO_SIGNAL_U1_CTS_B,
+    GPIO_SIGNAL_VFUSE_EN,
+    GPIO_SIGNAL_LIN_VIB_AMP_EN,
+    GPIO_SIGNAL_VVIB_EN,
+    GPIO_SIGNAL_WDOG_AP,
+    GPIO_SIGNAL_WDOG_B,
+    GPIO_SIGNAL_LOBAT_B,
+    GPIO_SIGNAL_POWER_DVS0,
+    GPIO_SIGNAL_POWER_RDY,
+    GPIO_SIGNAL_BT_HOST_WAKE_B,
+    GPIO_SIGNAL_BT_POWER,
+    GPIO_SIGNAL_BT_RESET_B,
+    GPIO_SIGNAL_BT_WAKE_B,
+    GPIO_SIGNAL_CAM_EXT_PWRDN,
+    GPIO_SIGNAL_CAM_FLASH_EN,
+    GPIO_SIGNAL_CAM_INT_PWRDN,
+    GPIO_SIGNAL_CAM_PD,
+    GPIO_SIGNAL_CAM_RST_B,
+    GPIO_SIGNAL_CAM_TORCH_EN,
+    GPIO_SIGNAL_CLI_BKL,
+    GPIO_SIGNAL_CLI_RST_B,
+    GPIO_SIGNAL_DISP_RST_B,
+    GPIO_SIGNAL_DISP_SD,
+    GPIO_SIGNAL_LCD_BACKLIGHT,
+    GPIO_SIGNAL_LCD_SD,
+    GPIO_SIGNAL_DISP_CM,
+    GPIO_SIGNAL_SERDES_RESET_B,
+    GPIO_SIGNAL_STBY,
+    GPIO_SIGNAL_SER_EN,
+    GPIO_SIGNAL_EL_EN,
+    GPIO_SIGNAL_CAP_RESET,
+    GPIO_SIGNAL_FLIP_OPEN,
+    GPIO_SIGNAL_FLIP_DETECT,
+    GPIO_SIGNAL_SLIDER_OPEN,
+    GPIO_SIGNAL_KEYS_LOCKED,
+    GPIO_SIGNAL_TOUCH_INTB,
+    GPIO_SIGNAL_FM_INT,
+    GPIO_SIGNAL_FM_RST_B,
+    GPIO_SIGNAL_FM_INTERRUPT,
+    GPIO_SIGNAL_FM_RESET,
+    GPIO_SIGNAL_GPS_PWR_EN,
+    GPIO_SIGNAL_GPS_RESET,
+    GPIO_SIGNAL_GPU_A2,
+    GPIO_SIGNAL_GPU_CORE1_EN,
+    GPIO_SIGNAL_GPU_DPD,
+    GPIO_SIGNAL_GPU_INT_B,
+    GPIO_SIGNAL_GPU_RESET,
+    GPIO_SIGNAL_MEGA_SIM_EN,
+    GPIO_SIGNAL_SD1_DAT3,
+    GPIO_SIGNAL_SD1_DET_B,
+    GPIO_SIGNAL_SD2_DAT3,
+    GPIO_SIGNAL_TF_DET,
+    GPIO_SIGNAL_TNLC_KCHG,
+    GPIO_SIGNAL_TNLC_KCHG_INT,
+    GPIO_SIGNAL_TNLC_RCHG,
+    GPIO_SIGNAL_TNLC_RESET,
+    GPIO_SIGNAL_FSS_HYST,
+    GPIO_SIGNAL_UI_IC_DBG,
+    GPIO_SIGNAL_USB_HS_DMA_REQ,
+    GPIO_SIGNAL_USB_HS_FLAGC,
+    GPIO_SIGNAL_USB_HS_INT,
+    GPIO_SIGNAL_USB_HS_RESET,
+    GPIO_SIGNAL_USB_HS_SWITCH,
+    GPIO_SIGNAL_USB_HS_WAKEUP,
+    GPIO_SIGNAL_USB_XCVR_EN,
+    GPIO_SIGNAL_WLAN_CLIENT_WAKE_B,
+    GPIO_SIGNAL_WLAN_DBHD_MUX,
+    GPIO_SIGNAL_WLAN_HOST_WAKE_B,
+    GPIO_SIGNAL_WLAN_PWR_DWN_B,
+    GPIO_SIGNAL_WLAN_RESET,
+    GPIO_SIGNAL_PWM_BKL,
+    GPIO_SIGNAL_MAIN_BKL,
+    GPIO_SIGNAL_IRDA_SD,
+    GPIO_SIGNAL_ANT_MMC_EN,
+#elif defined(CONFIG_MACH_ARGONLVPHONE)
     GPIO_SIGNAL_CLI_RST_B = 0,
     GPIO_SIGNAL_ENET_INT_B,
     GPIO_SIGNAL_IRDA_SD,
@@ -320,7 +403,7 @@ enum gpio_signal {
     GPIO_SIGNAL_U1_TXD,
     GPIO_SIGNAL_U1_CTS_B,
 /* end LIDO */
-#elif defined(CONFIG_MACH_ELBA)
+#elif defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA)
     GPIO_SIGNAL_BT_POWER = 0,
     GPIO_SIGNAL_USB_HS_RESET,
     GPIO_SIGNAL_USB_HS_DMA_REQ,
@@ -516,11 +599,13 @@ enum gpio_signal {
 /**
  * Structure describing the configuration of a GPIO signal.
  */
-struct gpio_signal_settings {
+struct gpio_signal_description {
     __u32   port;
     __u32   sig_no;
+#if !defined(CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE)
     __u32   out;
     __u32   data;
+#endif
 };
 
 
@@ -528,22 +613,48 @@ struct gpio_signal_settings {
  * Description of GPIO signal and initial settings. Must be defined for
  * each variety of board.
  */
-extern struct gpio_signal_settings initial_gpio_settings[MAX_GPIO_SIGNAL];
+#if defined(CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE)
+extern struct gpio_signal_description gpio_signal_mapping[MAX_GPIO_SIGNAL];
+#else
+extern struct gpio_signal_description initial_gpio_settings[MAX_GPIO_SIGNAL];
+#endif /*CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE*/
 
 
 /**
- * Determine if index is a valid index into the initial_gpio_settings
+ * Determine if index is a valid index into the initial_gpio_settings(gpio_signal_mapping)
  * array and if the GPIO signal associated with the index is valid for
  * that hardware configuration.
  */
+#if defined(CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE)
+#define GPIO_SIGNAL_IS_VALID(index) \
+    ( (index >= 0) && (index < MAX_GPIO_SIGNAL) \
+      && (gpio_signal_mapping[index].port != GPIO_INVALID_PORT) )
+#else
 #define GPIO_SIGNAL_IS_VALID(index) \
     ( (index >= 0) && (index < MAX_GPIO_SIGNAL) \
       && (initial_gpio_settings[index].port != GPIO_INVALID_PORT) )
+#endif /*CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE*/
+
+
+/* ************************************************************************
+ * Functions used during hardware initialization.
+ * ***********************************************************************/
+#if defined(CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE)
+extern enum iomux_pins hwcfg_pin_to_fsl_pin(u16 schemavalue) __init;
+extern int mot_iomux_mux_init(void) __init;
+extern int mot_iomux_pad_init(void) __init;
+#else
+extern void mot_iomux_mux_init(void) __init;
+extern void mot_iomux_pad_init(void) __init;
+#endif
+extern void arch_mot_iomux_pad_init(u16 grp, u16 config) __init;
+
+extern int mot_gpio_update_mappings(void) __init;
 
 
 /* ************************************************************************
  * Functions to manipulate GPIO settings based on the
- * initial_gpio_settings array.
+ * initial_gpio_settings(gpio_signal_mapping) array.
  * ***********************************************************************/
 extern int gpio_signal_config(enum gpio_signal index, bool out,
         enum gpio_int_cfg icr);
@@ -552,7 +663,13 @@ extern int gpio_signal_request_irq(enum gpio_signal index,
         enum gpio_prio prio, gpio_irq_handler handler, __u32 irq_flags,
         const char *devname, void *dev_id);
 extern int gpio_signal_free_irq(enum gpio_signal index,
-        enum gpio_prio prio);
+        enum gpio_prio prio
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) ||  defined(CONFIG_MACH_KEYWEST) 
+			, void *dev_id
+#endif
+					);
+extern int gpio_signal_disable_irq(enum gpio_signal index);
+extern int gpio_signal_enable_irq(enum gpio_signal index);
 
 extern int gpio_signal_clear_int(enum gpio_signal index);
 
@@ -623,9 +740,9 @@ extern __u32 gpio_bluetooth_wake_get_data(void);
 extern void  gpio_bluetooth_power_set_data(__u32 data);
 extern __u32 gpio_bluetooth_power_get_data(void);
 
-//#if defined(CONFIG_MACH_NEVIS)
+#if defined(CONFIG_ARCH_MXC91231) //&& defined(CONFIG_MACH_NEVIS)
 extern void gpio_bluetooth_power_fixup(void);
-//#endif /* CONFIG_MACH_NEVIS */
+#endif /* CONFIG_MACH_NEVIS */
 
 #endif /* CONFIG_MOT_FEAT_GPIO_API_BTPOWER */
 

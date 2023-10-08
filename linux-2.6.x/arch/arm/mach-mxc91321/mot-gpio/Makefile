@@ -10,9 +10,9 @@ else
 obj-$(CONFIG_MACH_ARGONLVREF)	+= gpio_argonlvref.o iomux_argonlvref.o
 endif
 
-obj-$(CONFIG_MACH_KASSOS)	+= gpio_argonlvref.o iomux_argonlvref.o
-obj-$(CONFIG_MACH_KEYWEST)	+= gpio_argonlvref.o iomux_argonlvref.o
-obj-$(CONFIG_MACH_PAROS)	+= gpio_argonlvref.o iomux_argonlvref.o
+#obj-$(CONFIG_MACH_KASSOS)	+= gpio_argonlvref.o iomux_argonlvref.o
+#obj-$(CONFIG_MACH_KEYWEST)	+= gpio_argonlvref.o iomux_argonlvref.o
+#obj-$(CONFIG_MACH_PAROS)	+= gpio_argonlvref.o iomux_argonlvref.o
 
 obj-${CONFIG_MOT_FEAT_GPIO_API_BTPOWER} 	+= btpower.o
 obj-${CONFIG_MOT_FEAT_GPIO_API_CSI}		+= csi.o

@@ -1,14 +1,14 @@
 #
 # Makefile for the linux kernel.
-#           Copyright Motorola 2005-2006
+#           Copyright Motorola 2005-2007
 #
 # Revision History:
 #
 # Date         Author    Comment
 # ----------   --------  -------------------
 # 11/16/2006   Motorola  Hardware Config Framework
-
-
+# 05/05/2007   Motorola  PowerIC API
+# 02/28/2007   Motorola  Watchdog debug support
 
 AFLAGS_head.o := -DTEXTADDR=$(TEXTADDR) -DDATAADDR=$(DATAADDR)
 
@@ -40,6 +40,7 @@ obj-$(CONFIG_MOT_FEAT_BOOTINFO)	+= bootinfo.o
 obj-$(CONFIG_MOT_FEAT_DEVICE_TREE)	+= mothwcfg.o motflattree.o
 obj-$(CONFIG_MOT_FEAT_KPANIC)	+= kpanic.o
 obj-$(CONFIG_MOT_FEAT_FX2LP_I2C) += fx2lp_i2c.o
+obj-$(CONFIG_MOT_FEAT_POWER_IC_API)	+= power-ic-api.o
 obj-$(CONFIG_MOT_FEAT_DEBUG_WDOG) += fiq.o
 
 obj-$(CONFIG_IWMMXT)		+= iwmmxt.o

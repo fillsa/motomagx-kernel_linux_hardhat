@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Motorola, Inc.
+ * Copyright (C) 2007-2008 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,7 +22,9 @@
  *
  * Date         Author    Comment
  * ----------   --------  ----------------------
- * 03/11/2008   Motorola  Initial version
+ * 12/03/2007   Motorola  Initial version. 
+ * 03/11/2008   Motorola  Initial version in LJ6.3
+ * 01/20/2008   Motorola  Reduce the memory usage to support more events.
  */
 
 /*

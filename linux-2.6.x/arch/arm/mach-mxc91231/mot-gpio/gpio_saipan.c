@@ -34,7 +34,7 @@
 /**
  * Initial GPIO register settings.
  */
-struct gpio_signal_settings initial_gpio_settings[MAX_GPIO_SIGNAL] = {
+struct gpio_signal_description initial_gpio_settings[MAX_GPIO_SIGNAL] = {
     /*
      * SCM-A11 Package Pin Name: GP_AP_C8
      * Saipan P1 Signal: BT_RESET_B (Bluetooth)

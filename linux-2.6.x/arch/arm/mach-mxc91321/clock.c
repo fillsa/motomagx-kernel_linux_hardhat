@@ -1,6 +1,6 @@
 /*
  * Copyright 2005-2006 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright 2006 Motorola
+ * Copyright (C) 2007 Motorola, Inc.
  */
 
 /*
@@ -10,6 +10,20 @@
  *
  * http://www.opensource.org/licenses/gpl-license.html
  * http://www.gnu.org/copyleft/gpl.html
+ *
+ * Changelog:
+ * Date        Author            Comment
+ * ==========  ================  ========================
+ * 03/09/2007  Motorola          Added DVFS support
+ * 04/04/2007  Motorola          Fix clock gating for doze mode
+ * 05/15/2007  Motorola          Return correct frequency when 32Khz
+ *                               clock source is used for GPT.
+ * 06/12/2007  Motorola          Update static clock gating configuration
+ * 06/18/2007  Motorola          Added mxc_pll_release_pll and  mxc_pll_request_pll
+ *                               have them simply return without doing anything. 
+ * 10/23/2007  Motorola          Fix sahara clock gating issue.  
+ * 10/30/2007  Motorola          Add Support OWIRE_CLK for mxc_get_clocks().
+ * 12/27/2007  Motorola          Didn't printk OWIRE
  */
 
 /*!
@@ -32,6 +46,79 @@
 #define MXC_CKIH_FREQ                       26000000
 #define MXC_PLL_REF_CLK                     MXC_CKIH_FREQ
 
+#ifdef CONFIG_MOT_FEAT_PM
+#define AHB_FREQ_MAX			    128500000
+#else
+#define AHB_FREQ_MAX			    133000000
+#endif
+
+/*
+ * Number of PLLs that is used for Core DVFS
+ */
+#define CORE_DVFS_PLL                       2
+/*
+ * Number of core operating freuencies for each PLL
+ */
+#define DVFS_OP_NUM                         5
+
+/*
+ * The core operating points 212, 177 and 133MHZ are currently not implemented.
+ * These operating points are used only when the user really wants to 
+ * lower frequency fast when working with TPLL otherwise it should not be used 
+ * since these points operate at 1.6V and hence will not save power
+ */
+/* 
+ * The table is populated by: Example sample calculation shown in row 2
+ *********************************************************************
+ * BRMM	   Active PLL	AHB	     FORMULA			CORE *
+ *           (MHz)     (MHz)                                    (MHz)*
+ *********************************************************************
+ *  0        399        133	  Core clk = PLL      	 	 399 *
+ *-------------------------------------------------------------------*
+ *  1        399        133    ((2 * t_PLL) + (t_ahb))/3 =           *
+ *                             ((2 * 2.5nsec) + (7.5nsec))/3 =       *
+ *                                    4.16nsec                       *
+ *                                Core clk = 1/4.16nsec =            *
+ *                                    ~240Mhz                    240 *
+ *-------------------------------------------------------------------*
+ *  2        399        133      (t_PLL + t_ahb)/2               200 *
+ *-------------------------------------------------------------------*
+ *  3        399        133    ((t_PLL) + (2 * t_ahb))/3         171 *
+ *-------------------------------------------------------------------*
+ *  4        399        133       Core clk = AHB		 133 *
+ *-------------------------------------------------------------------*
+ *  0        532        133	  Core clk = PLL      	 	 532 *
+ *-------------------------------------------------------------------*
+ *  1        532        133    ((2 * t_PLL) + (t_ahb))/3         266 *
+ *-------------------------------------------------------------------*
+ *  2        532        133      (t_PLL + t_ahb)/2               212 *
+ *-------------------------------------------------------------------*
+ *  3        532        133    ((t_PLL) + (2 * t_ahb))/3         177 *
+ *-------------------------------------------------------------------*
+ *  4        532        133       Core clk = AHB		 133 *
+ *-------------------------------------------------------------------*
+ */
+#ifdef CONFIG_MOT_FEAT_PM
+static unsigned int core_pll_op_128[CORE_DVFS_PLL][DVFS_OP_NUM] = {
+        {385000000, 231000000, 193000000, 165000000, 128000000},
+        {514000000, 257000000, 206000000, 171000000, 128000000}
+};
+#else
+static unsigned int core_pll_op_133[CORE_DVFS_PLL][DVFS_OP_NUM] = {
+	{399000000, 240000000, 200000000, 171000000, 133000000},
+	{532000000, 266000000, 212000000, 177000000, 133000000}
+};
+#endif
+
+/*
+ * Core operating points when AHB clock is 100MHz
+ * (same formula as above applies)
+ */
+static unsigned int core_pll_op_100[CORE_DVFS_PLL][DVFS_OP_NUM] = {
+	{399000000, 200000000, 160000000, 133000000, 100000000},
+	{500000000, 214000000, 166000000, 136000000, 100000000}
+};
+
 /*!
  * Spinlock to protect CRM register accesses
  */
@@ -46,7 +133,6 @@ unsigned long mxc_pll_clock(enum plls pll)
 {
 	unsigned long mfi = 0, mfn = 0, mfd, pdf, ref_clk;
 	unsigned long long temp;
-	unsigned long pll_out;
 	volatile unsigned long reg;
 
 	if (pll == MCUPLL) {
@@ -76,20 +162,18 @@ unsigned long mxc_pll_clock(enum plls pll)
 	ref_clk = MXC_PLL_REF_CLK;
 
 	if (mfn < 1024) {
-		temp = 2 * ref_clk * mfn;
+		temp = (unsigned long long)2 *ref_clk * mfn;
 		do_div(temp, mfd + 1);
-		temp = 2 * ref_clk * mfi + temp;
+		temp = (unsigned long long)2 *ref_clk * mfi + temp;
 		do_div(temp, pdf + 1);
 	} else {
-		temp = 2 * ref_clk * (2048 - mfn);
+		temp = (unsigned long long)2 *ref_clk * (2048 - mfn);
 		do_div(temp, mfd + 1);
-		temp = 2 * ref_clk * mfi - temp;
+		temp = (unsigned long long)2 *ref_clk * mfi - temp;
 		do_div(temp, pdf + 1);
 	}
 
-	pll_out = temp;
-
-	return pll_out;
+	return (unsigned long)temp;
 }
 
 /*!
@@ -171,6 +255,21 @@ unsigned long mxc_get_clocks_parent(enum mxc_clocks clk)
 }
 
 /*!
+ * This function returns the active PLL's clock
+ *
+ * @return      PLL's clock that is currently active on the AP side. 
+ *              Possible PLLs are MCUPLL and TURBOPLL
+ */
+static unsigned long mxc_mcu_active_pll_clk(void)
+{
+	if ((__raw_readl(MXC_CCM_MPDR0) & (MXC_CCM_MPDR0_TPSEL)) != 0) {
+		return mxc_pll_clock(TURBOPLL);
+	} else {
+		return mxc_pll_clock(MCUPLL);
+	}
+}
+
+/*!
  * This function returns the main clock values in Hz.
  *
  * @param       clk     as defined in enum mxc_clocks
@@ -179,9 +278,10 @@ unsigned long mxc_get_clocks_parent(enum mxc_clocks clk)
  */
 unsigned long mxc_get_clocks(enum mxc_clocks clk)
 {
-	unsigned long pll, ret_val = 0, hclk;
+	unsigned long pll, ret_val = 0;
 	unsigned long brmm, max_pdf, ipg_pdf, nfc_pdf;
 	unsigned long prepdf = 0, pdf = 0;
+	int tpsel = 0;
 	volatile unsigned long reg1 = __raw_readl(MXC_CCM_MPDR0);
 	volatile unsigned long reg2 = __raw_readl(MXC_CCM_MPDR1);
 #ifdef CONFIG_ARCH_MXC91321
@@ -192,54 +292,51 @@ unsigned long mxc_get_clocks(enum mxc_clocks clk)
 	    (reg1 & MXC_CCM_MPDR0_MAX_PDF_MASK) >> MXC_CCM_MPDR0_MAX_PDF_OFFSET;
 	ipg_pdf =
 	    (reg1 & MXC_CCM_MPDR0_IPG_PDF_MASK) >> MXC_CCM_MPDR0_IPG_PDF_OFFSET;
+	pll = mxc_mcu_active_pll_clk();
 
 	switch (clk) {
 	case CPU_CLK:
 		brmm = reg1 & MXC_CCM_MPDR0_BRMM_MASK;
-		pll = mxc_pll_clock(MCUPLL);
+		tpsel =
+		    (reg1 & MXC_CCM_MPDR0_TPSEL) >> MXC_CCM_MPDR0_TPSEL_OFFSET;
 		if (brmm >= 5) {
 			printk("Wrong BRMM value in the CRM_AP, MPDR0 reg \n");
 			return 0;
 		}
-		hclk = pll / (max_pdf + 1);
-		switch (brmm) {
-		case 0:
-			ret_val = pll;
-			break;
-		case 1:
-			ret_val = pll + (pll - hclk) / 4;
-			break;
-		case 2:
-			ret_val = pll + (pll - hclk) / 2;
-			break;
-		case 3:
-			ret_val = pll + (pll - hclk) * 3 / 4;
-			break;
-		case 4:
-			ret_val = hclk;
-			break;
-		default:
-			break;
+		if (mxc_get_clocks(AHB_CLK) == AHB_FREQ_MAX) {
+#ifdef CONFIG_MOT_FEAT_PM
+                        ret_val = core_pll_op_128[tpsel][brmm];
+#else
+			ret_val = core_pll_op_133[tpsel][brmm];
+#endif
+		} else {
+			ret_val = core_pll_op_100[tpsel][brmm];
 		}
 		break;
 	case AHB_CLK:
 	case IPU_CLK:
-		pll = mxc_pll_clock(MCUPLL);
 		ret_val = pll / (max_pdf + 1);
 		break;
 	case IPG_CLK:
 #ifdef CONFIG_MOT_WFN441
-	case SIM1_CLK:
-	case SIM2_CLK:
+        case SIM1_CLK:
+        case SIM2_CLK:
 #endif
 	case UART1_BAUD:
 	case UART2_BAUD:
 	case UART3_BAUD:
 	case UART4_BAUD:
+	case OWIRE_CLK:
 	case I2C_CLK:
+#ifdef CONFIG_MOT_FEAT_32KHZ_GPT
+                ret_val = pll / ((max_pdf + 1) * (ipg_pdf + 1));
+                break;
 	case GPT_CLK:
-		pll = mxc_pll_clock(MCUPLL);
+                ret_val = MXC_TIMER_CLK; 
+#else
+        case GPT_CLK:
 		ret_val = pll / ((max_pdf + 1) * (ipg_pdf + 1));
+#endif /* CONFIG_MOT_FEAT_32KHZ_GPT */
 		break;
 #ifdef CONFIG_ARCH_MXC91321
 	case SDHC1_CLK:
@@ -263,7 +360,6 @@ unsigned long mxc_get_clocks(enum mxc_clocks clk)
 #else
 	case SDHC1_CLK:
 	case SDHC2_CLK:
-		pll = mxc_pll_clock(MCUPLL);
 		ret_val = pll / ((max_pdf + 1) * (ipg_pdf + 1));
 		break;
 
@@ -271,7 +367,6 @@ unsigned long mxc_get_clocks(enum mxc_clocks clk)
 	case NFC_CLK:
 		nfc_pdf = (reg1 & MXC_CCM_MPDR0_NFC_PDF_MASK) >>
 		    MXC_CCM_MPDR0_NFC_PDF_OFFSET;
-		pll = mxc_pll_clock(MCUPLL);
 		ret_val = pll / ((max_pdf + 1) * (nfc_pdf + 1));
 		break;
 	case USB_CLK:
@@ -610,8 +705,9 @@ void mxc_set_clocks_div(enum mxc_clocks clk, unsigned int div)
 /*!
  * Configure clock output on CKO1/CKO2 pins
  *
- * @param   opt     The desired clock needed to measure. Possible
- *                  values are, CKOH_AP_SEL, CKOH_AHB_SEL or CKOH_IP_SEL
+ * @param       output     as defined in enum mxc_clk_out
+ * @param       clk        as defined in enum mxc_clocks
+ * @param       div        clock output divider value
  *
  */
 void mxc_set_clock_output(enum mxc_clk_out output, enum mxc_clocks clk, int div)
@@ -871,12 +967,55 @@ void mxc_clks_disable(enum mxc_clocks clk)
 		__raw_writel(reg, MXC_CCM_MCGR2);
 		break;
 #ifdef CONFIG_MOT_WFN441
-	case NFC_CLK:
-		break;
+        case NFC_CLK:
+                break;
+#endif
+#ifdef CONFIG_MOT_FEAT_PM
+        case OWIRE_CLK:
+                reg = __raw_readl(MXC_CCM_MCGR0);
+                reg &= ~MXC_CCM_MCGR0_OWIRE;
+		__raw_writel(reg, MXC_CCM_MCGR0);
+                break;
+            
+        case RTIC_CLK:
+                reg = __raw_readl(MXC_CCM_MCGR2);
+                reg &= ~MXC_CCM_MCGR2_RTIC;
+		__raw_writel(reg, MXC_CCM_MCGR2);
+                break;
+        case IIM_CLK:
+                reg = __raw_readl(MXC_CCM_MCGR1);
+                reg &= ~MXC_CCM_MCGR1_IIM;
+		__raw_writel(reg, MXC_CCM_MCGR1);
+                break;
+        case SMC_CLK:
+                reg = __raw_readl(MXC_CCM_MCGR2);
+                reg &= ~MXC_CCM_MCGR2_SMC;
+		__raw_writel(reg, MXC_CCM_MCGR2);
+                break;
+        case ECT_CLK:
+                reg = __raw_readl(MXC_CCM_MCGR2);
+                reg &= ~MXC_CCM_MCGR2_ECT;
+		__raw_writel(reg, MXC_CCM_MCGR2);
+                break;
+        case RTRMCU_CLK:
+                reg = __raw_readl(MXC_CCM_MCGR2);
+                reg &= ~MXC_CCM_MCGR2_RTRMCU;
+		__raw_writel(reg, MXC_CCM_MCGR2);
+                break;
+        case EMI_CLK:
+                reg = __raw_readl(MXC_CCM_MCGR1);
+                reg &= ~MXC_CCM_MCGR1_EMI;
+		__raw_writel(reg, MXC_CCM_MCGR1);
+                break;
+        case SAHARA_CLK:
+                reg = __raw_readl(MXC_CCM_MCGR2);
+                reg &= ~MXC_CCM_MCGR2_SAHARA;
+                __raw_writel(reg, MXC_CCM_MCGR2);
+                break;     
 #endif
 	default:
 		printk("The gateoff for this clock(%d) is not implemented\n",
-		       clk);
+                       clk);
 		break;
 	}
 	spin_unlock_irqrestore(&mxc_crm_lock, flags);
@@ -897,22 +1036,38 @@ void mxc_clks_enable(enum mxc_clocks clk)
 	switch (clk) {
 	case UART1_BAUD:
 		reg = __raw_readl(MXC_CCM_MCGR0);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR0_UART1_MASK) | MXC_CCM_MCGR0_UART1_EN;
+#else
 		reg |= MXC_CCM_MCGR0_UART1;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR0);
 		break;
 	case UART2_BAUD:
 		reg = __raw_readl(MXC_CCM_MCGR0);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR0_UART2_MASK) | MXC_CCM_MCGR0_UART2_EN;
+#else
 		reg |= MXC_CCM_MCGR0_UART2;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR0);
 		break;
 	case UART3_BAUD:
 		reg = __raw_readl(MXC_CCM_MCGR1);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR1_UART3_MASK) | MXC_CCM_MCGR1_UART3_EN;
+#else
 		reg |= MXC_CCM_MCGR1_UART3;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR1);
 		break;
 	case UART4_BAUD:
 		reg = __raw_readl(MXC_CCM_MCGR1);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR1_UART4_MASK) | MXC_CCM_MCGR1_UART4_EN;
+#else
 		reg |= MXC_CCM_MCGR1_UART4;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR1);
 		break;
 	case SSI1_BAUD:
@@ -922,12 +1077,21 @@ void mxc_clks_enable(enum mxc_clocks clk)
 		__raw_writel(reg, MXC_CCM_MPDR1);
 #endif
 		reg = __raw_readl(MXC_CCM_MCGR0);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR0_SSI1_MASK) | MXC_CCM_MCGR0_SSI1_EN;
+#else
 		reg |= MXC_CCM_MCGR0_SSI1;
+#endif
+
 		__raw_writel(reg, MXC_CCM_MCGR0);
 		break;
 	case CSPI1_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR0);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR0_CSPI1_MASK) | MXC_CCM_MCGR0_CSPI1_EN;
+#else
 		reg |= MXC_CCM_MCGR0_CSPI1;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR0);
 		break;
 	case FIRI_BAUD:
@@ -937,47 +1101,83 @@ void mxc_clks_enable(enum mxc_clocks clk)
 		__raw_writel(reg, MXC_CCM_MPDR1);
 #endif
 		reg = __raw_readl(MXC_CCM_MCGR0);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR0_FIRI_MASK) | MXC_CCM_MCGR0_FIRI_EN;
+#else
 		reg |= MXC_CCM_MCGR0_FIRI;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR0);
 		break;
 	case GPT_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR0);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR0_GPTMCU_MASK) | MXC_CCM_MCGR0_GPTMCU_EN;
+#else
 		reg |= MXC_CCM_MCGR0_GPTMCU;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR0);
 		break;
 	case RTC_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR0);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR0_RTC_MASK) | MXC_CCM_MCGR0_RTC_EN;
+#else
 		reg |= MXC_CCM_MCGR0_RTC;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR0);
 		break;
 	case EPIT1_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR0);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR0_EPIT1MCU_MASK) | MXC_CCM_MCGR0_EPIT1MCU_EN;
+#else
 		reg |= MXC_CCM_MCGR0_EPIT1MCU;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR0);
 		break;
 	case EPIT2_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR0);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR0_EPIT2MCU_MASK) | MXC_CCM_MCGR0_EPIT2MCU_EN;
+#else
 		reg |= MXC_CCM_MCGR0_EPIT2MCU;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR0);
 		break;
 	case EDIO_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR0);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR0_EDIO_MASK) | MXC_CCM_MCGR0_EDIO_EN;
+#else
 		reg |= MXC_CCM_MCGR0_EDIO;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR0);
 		break;
 	case WDOG_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR0);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR0_WDOGMCU_MASK) | MXC_CCM_MCGR0_WDOGMCU_EN;
+#else
 		reg |= MXC_CCM_MCGR0_WDOGMCU;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR0);
 		break;
 	case PWM_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR0);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR0_PWMMCU_MASK) | MXC_CCM_MCGR0_PWMMCU_EN;
+#else
 		reg |= MXC_CCM_MCGR0_PWMMCU;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR0);
 		break;
 	case I2C_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR0);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR0_I2C_MASK) | MXC_CCM_MCGR0_I2C_EN;
+#else
 		reg |= MXC_CCM_MCGR0_I2C;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR0);
 		break;
 	case CSI_BAUD:
@@ -991,22 +1191,38 @@ void mxc_clks_enable(enum mxc_clocks clk)
 		break;
 	case IPU_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR1);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR1_IPU_MASK) | MXC_CCM_MCGR1_IPU_EN;
+#else
 		reg |= MXC_CCM_MCGR1_IPU;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR1);
 		break;
 	case MPEG4_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR1);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR1_MPEG4_MASK) | MXC_CCM_MCGR1_MPEG4_EN;
+#else
 		reg |= MXC_CCM_MCGR1_MPEG4;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR1);
 		break;
 	case SIM1_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR1);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR1_SIM1_MASK) | MXC_CCM_MCGR1_SIM1_EN;
+#else
 		reg |= MXC_CCM_MCGR1_SIM1;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR1);
 		break;
 	case SIM2_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR1);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR1_SIM2_MASK) | MXC_CCM_MCGR1_SIM2_EN;
+#else
 		reg |= MXC_CCM_MCGR1_SIM2;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR1);
 		break;
 	case HAC_CLK:
@@ -1016,7 +1232,11 @@ void mxc_clks_enable(enum mxc_clocks clk)
 		break;
 	case GEM_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR1);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR1_GEM_MASK) | MXC_CCM_MCGR1_GEM_EN;
+#else
 		reg |= MXC_CCM_MCGR1_GEM;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR1);
 		break;
 	case USB_CLK:
@@ -1026,12 +1246,20 @@ void mxc_clks_enable(enum mxc_clocks clk)
 		__raw_writel(reg, MXC_CCM_MPDR1);
 #endif
 		reg = __raw_readl(MXC_CCM_MCGR1);
+#ifdef CONFIG_MOT_FEAT_PM
+		reg = (reg & ~MXC_CCM_MCGR1_USBOTG_MASK) | MXC_CCM_MCGR1_USBOTG_EN;
+#else
 		reg |= MXC_CCM_MCGR1_USBOTG;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR1);
 		break;
 	case CSPI2_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR1);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR1_CSPI2_MASK) | MXC_CCM_MCGR1_CSPI2_EN;
+#else
 		reg |= MXC_CCM_MCGR1_CSPI2;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR1);
 		break;
 	case SDHC2_CLK:
@@ -1041,7 +1269,11 @@ void mxc_clks_enable(enum mxc_clocks clk)
 		__raw_writel(reg, MXC_CCM_MPDR2);
 #endif
 		reg = __raw_readl(MXC_CCM_MCGR1);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR1_SDHC2_MASK) | MXC_CCM_MCGR1_SDHC2_EN;
+#else
 		reg |= MXC_CCM_MCGR1_SDHC2;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR1);
 		break;
 	case SDHC1_CLK:
@@ -1051,7 +1283,11 @@ void mxc_clks_enable(enum mxc_clocks clk)
 		__raw_writel(reg, MXC_CCM_MPDR2);
 #endif
 		reg = __raw_readl(MXC_CCM_MCGR1);
+#ifdef CONFIG_MOT_FEAT_PM
+		reg = (reg & ~MXC_CCM_MCGR1_SDHC1_MASK) | MXC_CCM_MCGR1_SDHC1_EN;
+#else
 		reg |= MXC_CCM_MCGR1_SDHC1;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR1);
 		break;
 	case SSI2_BAUD:
@@ -1061,12 +1297,20 @@ void mxc_clks_enable(enum mxc_clocks clk)
 		__raw_writel(reg, MXC_CCM_MPDR1);
 #endif
 		reg = __raw_readl(MXC_CCM_MCGR1);
+#ifdef CONFIG_MOT_FEAT_PM
+		reg = (reg & ~MXC_CCM_MCGR1_SSI2_MASK) | MXC_CCM_MCGR1_SSI2_EN;
+#else
 		reg |= MXC_CCM_MCGR1_SSI2;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR1);
 		break;
 	case SDMA_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR2);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR2_SDMA_MASK) | MXC_CCM_MCGR2_SDMA_EN;
+#else
 		reg |= MXC_CCM_MCGR2_SDMA;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR2);
 		break;
 	case RNG_CLK:
@@ -1076,26 +1320,82 @@ void mxc_clks_enable(enum mxc_clocks clk)
 		break;
 	case KPP_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR2);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR2_KPP_MASK) | MXC_CCM_MCGR2_KPP_EN;
+#else
 		reg |= MXC_CCM_MCGR2_KPP;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR2);
 		break;
 	case MU_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR2);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR2_MU_MASK) | MXC_CCM_MCGR2_MU_EN;
+#else
 		reg |= MXC_CCM_MCGR2_MU;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR2);
 		break;
 	case SPBA_CLK:
 		reg = __raw_readl(MXC_CCM_MCGR2);
+#ifdef CONFIG_MOT_FEAT_PM
+                reg = (reg & ~MXC_CCM_MCGR2_SPBA_MASK) | MXC_CCM_MCGR2_SPBA_EN;
+#else
 		reg |= MXC_CCM_MCGR2_SPBA;
+#endif
 		__raw_writel(reg, MXC_CCM_MCGR2);
 		break;
 #ifdef CONFIG_MOT_WFN441
-	case NFC_CLK:
-		break;
+        case NFC_CLK:
+                break;
+#endif
+#ifdef CONFIG_MOT_FEAT_PM
+        case OWIRE_CLK:
+                reg = __raw_readl(MXC_CCM_MCGR0);
+                reg = (reg & ~MXC_CCM_MCGR0_OWIRE_MASK) | MXC_CCM_MCGR0_OWIRE_EN;
+		__raw_writel(reg, MXC_CCM_MCGR0);
+
+                //printk("namin - OWIRE:  reg=0x%08lx\n");
+                break;
+        case RTIC_CLK:
+                reg = __raw_readl(MXC_CCM_MCGR2);
+                reg = (reg & ~MXC_CCM_MCGR2_RTIC_MASK) | MXC_CCM_MCGR2_RTIC_EN;
+		__raw_writel(reg, MXC_CCM_MCGR2);
+                break;
+        case IIM_CLK:
+                reg = __raw_readl(MXC_CCM_MCGR1);
+                reg = (reg & ~MXC_CCM_MCGR1_IIM_MASK) | MXC_CCM_MCGR1_IIM_EN;
+		__raw_writel(reg, MXC_CCM_MCGR1);
+                break;
+        case SMC_CLK:
+                reg = __raw_readl(MXC_CCM_MCGR2);
+                reg = (reg & ~MXC_CCM_MCGR2_SMC_MASK) | MXC_CCM_MCGR2_SMC_EN;
+		__raw_writel(reg, MXC_CCM_MCGR2);
+                break;
+        case ECT_CLK:
+                reg = __raw_readl(MXC_CCM_MCGR2);
+                reg = (reg & ~MXC_CCM_MCGR2_ECT_MASK) | MXC_CCM_MCGR2_ECT_EN;
+		__raw_writel(reg, MXC_CCM_MCGR2);
+                break;
+        case RTRMCU_CLK:
+                reg = __raw_readl(MXC_CCM_MCGR2);
+                reg = (reg & ~MXC_CCM_MCGR2_RTRMCU_MASK) | MXC_CCM_MCGR2_RTRMCU_EN;
+		__raw_writel(reg, MXC_CCM_MCGR2);
+                break;
+        case EMI_CLK:
+                reg = __raw_readl(MXC_CCM_MCGR1);
+                reg = (reg & ~MXC_CCM_MCGR1_EMI_MASK) | MXC_CCM_MCGR1_EMI_EN;
+		__raw_writel(reg, MXC_CCM_MCGR1);
+                break;
+        case SAHARA_CLK:
+                reg = __raw_readl(MXC_CCM_MCGR2);
+                reg = (reg & ~MXC_CCM_MCGR2_SAHARA_MASK) | MXC_CCM_MCGR2_SAHARA_EN;
+                __raw_writel(reg, MXC_CCM_MCGR2);
+                break;
 #endif
 	default:
-		printk("The gateoff for this clock(%d) is not implemented\n",
-		       clk);
+		printk("The gateon for this clock(%d) is not implemented\n",
+                       clk);
 		break;
 	}
 	spin_unlock_irqrestore(&mxc_crm_lock, flags);
@@ -1136,6 +1436,41 @@ void mxc_ccm_modify_reg(unsigned int reg_offset, unsigned int mask,
 	spin_unlock_irqrestore(&mxc_crm_lock, flags);
 }
 
+/*
+ * Why these functions always return success.
+ * Argon's clock tree is very different from that of SCMA11. 
+ * Because of these differences it does not make sense to lock and release PLLs 
+ * to prevent them from being turned off. Despite this these APIs have been 
+ * implemented as stubs for Argon in order to maintain a compatible PM API with SCMA11
+ *
+ */
+
+#ifdef CONFIG_MOT_FEAT_PM
+/*!
+ * This function requests that a pll be locked and available.
+ *
+ * @param       pllnum as defined in enum plls
+ *
+ * @return      0 on success, -1 on invalid PLL number
+ */
+int mxc_pll_request_pll(enum plls pllnum)
+{
+        return 0;
+}
+
+/*!
+ * This function releases a previous request for a pll
+ *
+ * @param       pllnum as defined in enum plls
+ *
+ * @return      0 on success, -1 on invalid PLL number, -2 if already unlocked
+ */
+int mxc_pll_release_pll(enum plls pllnum)
+{
+        return 0;
+}
+#endif /* CONFIG_MOT_FEAT_PM */
+
 EXPORT_SYMBOL(mxc_pll_clock);
 EXPORT_SYMBOL(mxc_get_clocks_parent);
 EXPORT_SYMBOL(mxc_get_clocks);
@@ -1146,3 +1481,7 @@ EXPORT_SYMBOL(mxc_clks_enable);
 EXPORT_SYMBOL(mxc_ccm_get_reg);
 EXPORT_SYMBOL(mxc_ccm_modify_reg);
 EXPORT_SYMBOL(mxc_set_clock_output);
+#ifdef CONFIG_MOT_FEAT_PM
+EXPORT_SYMBOL(mxc_pll_request_pll);
+EXPORT_SYMBOL(mxc_pll_release_pll);
+#endif /* CONFIG_MOT_FEAT_PM */

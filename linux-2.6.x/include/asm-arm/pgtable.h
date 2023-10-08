@@ -20,6 +20,8 @@
  *
  * Date         Author         Comment
  * ==========   ===========    ===================================
+ * 02/2007  Motorola   Separated execute and read permissions to allow for 
+ *                     non-executable pages
  * 06/01/2007   Motorola       Define CONFIG_MOT_FEAT_CHKSUM.
  */
 
@@ -241,7 +243,12 @@ extern void __pgd_error(const char *file, int line, unsigned long val);
  * The following macros handle the cache and bufferable bits...
  */
 #define _L_PTE_DEFAULT	L_PTE_PRESENT | L_PTE_YOUNG | L_PTE_CACHEABLE | L_PTE_BUFFERABLE
+#ifdef CONFIG_MOT_WFN422
+/* Separate execute and read permissions */
+#define _L_PTE_READ	L_PTE_USER
+#else
 #define _L_PTE_READ	L_PTE_USER | L_PTE_EXEC
+#endif /* CONFIG_MOT_WFN422 */
 
 extern pgprot_t		pgprot_kernel;
 
@@ -249,6 +256,11 @@ extern pgprot_t		pgprot_kernel;
 #define PAGE_COPY       __pgprot(_L_PTE_DEFAULT | _L_PTE_READ)
 #define PAGE_SHARED     __pgprot(_L_PTE_DEFAULT | _L_PTE_READ | L_PTE_WRITE)
 #define PAGE_READONLY   __pgprot(_L_PTE_DEFAULT | _L_PTE_READ)
+#ifdef CONFIG_MOT_WFN422
+#define PAGE_COPY_EXEC       __pgprot(_L_PTE_DEFAULT | _L_PTE_READ | L_PTE_EXEC)
+#define PAGE_SHARED_EXEC     __pgprot(_L_PTE_DEFAULT | _L_PTE_READ | L_PTE_WRITE | L_PTE_EXEC)
+#define PAGE_READONLY_EXEC   __pgprot(_L_PTE_DEFAULT | _L_PTE_READ | L_PTE_EXEC)
+#endif /* CONFIG_MOT_WFN422 */
 #define PAGE_KERNEL	pgprot_kernel
 
 #endif /* __ASSEMBLY__ */
@@ -265,19 +277,33 @@ extern pgprot_t		pgprot_kernel;
 #define __P001  PAGE_READONLY
 #define __P010  PAGE_COPY
 #define __P011  PAGE_COPY
+#ifdef CONFIG_MOT_WFN422
+#define __P100  PAGE_READONLY_EXEC
+#define __P101  PAGE_READONLY_EXEC
+#define __P110  PAGE_COPY_EXEC
+#define __P111  PAGE_COPY_EXEC
+#else
 #define __P100  PAGE_READONLY
 #define __P101  PAGE_READONLY
 #define __P110  PAGE_COPY
 #define __P111  PAGE_COPY
+#endif /* CONFIG_MOT_WFN422 */
 
 #define __S000  PAGE_NONE
 #define __S001  PAGE_READONLY
 #define __S010  PAGE_SHARED
 #define __S011  PAGE_SHARED
+#ifdef CONFIG_MOT_WFN422
+#define __S100  PAGE_READONLY_EXEC
+#define __S101  PAGE_READONLY_EXEC
+#define __S110  PAGE_SHARED_EXEC
+#define __S111  PAGE_SHARED_EXEC
+#else
 #define __S100  PAGE_READONLY
 #define __S101  PAGE_READONLY
 #define __S110  PAGE_SHARED
 #define __S111  PAGE_SHARED
+#endif /* CONFIG_MOT_WFN422 */
 
 #ifndef __ASSEMBLY__
 /*

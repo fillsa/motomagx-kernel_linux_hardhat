@@ -4,7 +4,7 @@
  * Prototypes and definitions used for the Argon implementation of the
  * Motorola GPIO API.
  *
- * Copyright 2006 Motorola, Inc.
+ * Copyright 2006-2007 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,6 +25,7 @@
  * ===========  ==============  ==============================================
  * 01-Nov-2006  Motorola        Initial revision.
  * 26-Nov-2006  Motorola        Added support for GPU GPIO signal control.
+ * 26-Feb-2007  Motorola        Adapt for HWCFG tree.
  */
 
 #ifndef __MOT_GPIO_ARGONLV__H__
@@ -41,7 +42,7 @@
 /**
  * Description of a pin's IOMUX mux control register settings.
  */
-struct iomux_initialization {
+struct iomux_initialization { 
     enum iomux_pins             pin;
     enum iomux_output_config    out;
     enum iomux_input_config     in;
@@ -53,9 +54,6 @@ struct iomux_initialization {
 extern struct iomux_initialization * __initdata initial_iomux_settings[];
 
 extern void __init argonlvphone_gpio_init(void);
-
-extern void __init argonlv_iomux_pad_init(void);
-extern void __init argonlv_iomux_mux_init(void);
 
 #if defined(CONFIG_MACH_BUTEREF)
 extern void __init buteref_gpio_signal_fixup(void);

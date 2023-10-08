@@ -1,5 +1,6 @@
 /*
  * Copyright 2004-2006 Freescale Semiconductor, Inc. All Rights Reserved.
+ * Copyright 2007 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,6 +15,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 26-Apr-2007  Motorola        Fixed IOMUX pad bit width problem. (WFN491)
  */
 
 #include <linux/module.h>
@@ -34,7 +40,11 @@
 /*!
  * PAD control field
  */
+#if defined(CONFIG_MOT_WFN491)
+#define MUX_PAD_BIT_LEN         10
+#else
 #define MUX_PAD_BIT_LEN         9
+#endif
 
 /*!
  * IOMUX register (base) addresses
@@ -87,9 +97,15 @@ void iomux_config_pad(enum iomux_pins pin, __u32 config)
 	int pad_field = PIN_TO_PAD_FIELD(pin);
 
 	spin_lock_irqsave(&gpio_mux_lock, gpio_mux_flags);
+#if defined(CONFIG_MOT_WFN491)
+	base[pad_index] =
+	    (base[pad_index] & (~(0x3FF << (pad_field * MUX_PAD_BIT_LEN)))) |
+	    (config << (pad_field * MUX_PAD_BIT_LEN));
+#else
 	base[pad_index] =
 	    (base[pad_index] & (~(0x1FF << (pad_field * MUX_PAD_BIT_LEN)))) |
 	    (config << (pad_field * MUX_PAD_BIT_LEN));
+#endif
 	spin_unlock_irqrestore(&gpio_mux_lock, gpio_mux_flags);
 }
 

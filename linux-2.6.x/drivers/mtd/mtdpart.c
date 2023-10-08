@@ -30,7 +30,9 @@
  *
  * 04-15-2007   update part_read_distfix function with reason_code for CONFIG_MOT_FEAT_NAND_RDDIST
  *		feature
+ * 12-20-2007	initialize rsvdblock_offset to avoid this variable being used without initialization. 
  * 01-03-2008	initialize rsvdblock_offset to avoid this variable being used without initialization. 
+ * 01-15-2008   Add support for new keypad
  * 02-26-2008   change flash rsvblock address for xpixl
  */	
 
@@ -53,12 +55,14 @@
  * reserved block offset 
  * the last NAND partition will be used as reserved blocks 
  */
-#if defined(CONFIG_MACH_PICO) || defined(CONFIG_MACH_MARCO) || defined(CONFIG_MACH_NEVIS)
+#if defined(CONFIG_MACH_PICO) || defined(CONFIG_MACH_MARCO) || defined(CONFIG_MACH_NEVIS) || defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA)
 unsigned long rsvdblock_offset = 0x07ce0000;
 
 #elif defined(CONFIG_MACH_XPIXL)
 unsigned long rsvdblock_offset = 0x1f560000;
 
+#elif defined(CONFIG_MACH_KEYWEST)
+unsigned long rsvdblock_offset = 0x0fa60000;
 #else
 /* 
  * ATTENTION: rsvdblock_offset should be initialized here.

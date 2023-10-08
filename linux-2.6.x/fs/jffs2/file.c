@@ -17,6 +17,7 @@
  * Copyright (C) 2007 Motorola, Inc.
  * ChangeLog:
  * (mm-dd-yyyy) Author    Comment
+ * 10-11-2007   Motorola  Change inode information when update
  * 11-06-2007   Motorola  Upmerge from 6.1. (Change inode information when update)
  */
 

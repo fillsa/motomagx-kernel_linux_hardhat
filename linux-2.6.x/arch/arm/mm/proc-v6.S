@@ -2,7 +2,7 @@
  *  linux/arch/arm/mm/proc-v6.S
  *
  *  Copyright (C) 2001 Deep Blue Solutions Ltd.
- *  Copyright (C) 2006-2007 Motorola Inc.
+ *  Copyright (C) 2006-2008 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -14,10 +14,13 @@
  * Date        Author            Comment
  * ==========  ================  ========================
  * 09/26/2006  Motorola          Initial creation
- * 11/15/2006  Motorola          Added workaround errata 380532
+ * 10/2006  Motorola   Added workaround for ARM errata 380532
+ * 11/15/2006  Motorola          Added workaround errata 380532 in LJ6.3
  * 02/21/2007  Motorola          Added fix for errata 411920
+ * 02/2007  Motorola   Enabled hardware XN support
  * 03/28/2007  Motorola          Added cache optimization
- * 07/14/2008  Motorola          Invalidated main locked TLB.
+ * 06/2008  Motorola   Invalidated main locked TLB.
+ * 07/14/2008  Motorola          Invalidated main locked TLB in LJ6.3.
  */
 #include <linux/linkage.h>
 #include <asm/assembler.h>
@@ -246,9 +249,14 @@ ENTRY(cpu_v6_set_pte)
 	tst	r1, #L_PTE_YOUNG
 	biceq	r2, r2, #PTE_EXT_APX | PTE_EXT_AP_MASK
 
+#ifdef CONFIG_MOT_WFN422
+	tst	r1, #L_PTE_EXEC
+	orreq	r2, r2, #PTE_EXT_XN
+#else
 @	tst	r1, #L_PTE_EXEC
 @	orreq	r2, r2, #PTE_EXT_XN
-
+#endif
+	
 	tst	r1, #L_PTE_PRESENT
 	moveq	r2, #0
 

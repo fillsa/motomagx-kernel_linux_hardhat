@@ -34,7 +34,10 @@
  *                               and its divider ratios.
  * 01/28/2007  Motorola          Add long IOI timeout API for SD Card
  * 02/12/2007  Motorola          Resolve race conditions in DSM state machine.
+ * 04/04/2007  Motorola          Added ArgonLV support
  * 04/12/2007  Motorola          Check in idle for busy drivers/modules.
+ * 10/25/2007  Motorola          Improved periodic job state collection for debug.
+ * 11/14/2007  Motorola          Add #error when chipset is not spported by MOTO PM.
  * 11/23/2007  Motorola          Add a config macro to use Bluetooth LED to 
  *                               indicate whether the phone is in DSM.
  */
@@ -61,15 +64,22 @@
 #define FREQ_MARGIN 5000000
 
 #define NOT_CONSTRAINING_TO_399
+
 #ifdef NOT_CONSTRAINING_TO_399
+#ifdef CONFIG_MACH_ARGONLVPHONE
+static mpm_op_t valid_op_init[] = {128000000, 231000000, 385000000, 514000000
+#elif CONFIG_MACH_SCMA11PHONE
+static mpm_op_t valid_op_pass2[] = { 133000000, 266000000, 399000000, 532000000
 #ifdef CONFIG_FEAT_MXC31_CORE_OVERCLOCK_740
-static mpm_op_t valid_op_pass2[] = { 133000000, 266000000, 399000000, 532000000, 636000000, 740000000 };
+										, 636000000, 740000000
 #elif CONFIG_FEAT_MXC31_CORE_OVERCLOCK_780
-static mpm_op_t valid_op_pass2[] = { 133000000, 266000000, 399000000, 532000000, 665000000, 780000000 };
-#else // CONFIG_FEAT_MXC31_CORE_OVERCLOCK_
-static mpm_op_t valid_op_pass2[] = { 133000000, 266000000, 399000000, 532000000 };
+										, 665000000, 780000000
 #endif // CONFIG_FEAT_MXC31_CORE_OVERCLOCK_
-#else
+#else // CONFIG_MACH_ARGONLVPHONE || CONFIG_MACH_SCMA11PHONE
+#error Motorola Power Management is only supported for SCM-A11 and ArgonLV
+#endif // CONFIG_MACH_ARGONLVPHONE || CONFIG_MACH_SCMA11PHONE
+											};
+#else // NOT_CONSTRAINING_TO_399
 static mpm_op_t valid_op_pass2[] = { 399000000 };
 #endif
 
@@ -89,6 +99,17 @@ static int opstat = 0;
 
 static void flush_oplist(void);
 static void collect_op_stat(mpm_op_t, struct timeval *, struct timeval *);
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+static mpm_pjist_list_t *pji_head=NULL;
+static kmem_cache_t *pjistat_cache=NULL;
+static mpm_pjcst_list_t *pjc_head=NULL;
+static kmem_cache_t *pjcstat_cache=NULL;
+static int pjstat = 0;
+static int pjsmod = 0;
+static int pjwakeup = 0;
+static unsigned long pjstime = 0;
+static void flush_pjlist(void);
+#endif // #if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
 #endif
 
 static void mpm_remove(struct device *);
@@ -1264,6 +1285,7 @@ static void mpm_report_test_point_callback(int argc, ...)
             break;
 
         case MPM_TEST_WAIT_EXIT:
+        case MPM_TEST_DOZE_EXIT:
         case MPM_TEST_STOP_EXIT:
         case MPM_TEST_DSM_EXIT:
 	    mode = 0;
@@ -1272,6 +1294,10 @@ static void mpm_report_test_point_callback(int argc, ...)
 		case MPM_TEST_WAIT_EXIT:
 		    mode = cpumode2indx(WAIT_MODE);
                     MPM_DPRINTK("MPM_TEST_WAIT_EXIT\n");
+		    break;
+                case MPM_TEST_DOZE_EXIT:
+		    mode = cpumode2indx(DOZE_MODE);
+                    MPM_DPRINTK("MPM_TEST_DOZE_EXIT\n");
 		    break;
 		case MPM_TEST_STOP_EXIT:
 		    mode = cpumode2indx(STOP_MODE);
@@ -1297,6 +1323,12 @@ static void mpm_report_test_point_callback(int argc, ...)
 	        mpmsp->pmmode[mode].avic_nipndl[indx] = avic_nipndl;
 	        mpmsp->pmmode[mode].avic_nipndh[indx] = avic_nipndh;
 
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)  || defined(CONFIG_MACH_PAROS)
+                if ((avic_nipndl & 0x10000000) && pjstat)
+                {
+                    pjwakeup = 1;
+                }
+#endif
 		/*
 	         * fls() returns the number of the first bit set in the
 	         * argument starting with the most significant bit.  The
@@ -1757,6 +1789,24 @@ mpm_ioctl (struct inode *inode, struct file *filp, u_int cmd, u_long arg)
         case MPM_IOC_STOP_OPSTAT:
             mpm_stop_opstat();
             break;
+
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+        case MPM_IOC_PRINT_PJSTAT:
+            mpm_print_pjstat(buf, sizeof(buf));
+            MPM_DPRINTK("printing buffer \n");
+            MPM_DPRINTK("%s\n", buf);
+            break;
+
+        case MPM_IOC_START_PJSTAT:
+            mpm_start_pjstat(1);
+            break;
+
+        case MPM_IOC_STOP_PJSTAT:
+            mpm_stop_pjstat();
+            break;
+#endif
+
+
 #endif
         case MPM_IOC_GET_PHONEATTR:
 #if defined(CONFIG_MOT_FEAT_FLIP)
@@ -1836,6 +1886,7 @@ void mpm_start_opstat(void)
 #endif
 }
 
+
 void mpm_stop_opstat(void)
 {
 #ifdef CONFIG_MOT_FEAT_PM_STATS
@@ -1850,6 +1901,285 @@ void mpm_stop_opstat(void)
 }
 
 
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+void mpm_start_pjstat(int mode)
+{
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+    if (pjstat == 1)
+    {
+        /* wakeups collection already started, we only change mode */
+        pjsmod = mode;
+        return;
+    }
+
+    if (mode == 0)
+    {
+        /* collection mode is incorrect */
+        return;
+    }
+
+    if (pjistat_cache == NULL )
+    {
+        pjistat_cache = kmem_cache_create("pjistat",
+            sizeof(mpm_pjist_list_t), 0, SLAB_HWCACHE_ALIGN,
+            NULL, NULL);
+        if (pjistat_cache == NULL )
+        {
+            MPM_DPRINTK("Error creating slab cache \n");
+            return;
+        }
+    }
+    if (pjcstat_cache == NULL )
+    {
+        pjcstat_cache = kmem_cache_create("pjcstat",
+            sizeof(mpm_pjcst_list_t), 0, SLAB_HWCACHE_ALIGN,
+            NULL, NULL);
+        if (pjcstat_cache == NULL )
+        {
+            MPM_DPRINTK("Error creating slab cache \n");
+            return;
+        }
+    }
+
+    pjstat = 1;
+    pjsmod = mode;
+    pjwakeup = 0;
+    pjstime = 0;
+#endif
+}
+
+void mpm_stop_pjstat(void)
+{
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+    if (pjstat == 1)
+    {
+        pjstat = 0;
+        pjsmod = 0;
+        flush_pjlist();
+    }
+#endif
+}
+
+
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+static void update_pjstat(mpm_pjstat_t *pjstat, int waiting)
+{
+    int i = 0;
+    unsigned long ctv = 0;
+    unsigned long duration = 0;
+
+    ctv = rtc_sw_msfromboot();
+
+    if (pjstat->waiting == waiting)
+    {
+        MPM_DPRINTK("The same periodic job run again before done \n");
+        pjstat->cur_time = ctv;
+        return;
+    }
+
+    pjstat->waiting = waiting;
+    if (waiting)
+    {
+        pjstat->cur_time = ctv;
+        return;
+    }
+
+    duration = ctv - pjstat->cur_time;
+    pjstat->cur_time = ctv;
+    pjstat->count ++;
+
+    i = fls(duration);
+    if (i <= 2)
+    {
+        i = 0;
+    }
+    else if (i >= (MAX_BUCKETS + 1))
+    {
+        i = MAX_BUCKETS - 1;
+    }
+    else
+    {
+        i -= 2;
+    }
+
+    if (pjwakeup)
+    {
+        pjstat->wakeuptimes[i] ++;
+        pjwakeup = 0;
+    }
+    pjstat->averageduration[i] = ((pjstat->averageduration[i] * \
+                                   pjstat->durationcount[i]) + \
+                                  duration) / \
+                                 (pjstat->durationcount[i] + 1);
+    pjstat->durationcount[i] ++;
+
+    if (pjstat->maxduration < duration)
+    {
+        pjstat->maxduration = duration;
+    }
+    if (pjstat->minduration > duration)
+    {
+        pjstat->minduration = duration;
+    }
+}
+
+static void
+init_pjstat(mpm_pjstat_t *pjstat, int waiting)
+{
+    int i = 0;
+    unsigned long ctv = 0;
+
+    ctv = rtc_sw_msfromboot();
+
+    pjstat->cur_time = ctv;
+    pjstat->count = 0;
+    pjstat->maxduration = 0;
+    pjstat->minduration = -1;
+    for (i = 0; i < MAX_BUCKETS; i++)
+    {
+        pjstat->averageduration[i] = 0;
+        pjstat->durationcount[i] = 0;
+        pjstat->wakeuptimes[i] = 0;
+    }
+    pjstat->waiting = waiting;
+}
+
+
+static void store_pjist(const unsigned long orig_func, int waiting)
+{
+    mpm_pjist_list_t *pji_node = NULL;
+    static mpm_pjist_list_t *curr_node = NULL;
+
+    pji_node = pji_head;
+    while (pji_node != NULL)
+    {
+        if (pji_node->orig_func == orig_func)
+        {
+            update_pjstat(& (pji_node->pjstat), waiting);
+            break;
+        }
+        pji_node = pji_node->next;
+    }
+
+    if (pji_node == NULL)
+    {
+        pji_node = kmem_cache_alloc(pjistat_cache, GFP_KERNEL);
+        if ( pji_node == NULL )
+        {
+            MPM_DPRINTK("Cache alloc returned NULL \n");
+            return;
+        }
+
+        init_pjstat(& (pji_node->pjstat), waiting);
+        pji_node->orig_func = orig_func;
+        pji_node->next = NULL;
+
+        if ( pji_head == NULL )
+        {
+            /* starting to build the list */
+            pji_head = pji_node;
+            if (pjstime == 0)
+            {
+                pjstime = rtc_sw_msfromboot();
+            }
+        }
+        else
+        {
+            curr_node->next = pji_node;
+        }
+        curr_node = pji_node;
+    }
+}
+
+
+static void store_pjcst(const char *comm, const int pid, int waiting)
+{
+    int commlen = 0;
+    mpm_pjcst_list_t *pjc_node = NULL;
+    static mpm_pjcst_list_t *curr_node = NULL;
+
+    pjc_node = pjc_head;
+    while (pjc_node != NULL)
+    {
+        if (pjc_node->pid == pid)
+        {
+            update_pjstat(& (pjc_node->pjstat), waiting);
+            break;
+        }
+        pjc_node = pjc_node->next;
+    }
+
+    if (pjc_node == NULL)
+    {
+        pjc_node = kmem_cache_alloc(pjcstat_cache, GFP_KERNEL);
+        if ( pjc_node == NULL )
+        {
+            MPM_DPRINTK("Cache alloc returned NULL \n");
+            return;
+        }
+
+        init_pjstat(& (pjc_node->pjstat), waiting);
+        pjc_node->pid = pid;
+        commlen = strlen(comm);
+        if ( commlen > (COMM_SIZE - 1) )
+        {
+            commlen = COMM_SIZE - 1;
+        }
+        memcpy(pjc_node->process_comm, comm, commlen);
+        pjc_node->process_comm[commlen] = '\0';
+        pjc_node->next = NULL;
+
+        if ( pjc_head == NULL )
+        {
+            /* starting to build the list */
+            pjc_head = pjc_node;
+            if (pjstime == 0)
+            {
+                pjstime = rtc_sw_msfromboot();
+            }
+        }
+        else
+        {
+            curr_node->next = pjc_node;
+        }
+        curr_node = pjc_node;
+    }
+}
+
+static void mpm_collect_pj_stat_callback(const unsigned long orig_func,
+                                         const char *comm,
+                                         const int pid)
+{
+    int clpmstat = 0;
+
+    if ( pjstat == 0 || comm == NULL )
+    {
+        return;
+    }
+
+    clpmstat = atomic_read(&mpm_lpm_state);
+
+    if ( pjsmod != 1 && clpmstat == LPM_STATE_AWAKE )
+    {
+        return;
+    }
+
+    if ( orig_func == 0 )
+    {
+        store_pjcst(comm, pid, 0);
+    }
+    else if ( orig_func == 1 )
+    {
+        store_pjcst(comm, pid, 1);
+    }
+    else
+    {
+        store_pjist(orig_func, pid);
+    }
+}
+#endif
+
+#endif
 static int
 mpm_open (struct inode *inode, struct file *filp)
 {
@@ -2242,6 +2572,9 @@ static struct mpm_callback_fns mpm_callback_functions = {
     .resume_from_sleep = mpm_resume_from_sleep_callback,
 #ifdef CONFIG_MOT_FEAT_PM_STATS
     .report_test_point = mpm_report_test_point_callback,
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+    .collect_pj_stat = mpm_collect_pj_stat_callback,
+#endif
 #endif
 };
 
@@ -2253,8 +2586,13 @@ mpm_init (void)
     /*
      * PASS2 and higher.  We no longer support PASS1.
      */
+#ifdef CONFIG_MACH_ARGONLVPHONE
+    valid_op = valid_op_init;
+    num_op = sizeof(valid_op_init)/sizeof(valid_op_init[0]);
+#elif CONFIG_MACH_SCMA11PHONE
     valid_op = valid_op_pass2;
     num_op = sizeof(valid_op_pass2)/sizeof(valid_op_pass2[0]);
+#endif // CONFIG_MACH_ARGONLVPHONE || CONFIG_MACH_SCMA11PHONE
 
     /* register with linux pm subsystem */
     retval = driver_register (&mpm_drv);
@@ -2353,6 +2691,18 @@ mpm_exit (void)
         kmem_cache_destroy(opstat_cache);
         opstat_cache = NULL;
     }
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+    if ( pjistat_cache != NULL )
+    {
+        kmem_cache_destroy(pjistat_cache);
+        pjistat_cache = NULL;
+    }
+    if ( pjcstat_cache != NULL )
+    {
+        kmem_cache_destroy(pjcstat_cache);
+        pjcstat_cache = NULL;
+    }
+#endif
 #endif
     /* clean up sysfs */
     exit_mpm_sysfs();
@@ -2464,6 +2814,28 @@ static void flush_oplist(void)
 
 
 }
+
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+static void flush_pjlist(void)
+{
+    mpm_pjist_list_t *pji_node;
+    mpm_pjcst_list_t *pjc_node;
+
+    while ( pji_head != NULL )
+    {
+        pji_node = pji_head->next;
+        kmem_cache_free(pjistat_cache, pji_head);
+        pji_head = pji_node;
+    }
+    while ( pjc_head != NULL )
+    {
+        pjc_node = pjc_head->next;
+        kmem_cache_free(pjcstat_cache, pjc_head);
+        pjc_head = pjc_node;
+    }
+    pjstime = 0;
+}
+#endif
 #endif
 
 
@@ -2595,6 +2967,186 @@ void mpm_print_opstat(char *buf, int buflen)
     }
 #endif
 }
+
+
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+void mpm_print_pjstat(char *buf, int buflen)
+{
+#ifdef CONFIG_MOT_FEAT_PM_STATS
+    int i = 0;
+    unsigned long totaltime = 0;
+    mpm_pjist_list_t *pji_node;
+    mpm_pjcst_list_t *pjc_node;
+
+    if ( buf == NULL )
+    {
+        MPM_DPRINTK("passed in buffer is NULL \n");
+        return;
+    }
+
+    buf[0] = '\0';
+
+    if ( pji_head == NULL && pjc_head == NULL )
+    {
+        MPM_DPRINTK("Wakeup Stat collection not started \n");
+        return;
+    }
+
+    totaltime = rtc_sw_msfromboot();
+    totaltime = totaltime - pjstime;
+    snprintf(buf, buflen-1, "Periodic job information..." \
+             "\nCollection time: %ld (ms)\n", totaltime);
+    if (! LPM_STATS_ENABLED())
+    {
+        snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                 "Please enable LPM stat to get wakeup_times\n");
+    }
+
+    if ( pji_head == NULL )
+    {
+        snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                "No interrupt source...\n");
+    }
+    else
+    {
+        pji_node = pji_head;
+        while ( pji_node != NULL )
+        {
+            snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                    "\n\norig_func  " \
+                    "total times\tmax duration\tmin duration\n");
+            snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                    "%8x   %d\t\t", pji_node->orig_func, \
+                    pji_node->pjstat.count);
+            if (pji_node->pjstat.count > 0)
+            {
+                snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                        "%lu\t\t%lu\n", \
+                        pji_node->pjstat.maxduration, \
+                        pji_node->pjstat.minduration);
+
+                snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                        "    Count of durations by range: (ms)\n\t" \
+                        "duration:\ttimes:\taverage:  wakeup_times:\n");
+                if (pji_node->pjstat.durationcount[0])
+                {
+                    snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                             "\t%-4d - %-4d\t%d\t%d\t  %d\n", 0, 1<<2, \
+                             pji_node->pjstat.durationcount[0], \
+                             pji_node->pjstat.averageduration[0], \
+                             pji_node->pjstat.wakeuptimes[0]);
+                }
+                for (i = 1; i < MAX_BUCKETS-1; i++)
+                {
+                    if (pji_node->pjstat.durationcount[i])
+                    {
+                        snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                                "\t%-4d - %-4d\t%d\t%d\t  %d\n", 1<<(i+1), 1<<(i+2), \
+                                pji_node->pjstat.durationcount[i], \
+                                pji_node->pjstat.averageduration[i], \
+                                pji_node->pjstat.wakeuptimes[i]);
+                    }
+                }
+                if (pji_node->pjstat.durationcount[i])
+                {
+                    snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                             "\t      > %-4d\t%d\t%d\t  %d\n", 1<<(i+1), \
+                             pji_node->pjstat.durationcount[i], \
+                             pji_node->pjstat.averageduration[i], \
+                             pji_node->pjstat.wakeuptimes[i]);
+                }
+            }
+            else
+            {
+                snprintf(buf+strlen(buf), buflen-strlen(buf)-1, "#\t\t#\n");
+            }
+
+            if (buflen <= strlen(buf))
+            {
+                flush_pjlist();
+                MPM_DPRINTK("Warning: buffer is full \n");
+                return;
+            }
+            pji_node = pji_node->next;
+        }
+    }
+
+    if ( pjc_head == NULL )
+    {
+        snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                "No call back source...\n");
+    }
+    else
+    {
+        pjc_node = pjc_head;
+        while ( pjc_node != NULL )
+        {
+            snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                    "\n\npid\tsource comm\ttotal times\t" \
+                    "max duration\tmin duration\n");
+            snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                    "%d\t%-16s%d\t\t", \
+                    pjc_node->pid, \
+                    pjc_node->process_comm, \
+                    pjc_node->pjstat.count);
+            if (pjc_node->pjstat.count > 0)
+            {
+                snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                        "%lu\t\t%lu\n", \
+                        pjc_node->pjstat.maxduration, \
+                        pjc_node->pjstat.minduration);
+
+                snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                        "    Count of durations by range: (ms)\n\t" \
+                        "duration:\ttimes:\taverage:  wakeup_times:\n");
+                if (pjc_node->pjstat.durationcount[0])
+                {
+                    snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                             "\t%-4d - %-4d\t%d\t%d\t  %d\n", 0, 1<<2, \
+                             pjc_node->pjstat.durationcount[0], \
+                             pjc_node->pjstat.averageduration[0], \
+                             pjc_node->pjstat.wakeuptimes[0]);
+                }
+                for (i = 1; i < MAX_BUCKETS-1; i++)
+                {
+                    if (pjc_node->pjstat.durationcount[i])
+                    {
+                        snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                                "\t%-4d - %-4d\t%d\t%d\t  %d\n", 1<<(i+1), 1<<(i+2), \
+                                pjc_node->pjstat.durationcount[i], \
+                                pjc_node->pjstat.averageduration[i], \
+                                pjc_node->pjstat.wakeuptimes[i]);
+                    }
+                }
+                if (pjc_node->pjstat.durationcount[i])
+                {
+                    snprintf(buf+strlen(buf), buflen-strlen(buf)-1, \
+                             "\t      > %-4d\t%d\t%d\t  %d\n", 1<<(i+1),  \
+                             pjc_node->pjstat.durationcount[i], \
+                             pjc_node->pjstat.averageduration[i], \
+                             pjc_node->pjstat.wakeuptimes[i]);
+                }
+            }
+            else
+            {
+                snprintf(buf+strlen(buf), buflen-strlen(buf)-1, "#\t\t#\n");
+            }
+
+            if (buflen <= strlen(buf))
+            {
+                flush_pjlist();
+                MPM_DPRINTK("Warning: buffer is full \n");
+                return;
+            }
+            pjc_node = pjc_node->next;
+        }
+    }
+    
+    flush_pjlist();
+#endif
+}
+
+#endif
 
 /*
  * This function returns the most recent desense request received by
@@ -2875,6 +3427,11 @@ EXPORT_SYMBOL(mpm_getall_op);
 EXPORT_SYMBOL(mpm_start_opstat);
 EXPORT_SYMBOL(mpm_stop_opstat);
 EXPORT_SYMBOL(mpm_print_opstat);
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+EXPORT_SYMBOL(mpm_start_pjstat);
+EXPORT_SYMBOL(mpm_stop_pjstat);
+EXPORT_SYMBOL(mpm_print_pjstat);
+#endif
 #ifdef CONFIG_MOT_FEAT_PM_STATS
 EXPORT_SYMBOL(mpm_lpm_stat_ctl);
 EXPORT_SYMBOL(mpm_reset_lpm_stats);

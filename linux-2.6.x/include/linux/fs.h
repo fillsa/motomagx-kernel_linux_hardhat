@@ -1,13 +1,17 @@
 /*
- * Copyright 2006-2007 Motorola, Inc
+ * Copyright (C) 2006-2008 Motorola, Inc.
  */
 
 /* Date         Author          Comment
  * ===========  ==============  ==============================================
  * 07-07-2006   Motorola   	Add link from super_block to vfsmount structure 
  * 31-Oct-2006  Motorola        Added inotify
- * 13-Jul-2007  Motorola        Fix the bug about st_ctime, and st_mtime field
+ * 02-27-2007   Motorola        Rename MOT_FEAT_SECURITY_DRM to 
+ *                              MOT_FEAT_FASTPATHNAME
+ * 31-Jan-2007  Motorola        Fix the bug about st_ctime, and st_mtime field
+ * 13-Jul-2007  Motorola        Fix the bug about st_ctime, and st_mtime field in LJ6.3
  *                              of a mapped region, and msync()
+ * 29-Aug-2008  Motorola        Add the posix file lock patch                       
  */
 
 #ifndef _LINUX_FS_H
@@ -711,11 +715,19 @@ extern struct list_head file_lock_list;
 #include <linux/fcntl.h>
 
 extern int fcntl_getlk(struct file *, struct flock __user *);
+#ifdef CONFIG_MOT_FILELOCK_PATCH
+extern int fcntl_setlk(unsigned int, struct file *, unsigned int, struct flock __user *);
+#else
 extern int fcntl_setlk(struct file *, unsigned int, struct flock __user *);
+#endif
 
 #if BITS_PER_LONG == 32
 extern int fcntl_getlk64(struct file *, struct flock64 __user *);
+#ifdef CONFIG_MOT_FILELOCK_PATCH
+extern int fcntl_setlk64(unsigned int, struct file *, unsigned int, struct flock64 __user *);
+#else 
 extern int fcntl_setlk64(struct file *, unsigned int, struct flock64 __user *);
+#endif
 #endif
 
 extern void send_sigio(struct fown_struct *fown, int fd, int band);
@@ -815,7 +827,7 @@ struct super_block {
 	char s_id[32];				/* Informational name */
 
 	void 			*s_fs_info;	/* Filesystem private info */
-#ifdef CONFIG_MOT_FEAT_SECURE_DRM
+#if defined(CONFIG_MOT_FEAT_FASTPATHNAME) || defined(CONFIG_MOT_FEAT_SECURE_DRM)
         struct vfsmount 	*s_vfsmount; /* Used for pathname lookups */
 #endif /* CONFIG_MOT_FEAT_SECURE_DRM */
 

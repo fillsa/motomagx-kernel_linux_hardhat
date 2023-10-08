@@ -496,6 +496,17 @@ config MXC_IPC
 	  This module is called from other modules for
 	  message and data transfers between MCU and DSP (Digital Signal Processor) core.
 
+menu "MXC_IPC Version Options"
+       depends on MXC_IPC
+
+config MXC_IPC_V2
+       bool "Support IPCV2 Driver API "
+       default n
+       help
+         Include support for IPCv2.
+
+endmenu
+
 config MXC_SDMA_TTY
 	tristate "MXC SDMA TTY Driver"
 	depends on ARCH_MXC && MXC_SDMA_API

@@ -49,7 +49,7 @@ static void gpio_signal_fixup_p3aw(void);
 /**
  * Initial GPIO register settings.
  */
-struct gpio_signal_settings initial_gpio_settings[MAX_GPIO_SIGNAL] = {
+struct gpio_signal_description initial_gpio_settings[MAX_GPIO_SIGNAL] = {
     /*
      * SCM-A11 Package Pin Name: U3_RTS_B
      * SCM-A11 Reference P1A Wingboard Signal: GPS_U3_RTS_B (GPS)
@@ -696,7 +696,7 @@ struct iomux_pad_setting iomux_pad_register_settings[IOMUX_PAD_SETTING_COUNT] __
 
 
 /**
- * Update the initial_gpio_settings array based on the board revision. This
+ * Update the initial_gpio_settings(gpio_signal_mapping) array based on the board revision. This
  * function is called by scma11phone_gpio_init() at boot.
  */
 void __init scma11ref_gpio_signal_fixup(void)

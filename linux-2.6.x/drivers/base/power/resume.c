@@ -3,7 +3,7 @@
  *
  * Copyright (c) 2003 Patrick Mochel
  * Copyright (c) 2003 Open Source Development Labs
- * Copyright 2006 Motorola, Inc.
+ * Copyright 2006-2007 Motorola, Inc.
  *
  * This file is released under the GPLv2
  *
@@ -31,6 +31,7 @@
  *
  * Date        Author    Comment
  * 10/04/2006  Motorola  Enhanced debugging support for device suspend/resume.
+ * 04/04/2007  Motorola  Fixed bug in device suspend debug functionality.
  */
 
 #include <linux/device.h>
@@ -77,7 +78,10 @@ void dpm_resume(void)
 #ifdef CONFIG_MOT_FEAT_PM_DEVICE_SUSPEND_DEBUG
         /* If serial was suspended, resume it first */
         if(serial_dev) {
+		get_device(serial_dev);
+		list_add_tail(&serial_dev->power.entry, &dpm_active);
                 resume_device(serial_dev);
+		put_device(serial_dev);                
                 serial_dev = NULL;
         }
 #endif

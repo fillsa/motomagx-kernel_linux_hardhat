@@ -8,12 +8,13 @@
  * Copyright (C) 1999 Hewlett-Packard Co.
  * Copyright (C) 1999 Stephane Eranian <eranian@hpl.hp.com>
  *
- * Copyright 2006 Motorola, Inc.
+ * Copyright (C) 2006-2007 Motorola, Inc.
  * 
  * Date     Author    Comment
  * 10/2006  Motorola  Added the user interface to the RTC Stopwatch driver
  * 11/2006  Motorola  Added kernel interface to RTC Stopwatch driver
  * 12/2006  Motorola  Fixed Power Management usage in RTC Stopwatch driver
+ * 12/2007  Motorola  Added API to get closest RTC timeout
  *
  */
 #ifndef _LINUX_RTC_H_
@@ -263,6 +264,11 @@ unsigned long rtc_sw_task_time_left(rtc_sw_task_t * task);
  * @note this may be called from interrupt context.
  */
 void rtc_sw_task_schedule(unsigned long offset, rtc_sw_task_t * task);
+
+/*!
+ * @return the number of milliseconds left of closest rtc timer.
+ */
+unsigned int rtc_sw_get_closest_timeout(void);
 
 #endif /* __KERNEL__ */
 

@@ -16,6 +16,7 @@
  * 01/2007  Motorola    Added support for configurable IPU memory size.
  * 06/2007  Motorola    Fix to support setting of ADC serial interface bit
  *                      width in ipu driver.
+ * 06/2007  Motorola    Removed lines related HVGA.
  * 08/2007  Motorola    Add comments for oss compliance.
  * 08/2007  Motorola    Add comments.
  * 11/2007  Motorola    Add declaration of a function
@@ -767,6 +768,8 @@ int32_t ipu_adc_write_cmd(display_port_t disp, cmddata_t type,
 			  uint32_t cmd, const uint32_t * params,
 			  uint16_t numParams);
 
+uint32_t ipu_adc_read_cmd(display_port_t disp, uint32_t cmd);
+
 int32_t ipu_adc_init_panel(display_port_t disp,
 			   uint16_t width, uint16_t height,
 			   uint32_t pixel_fmt,
@@ -815,6 +818,11 @@ void ipu_sdc_fg_init(void);
 #ifdef CONFIG_MOT_FEAT_2MP_CAMERA_WRKARND
 void setup_dma_chan_priority(void);
 void restore_dma_chan_priority(void);
+#endif
+
+#if defined(CONFIG_MACH_ARGONLVPHONE)
+void ipu_wake_from_sleep(void);
+void ipu_go_to_sleep(void);
 #endif
 
 #endif

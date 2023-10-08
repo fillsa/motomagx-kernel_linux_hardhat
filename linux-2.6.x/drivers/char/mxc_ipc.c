@@ -20,10 +20,16 @@
  * 01/16/2007    Motorola       No longer panic if BP doesn't respond to MU write
  * 01/25/2007    Motorola       Fix bug: mpm reads pointers when SDMA is closed
  * 02/13/2007    Motorola       Set pointers to NULL when closing mxc_ipc
+ * 03/06/2007    Motorola       Apply FSL IPC changes for WFN487
+ * 04/04/2007    Motorola       Check return values in
+ *                              mu_start_mcu_transfer_kernel
  * 04/20/2007    Motorola       Add SDMA dump ioctl
  * 05/16/2007    Motorola       Changed virtual channels reported in panic
+ * 10/17/2007    Motorola       Edit SDMA dump function to support new ioctl
  * 12/14/2007    Motorola       Edit SDMA dump function to support new ioctl
+ * 01/30/2008    Motorola       Change timeout value to 500
  * 02/04/2008    Motorola       Fix panic issue when multi-open a SDMA channel
+ * 02/15/2008    Motorola       Fixed SDMA and mu channel panic issue
  * 03/17/2008    Motorola       Fix panic issue when multi-open a MU channel
  */
 
@@ -81,7 +87,7 @@
 /* The integration of WFN444 required major reworking to this file. As a 
  * result we are enclosing the entire file in this ifdef, as opposed to
  * ifdef'ing the individual changes related to WFN444. */
-#ifdef CONFIG_MOT_WFN444
+#if defined(CONFIG_MOT_WFN444) // && defined(CONFIG_MOT_WFN487)
 
 #define DEBUG 0
 
@@ -100,7 +106,10 @@
 #define MAX_SDMA_RX_BUF_SIZE           8192
 /*! SDMA transmit buffer maximum size */
 #define MAX_SDMA_TX_BUF_SIZE           8192
-/*! Number of buffers used for SDRAM receive, used by user API */
+/*!
+ * Number of buffers used for SDMA receive, used by user API. This should
+ * be set to a power of 2.
+ */
 #define NUM_RX_SDMA_BUF                16
 /*! Size of each SDMA receive buffer */
 #define SDMA_RX_BUF_SIZE               512
@@ -197,6 +206,8 @@
 #define IPC_WRITE                               0x2
 #define IPC_RDWR                                IPC_READ | IPC_WRITE
 
+#define IPC_DEFAULT_MAX_CTRL_STRUCT_NUM         50
+
 typedef void (*read_callback_t) (HW_CTRL_IPC_READ_STATUS_T *);
 typedef void (*write_callback_t) (HW_CTRL_IPC_WRITE_STATUS_T *);
 typedef void (*notify_callback_t) (HW_CTRL_IPC_NOTIFY_STATUS_T *);
@@ -264,6 +275,8 @@ struct mu_channel {
 
 	/*! MU write buffer */
 	struct circ_buf *wbuf;
+        /*! Number of bytes writen */
+	int bytes_written;
 };
 
 /*!
@@ -298,6 +311,13 @@ struct virtual_channel {
 
 	/*! Current state of the channel */
 	atomic_t state;
+//#if !defined(__KERNEL__) || defined(CONFIG_MOT_WFN487)
+#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487)
+        /*!Added state variables for IPCv2 Read-while -write functionality */
+	atomic_t read_state_ipcv2;
+
+	atomic_t write_state_ipcv2;
+#endif
 
 	/*!
 	 *
@@ -777,7 +797,7 @@ static void mu_write_tasklet_kernel(int chnum)
                 writeStart = jiffies;
                 while (!(readl(AS_MUMSR) & wbits[chnum]))
 		{
-                	if ((jiffies - writeStart) >= 1000)
+                	if ((jiffies - writeStart) >= 500)
 			{
 				if(jiffies < writeStart)
 				{
@@ -965,17 +985,20 @@ static int deallocate_mu_channel(int chnum)
 /*!
  * Start the SDMA read channel accessed from kernel mode
  *
- * @param   ipc_chnl SDMA channel to start
+ * @param   ipc_chnl strcture for channel to start
+ * @param   num_od_bd  number of BD's allocated for the channel
  *
  * @return 0 on succes, negative number if channel does not start
  */
-static int initialize_sdma_read_channel_kernel(int ipc_chnl)
+// 02/15/2008    Motorola       Fixed SDMA and mu channel panic issue
+static int initialize_sdma_read_channel_kernel(struct ipc_channel *ipc_chnl
+					       ,int num_of_bd)
 {
 	struct sdma_channel *read_chnl = NULL;
 	dma_channel_params sdma_params;
 	int result = 0;
 
-	read_chnl = &ipc_channels[ipc_chnl].ch.sdma;
+	read_chnl = &ipc_chnl->ch.sdma;
 
 	memset(&sdma_params, 0, sizeof(dma_channel_params));
 	sdma_params.peripheral_type = DSP;
@@ -983,19 +1006,10 @@ static int initialize_sdma_read_channel_kernel(int ipc_chnl)
 	sdma_params.event_id = 0;
 	sdma_params.callback = NULL;
 	sdma_params.arg = 0;
-	sdma_params.bd_number = 1;
+	sdma_params.bd_number = num_of_bd;
 
 	result = mxc_dma_setup_channel(read_chnl->read_channel, &sdma_params);
-	if (result < 0) {
-		return result;
-	}
 
-	read_chnl->rbuf[0].buf = dma_alloc_coherent(NULL, MAX_SDMA_RX_BUF_SIZE,
-						    &read_chnl->rbuf[0].rpaddr,
-						    GFP_DMA);
-	if (read_chnl->rbuf[0].buf == NULL) {
-		return -ENOMEM;
-	}
 	return result;
 }
 
@@ -1047,6 +1061,9 @@ static int initialize_sdma_read_channel_user(int ipc_chnl)
 			sdma_request.destAddr =
 			    (__u8 *) read_chnl->rbuf[i].rpaddr;
 			sdma_request.bd_cont = 1;
+#ifdef CONFIG_MOT_WFN487
+			sdma_request.bd_intr = 1;
+#endif
 			result = mxc_dma_set_config(read_chnl->read_channel,
 						    &sdma_request, i);
 			if (result != 0) {
@@ -1069,6 +1086,56 @@ static int initialize_sdma_read_channel_user(int ipc_chnl)
 }
 
 /*!
+ * Setup the write channel for user mode and kernel mode
+ *
+ * @param   ipc_chnl      SDMA channel to start
+ * @param   kernel_access flag indicates the access type, 1=kernel mode access.
+ * @param   num_of_bd     number of BD's allocated for the channel
+ *
+ * @return 0 on succes, negative number if channel does not start
+ */
+static int initialize_sdma_write_channel(struct ipc_channel *ipc_chnl,
+					 int kernel_access, int num_of_bd)
+{
+	struct sdma_channel *write_chnl = NULL;
+	dma_channel_params sdma_params;
+	int result = 0;
+
+	write_chnl = &ipc_chnl->ch.sdma;
+	memset(&sdma_params, 0, sizeof(dma_channel_params));
+	sdma_params.peripheral_type = DSP;
+	sdma_params.transfer_type = emi_2_dsp;
+	sdma_params.event_id = 0;
+	sdma_params.callback = NULL;
+	sdma_params.arg = 0;
+	sdma_params.bd_number = num_of_bd;
+
+	result = mxc_dma_setup_channel(write_chnl->write_channel, &sdma_params);
+	if (result < 0) {
+		pr_debug("Failed Setting up SDMA channel %d\n",
+			 write_chnl->write_channel);
+		mxc_free_dma(write_chnl->write_channel);
+		write_chnl->write_channel = -1;
+		return result;
+	}
+
+	/* 
+	 * Allocate the write buffer for user space, used to copy user-space 
+	 * data for DMA.
+	 */
+	if (kernel_access == 0) {
+		write_chnl->wbuf =
+		    dma_alloc_coherent(NULL, MAX_SDMA_TX_BUF_SIZE,
+				       &write_chnl->wpaddr, GFP_DMA);
+		if (write_chnl->wbuf == NULL) {
+			return -ENOMEM;
+		}
+	}
+
+	return 0;
+}
+
+/*!
  * Allocate a SDMA channel
  *
  * @param   ipc_chnl  IPC channel to allocate
@@ -1079,71 +1146,49 @@ static int initialize_sdma_read_channel_user(int ipc_chnl)
  */
 static int allocate_sdma_channel(int ipc_chnl, int chnum, int mode)
 {
-	dma_channel_params sdma_params;
-	struct ipc_channel ipc_num;
 	struct sdma_channel *sdma = NULL;
 	int result = 0;
 
-	ipc_num = ipc_channels[ipc_chnl];
-	sdma = &ipc_channels[ipc_chnl].ch.sdma;
+	int write_channel;
+	int read_channel;
+
 	if (mode == (IPC_RDWR)) {
-		sdma->write_channel = chnum;
-		sdma->read_channel = chnum - 1;
+		write_channel = chnum;
+		read_channel = chnum - 1;
 	} else {
-		sdma->write_channel = -1;
-		sdma->read_channel = chnum;
+		write_channel = -1;
+		read_channel = chnum;
 	}
 
 	if (mode & IPC_WRITE) {
 		result =
-		    mxc_request_dma(&sdma->write_channel, "IPC WRITE SDMA");
+		    mxc_request_dma(&write_channel, "IPC WRITE SDMA");
 		if (result < 0) {
 			DPRINTK("Failed Opening SDMA channel %d\n",
-				sdma->write_channel);
-			if (result != -EBUSY)
-				sdma->write_channel = -1;
-			return result;
-		}
-		memset(&sdma_params, 0, sizeof(dma_channel_params));
-		sdma_params.peripheral_type = DSP;
-		sdma_params.transfer_type = emi_2_dsp;
-		sdma_params.event_id = 0;
-		sdma_params.callback = NULL;
-		sdma_params.arg = 0;
-		sdma_params.bd_number = 1;
-
-		result =
-		    mxc_dma_setup_channel(sdma->write_channel, &sdma_params);
-		if (result < 0) {
-			DPRINTK("Failed Setting up SDMA channel %d\n",
-				sdma->write_channel);
-			mxc_free_dma(sdma->write_channel);
-			sdma->write_channel = -1;
+				write_channel);
 			return result;
 		}
 	}
 
 	if (mode & IPC_READ) {
-		result = mxc_request_dma(&sdma->read_channel, "IPC READ SDMA");
+		result = mxc_request_dma(&read_channel, "IPC READ SDMA");
 		if (result < 0) {
 			DPRINTK("Failed Opening SDMA channel %d\n",
-				sdma->read_channel);
-			if(result != -EBUSY)
-				sdma->read_channel = -1;
+				read_channel);
 			if (mode & IPC_WRITE) {
-				mxc_free_dma(sdma->write_channel);
-				sdma->write_channel = -1;
+				mxc_free_dma(write_channel);
 			}
 			return result;
 		}
 	}
 
 	spin_lock_init(&ipc_channels[ipc_chnl].channel_lock);
-	sdma->wbuf = dma_alloc_coherent(NULL, MAX_SDMA_TX_BUF_SIZE,
-					&sdma->wpaddr, GFP_DMA);
-	if (sdma->wbuf == NULL) {
-		return -ENOMEM;
-	}
+
+	sdma = &ipc_channels[ipc_chnl].ch.sdma;
+
+	sdma->write_channel = write_channel;
+	sdma->read_channel = read_channel;
+
 	return result;
 }
 
@@ -1382,9 +1427,25 @@ static int mu_start_mcu_transfer(struct ipc_priv_data *priv,
  */
 static int mu_start_mcu_transfer_kernel(struct mu_channel *mu)
 {
+#ifdef CONFIG_MOT_FEAT_PM
+	int retval;
+#endif
 	DPRINTK("writing bytes to DSP (Digital Signal Processor)\n");
+#ifdef CONFIG_MOT_FEAT_PM
+	retval = mxc_mu_bind(mu->index, &mu_write_tasklet_kernel, TX);
+
+        if(retval < 0) {
+            return retval;
+        }
+	retval = mxc_mu_intenable(mu->index, TX);
+        if(retval < 0) {
+            mxc_mu_unbind(mu->index, TX);
+            return retval;
+        }
+#else
 	mxc_mu_bind(mu->index, &mu_write_tasklet_kernel, TX);
 	mxc_mu_intenable(mu->index, TX);
+#endif
 
 	return 0;
 }
@@ -1447,17 +1508,48 @@ static void sdma_kernel_writecb(void *args)
 	DPRINTK("Called SDMA write callback %d\n", priv->write_count);
 }
 
+//#if !defined(__KERNEL__) || defined(CONFIG_MOT_WFN487)
+#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487)
+/*!
+ * This function is called by the SDMA's ISR whenever a MCU->DSP
+ * transfer has finished. This callback is used whenever a
+ * kernel module requests a transfer.
+ *
+ * @param    args       points to a priv structure. This structure contains
+ *                      fields to synchronize the IPC channel and the top half
+ *
+ * @return              None
+ */
+static void sdma_kernel_writecb_ipcv2(void *args)
+{
+	struct ipc_priv_data *priv = NULL;
+	struct sdma_channel *sdma = NULL;
+
+	priv = (struct ipc_priv_data *)args;
+	sdma = &priv->vc->ipc->ch.sdma;
+
+	priv->write_count = 0;
+
+	atomic_set(&priv->vc->write_state_ipcv2, CHANNEL_OPEN);
+
+	tasklet_schedule(&sdma->write_tasklet);
+	pr_debug("Called SDMA write callback\n");
+}
+#endif
+
 /*!
  * This function starts a MCU->DSP transfer requested by a kernel module.
  * This transfer uses a SDMA channel.
  *
  * @param    ipc_chn    IPC channel data structure
  * @param    count      number of bytes to be transferred
+ * @param    buff_id    buffer descriptor number
+ * @param    is_last    indicates if this is the last buffer
  *
  * @return              Zero
  */
 static int sdma_start_mcu_transfer_kernel(struct ipc_channel *ipc_chn,
-					  int count)
+					  int count, int buff_id, int is_last)
 {
 	dma_request_t sdma_request;
 	struct sdma_channel *sdma = NULL;
@@ -1469,11 +1561,16 @@ static int sdma_start_mcu_transfer_kernel(struct ipc_channel *ipc_chn,
 
 	sdma_request.sourceAddr = (__u8 *) sdma->wpaddr;
 	sdma_request.count = count;
+	sdma_request.bd_cont = 1;
+	if (is_last == 1) {
+		sdma_request.bd_wrap = 1;
+		sdma_request.bd_intr = 1;
+	} else {
+		sdma_request.bd_wrap = 0;
+		sdma_request.bd_intr = 0;
+	}
 
-	mxc_dma_set_callback(sdma->write_channel, sdma_kernel_writecb,
-			     ipc_chn->priv);
-	mxc_dma_set_config(sdma->write_channel, &sdma_request, 0);
-	mxc_dma_start(sdma->write_channel);
+	mxc_dma_set_config(sdma->write_channel, &sdma_request, buff_id);
 
 	return 0;
 }
@@ -1550,6 +1647,7 @@ static int sdma_start_mcu_transfer(struct ipc_priv_data *priv,
 
 	sdma_request.sourceAddr = (__u8 *) sdma->wpaddr;
 	sdma_request.count = count;
+	sdma_request.bd_intr = 1;
 
 	mxc_dma_set_callback(sdma->write_channel, sdma_user_writecb, priv);
 	mxc_dma_set_config(sdma->write_channel, &sdma_request, 0);
@@ -1581,13 +1679,40 @@ static void sdma_kernel_readcb(void *args)
 
 	priv->read_count = sdma_request.count;
 
-	memcpy(priv->vc->data, sdma->rbuf[0].buf, priv->read_count);
-
 	atomic_set(&priv->vc->state, CHANNEL_OPEN);
 
 	tasklet_schedule(&sdma->read_tasklet);
 	DPRINTK("Called SDMA read callback %d\n", priv->read_count);
 }
+
+//#if !defined(__KERNEL__) || defined(CONFIG_MOT_WFN487)
+#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487)
+/*!
+ * This function is called by the SDMA ISR whenever a DSP->MCU
+ * transfer has finished. This callback is used whenever a
+ * kernel module requests a transfer.
+ *
+ * @param    args       points to a priv structure. This structure contains
+ *                      fields to synchronize the IPC channel and the top half
+ *
+ * @return              None
+ */
+static void sdma_kernel_readcb_ipcv2(void *args)
+{
+	struct ipc_priv_data *priv;
+	struct sdma_channel *sdma = NULL;
+
+	priv = (struct ipc_priv_data *)args;
+	sdma = &priv->vc->ipc->ch.sdma;
+
+	priv->read_count = 0;
+
+	atomic_set(&priv->vc->read_state_ipcv2, CHANNEL_OPEN);
+
+	tasklet_schedule(&sdma->read_tasklet);
+	DPRINTK("Called SDMA read callback %d\n", priv->read_count);
+}
+#endif /* CONFIG_MXC_IPC_V2 */
 
 /*!
  * This function starts a DSP->MCU transfer requested by a kernel module.
@@ -1614,8 +1739,10 @@ static int sdma_start_dsp_transfer_kernel(struct ipc_priv_data *priv,
 
 	DPRINTK("writing %d bytes to DSP\n", count);
 
-	sdma_request.destAddr = (__u8 *) sdma->rbuf[0].rpaddr;
+	sdma_request.destAddr = buf;
 	sdma_request.count = count;
+	sdma_request.bd_intr = 1;
+	sdma_request.bd_wrap = 1;
 
 	mxc_dma_set_callback(sdma->read_channel, sdma_kernel_readcb, priv);
 	mxc_dma_set_config(sdma->read_channel, &sdma_request, 0);
@@ -1726,6 +1853,7 @@ static int mxc_ipc_copy_from_sdmabuf(struct sdma_channel *sdma, char *buf,
 			sdma_request.destAddr =
 			    (__u8 *) sdma->rbuf[sdma->rbuf_tail].rpaddr;
 			sdma_request.bd_cont = 1;
+			sdma_request.bd_intr = 1;
 			result = mxc_dma_set_config(sdma->read_channel,
 						    &sdma_request,
 						    sdma->rbuf_tail);
@@ -1851,6 +1979,7 @@ static int allocate_virtual_channel(unsigned short index,
         memset(k_callbacks, 0, sizeof(struct kernel_callbacks));
         
 	wcallback = config->write_callback;
+	priv->vc = &virtual_channels[index];
 
 	switch (config->type) {
 	case HW_CTRL_IPC_SHORT_MSG:
@@ -1861,6 +1990,7 @@ static int allocate_virtual_channel(unsigned short index,
 		}
 
 		pchannel = config->index;
+		priv->vc->ipc = &ipc_channels[pchannel];
 		ret = allocate_mu_channel(pchannel);
 		if (ret < 0) {
 			kfree(priv);
@@ -1881,13 +2011,21 @@ static int allocate_virtual_channel(unsigned short index,
 			pchannel = PACKET_DATA_CHANNEL1;
 			sdma_chnl = PACKET_DATA1_SDMA_WR_CHNL;
 		}
+		priv->vc->ipc = &ipc_channels[pchannel];
 		ret = allocate_sdma_channel(pchannel, sdma_chnl, IPC_RDWR);
+		if (ret < 0) {
+			kfree(priv);
+			kfree(k_callbacks);
+			return ret;
+		}
+		ret = initialize_sdma_write_channel(priv->vc->ipc, 1, IPC_DEFAULT_MAX_CTRL_STRUCT_NUM);
 		if (ret == 0) {
-			ret = initialize_sdma_read_channel_kernel(pchannel);
+			ret =
+			    initialize_sdma_read_channel_kernel(priv->vc->ipc,
+								IPC_DEFAULT_MAX_CTRL_STRUCT_NUM);
 		}
 		if (ret < 0) {
 			deallocate_sdma_channel(pchannel);
-			mxc_ipc_free_readbuf_kernel(pchannel);
 			kfree(priv);
 			kfree(k_callbacks);
 			return ret;
@@ -1913,13 +2051,16 @@ static int allocate_virtual_channel(unsigned short index,
 			pchannel = LOGGING_CHANNEL3;
 			sdma_chnl = LOG3_SDMA_RD_CHNL;
 		}
+		priv->vc->ipc = &ipc_channels[pchannel];
 		ret = allocate_sdma_channel(pchannel, sdma_chnl, IPC_READ);
-		if (ret == 0) {
-			ret = initialize_sdma_read_channel_kernel(pchannel);
+		if (ret < 0) {
+			kfree(priv);
+			kfree(k_callbacks);
+			return ret;
 		}
+		ret = initialize_sdma_read_channel_kernel(priv->vc->ipc, IPC_DEFAULT_MAX_CTRL_STRUCT_NUM);
 		if (ret < 0) {
 			deallocate_sdma_channel(pchannel);
-			mxc_ipc_free_readbuf_kernel(pchannel);
 			kfree(priv);
 			kfree(k_callbacks);
 			return ret;
@@ -1932,7 +2073,6 @@ static int allocate_virtual_channel(unsigned short index,
 		return -1;
 	}
 
-	priv->vc = &virtual_channels[index];
 	atomic_set(&priv->vc->state, CHANNEL_OPEN);
 
 	k_callbacks->write = wcallback;
@@ -1946,7 +2086,6 @@ static int allocate_virtual_channel(unsigned short index,
 	priv->read_count = 0;
 	priv->write_count = 0;
 
-	priv->vc->ipc = &ipc_channels[pchannel];
 	priv->vc->ipc->priv = (void *)priv;
 	priv->k_callbacks = k_callbacks;
 
@@ -2042,6 +2181,11 @@ HW_CTRL_IPC_CHANNEL_T *hw_ctrl_ipc_open(const HW_CTRL_IPC_OPEN_T * config)
 
 	v = &virtual_channels[channel_nb];
 	atomic_set(&v->state, CHANNEL_OPEN);
+#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487) //  11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
+         /*! set state to open for read-while-write IPcv2 functionality */
+	atomic_set(&v->read_state_ipcv2, CHANNEL_OPEN);
+	atomic_set(&v->write_state_ipcv2, CHANNEL_OPEN);
+#endif
 
 	channel = &channel_handlers[channel_nb];
 
@@ -2093,7 +2237,12 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_close(HW_CTRL_IPC_CHANNEL_T * channel)
 
 	channel_nb = channel->channel_nb;
 	v = &virtual_channels[channel_nb];
-	if (atomic_read(&v->state) == CHANNEL_CLOSED) {
+	if (atomic_read(&v->state) == CHANNEL_CLOSED
+#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487) //  11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
+	     || atomic_read(&v->read_state_ipcv2) == CHANNEL_CLOSED ||
+	    atomic_read(&v->write_state_ipcv2) == CHANNEL_CLOSED
+#endif
+	) {
 		return HW_CTRL_IPC_STATUS_OK;
 	}
 
@@ -2113,7 +2262,6 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_close(HW_CTRL_IPC_CHANNEL_T * channel)
 
 	if (v->ipc->priv->pchannel > 3) {
 		deallocate_sdma_channel(v->ipc->priv->pchannel);
-		mxc_ipc_free_readbuf_kernel(v->ipc->priv->pchannel);
 	} else {
 		deallocate_mu_channel(v->ipc->priv->pchannel);
 	}
@@ -2124,6 +2272,10 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_close(HW_CTRL_IPC_CHANNEL_T * channel)
 	kfree(priv);
 	unlock_virtual_channel(channel_nb);
 	atomic_set(&v->state, CHANNEL_CLOSED);
+#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487) //  11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
+        atomic_set(&v->read_state_ipcv2, CHANNEL_CLOSED);
+	atomic_set(&v->write_state_ipcv2, CHANNEL_CLOSED);
+#endif
 
 	DPRINTK("Virtual channel %d closed\n", channel_nb);
 
@@ -2135,7 +2287,7 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_close(HW_CTRL_IPC_CHANNEL_T * channel)
  * modules. POSIX implementation of the IPC Driver also calls it.
  *
  * @param channel       handler to the virtual channel where read has been requested
- * @param buf           buffer to store data read from the channel.
+ * @param buf           physical address of DMA'able read buffer to store data read from the channel.
  * @param nb_bytes      size of the buffer
  *
  * @return              returns HW_CTRL_IPC_STATUS_OK on success, an error code
@@ -2182,9 +2334,6 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_read(HW_CTRL_IPC_CHANNEL_T * channel,
 	if (v->ipc->priv->pchannel > 3) {
 		struct sdma_channel *sdma_chnl;
 		sdma_chnl = &v->ipc->ch.sdma;
-		if (nb_bytes > MAX_SDMA_RX_BUF_SIZE) {
-			nb_bytes = MAX_SDMA_RX_BUF_SIZE;
-		}
 		status =
 		    sdma_start_dsp_transfer_kernel(v->ipc->priv, nb_bytes, buf);
 	} else {
@@ -2201,7 +2350,7 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_read(HW_CTRL_IPC_CHANNEL_T * channel,
  * modules. POSIX implementation of the IPC Driver also calls it.
  *
  * @param channel       handler to the virtual channel where read has been requested.
- * @param buf           buffer containing data t be written on the channel.
+ * @param buf           physical address of DMA'able write buffer containing data t be written on the channel.
  * @param nb_bytes      size of the buffer
  *
  * @return              returns HW_CTRL_IPC_STATUS_OK on success, an error code
@@ -2216,6 +2365,9 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_write(HW_CTRL_IPC_CHANNEL_T * channel,
 	struct mu_channel *mu_chnl;
 	int status = 0;
 	int channel_nb;
+#ifdef CONFIG_MOT_FEAT_PM
+        int prev_state;
+#endif
 
 	if (is_channel_handler_valid(channel) == 0) {
 		return HW_CTRL_IPC_STATUS_ERROR;
@@ -2233,6 +2385,9 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_write(HW_CTRL_IPC_CHANNEL_T * channel,
 	}
 
 	status = atomic_read(&v->state);
+#ifdef CONFIG_MOT_FEAT_PM
+        prev_state = status;
+#endif
 
 	if (status == CHANNEL_CLOSED) {
 		unlock_virtual_channel(channel_nb);
@@ -2250,16 +2405,13 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_write(HW_CTRL_IPC_CHANNEL_T * channel,
 
 	if (v->ipc->priv->pchannel > 3) {
 		sdma_chnl = &v->ipc->ch.sdma;
-		if (nb_bytes > MAX_SDMA_TX_BUF_SIZE) {
-			nb_bytes = MAX_SDMA_TX_BUF_SIZE;
-		}
-		memcpy(sdma_chnl->wbuf, buf, nb_bytes);
-		status = sdma_start_mcu_transfer_kernel(v->ipc, nb_bytes);
+		sdma_chnl->wpaddr = (dma_addr_t) buf;
+		status = sdma_start_mcu_transfer_kernel(v->ipc, nb_bytes, 0, 1);
+		mxc_dma_set_callback(sdma_chnl->write_channel,
+				     sdma_kernel_writecb, v->ipc->priv);
+		mxc_dma_start(sdma_chnl->write_channel);
 	} else {
 		mu_chnl = &v->ipc->ch.mu;
-		if (nb_bytes > MAX_MU_BUF_SIZE) {
-			nb_bytes = MAX_MU_BUF_SIZE;
-		}
 		memcpy(mu_chnl->wbuf->buf, buf, nb_bytes);
 		v->ipc->priv->write_count = nb_bytes;
 		status = mu_start_mcu_transfer_kernel(mu_chnl);
@@ -2269,7 +2421,18 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_write(HW_CTRL_IPC_CHANNEL_T * channel,
 		channel_nb);
 
 	unlock_virtual_channel(channel_nb);
+
+#ifdef CONFIG_MOT_FEAT_PM
+        if(status == 0) {
+            return HW_CTRL_IPC_STATUS_OK;
+        }
+        else {
+            atomic_set(&v->state, prev_state);
+            return HW_CTRL_IPC_STATUS_ERROR;
+        }
+#else
 	return (status == 0) ? HW_CTRL_IPC_STATUS_OK : HW_CTRL_IPC_STATUS_ERROR;
+#endif
 }
 
 /*!
@@ -2278,7 +2441,8 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_write(HW_CTRL_IPC_CHANNEL_T * channel,
  *
  * @param channel       handler to the virtual channel where read has
  *                      been requested.
- * @param mem_ptr       pointer of type HW_CTRL_IPC_WRITE_PARAMS_T.
+ * @param mem_ptr       pointer of type HW_CTRL_IPC_WRITE_PARAMS_T.Each element 
+ *                      points to the physical address of a DMA'able buffer
  *
  * @return              returns HW_CTRL_IPC_STATUS_OK on success, an error code
  *                      otherwise.
@@ -2288,12 +2452,9 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_write_ex(HW_CTRL_IPC_CHANNEL_T * channel,
 {
 	struct virtual_channel *v;
 	struct sdma_channel *sdma_chnl = NULL;
-	struct mu_channel *mu_chnl = NULL;
 	int status = 0;
 	int channel_nb;
-	int calc_len = 0;
-	unsigned int length = 0;
-	char *buf;
+	int buf_num = 0;
 	HW_CTRL_IPC_LINKED_LIST_T *elt_ptr;
 
 	if (is_channel_handler_valid(channel) == 0) {
@@ -2303,25 +2464,6 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_write_ex(HW_CTRL_IPC_CHANNEL_T * channel,
 	channel_nb = channel->channel_nb;
 
 	v = &virtual_channels[channel_nb];
-
-	/* Check the validity of the buffers passed in */
-	if (mem_ptr->ipc_memory_read_mode == HW_CTRL_IPC_MODE_CONTIGUOUS) {
-		length = mem_ptr->read.cont_ptr->length;
-		if ((mem_ptr->read.cont_ptr->data_ptr == NULL)
-		    || (length <= 0)) {
-			return HW_CTRL_IPC_STATUS_ERROR;
-		}
-	} else {
-		elt_ptr = mem_ptr->read.list_ptr;
-		while (elt_ptr != NULL) {
-			if ((elt_ptr->data_ptr == NULL)
-			    || (elt_ptr->length <= 0)) {
-				return HW_CTRL_IPC_STATUS_ERROR;
-			}
-			length += elt_ptr->length;
-			elt_ptr = elt_ptr->next;
-		}
-	}
 
 	if (lock_virtual_channel(channel_nb)) {
 		return HW_CTRL_IPC_STATUS_ERROR;
@@ -2339,54 +2481,187 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_write_ex(HW_CTRL_IPC_CHANNEL_T * channel,
 		return HW_CTRL_IPC_STATUS_WRITE_ON_GOING;
 	}
 
-	if (v->ipc->priv->pchannel > 3) {
-		sdma_chnl = &v->ipc->ch.sdma;
-		if (length > MAX_SDMA_TX_BUF_SIZE) {
-			length = MAX_SDMA_TX_BUF_SIZE;
-		}
-		buf = sdma_chnl->wbuf;
-	} else {
-		mu_chnl = &v->ipc->ch.mu;
-		/* Copy as much as possible */
-		if (length > MAX_MU_BUF_SIZE) {
-			length = MAX_MU_BUF_SIZE;
-		}
-		buf = mu_chnl->wbuf->buf;
-	}
-
 	atomic_set(&v->state, CHANNEL_WRITE_ONGOING);
 
+	sdma_chnl = &v->ipc->ch.sdma;
 	v->ipc->priv->write_count = 0;
 
 	if (mem_ptr->ipc_memory_read_mode == HW_CTRL_IPC_MODE_CONTIGUOUS) {
-		memcpy(buf, mem_ptr->read.cont_ptr->data_ptr, length);
+		sdma_chnl->wpaddr =
+		    (dma_addr_t) mem_ptr->read.cont_ptr->data_ptr;
+		status =
+		    sdma_start_mcu_transfer_kernel(v->ipc,
+						   mem_ptr->read.cont_ptr->
+						   length, buf_num, 1);
 	} else {
-		calc_len = 0;
 		elt_ptr = mem_ptr->read.list_ptr;
 		while (elt_ptr != NULL) {
-			if ((calc_len + elt_ptr->length) > length) {
-				break;
+			sdma_chnl->wpaddr = (dma_addr_t) elt_ptr->data_ptr;
+			if (elt_ptr->next == NULL) {
+				status =
+				    sdma_start_mcu_transfer_kernel(v->ipc,
+								   elt_ptr->
+								   length,
+								   buf_num, 1);
+			} else {
+				status =
+				    sdma_start_mcu_transfer_kernel(v->ipc,
+								   elt_ptr->
+								   length,
+								   buf_num, 0);
 			}
-			memcpy(buf + calc_len, elt_ptr->data_ptr,
-			       elt_ptr->length);
-			calc_len += elt_ptr->length;
 			elt_ptr = elt_ptr->next;
+			buf_num++;
 		}
-		length = calc_len;
 	}
-
-	if (v->ipc->priv->pchannel > 3) {
-		status = sdma_start_mcu_transfer_kernel(v->ipc, length);
-	} else {
-		v->ipc->priv->write_count = length;
-		status = mu_start_mcu_transfer_kernel(mu_chnl);
-	}
+	mxc_dma_set_callback(sdma_chnl->write_channel, sdma_kernel_writecb,
+			     v->ipc->priv);
+	mxc_dma_start(sdma_chnl->write_channel);
 	DPRINTK("transferred %d bytes on virtual channel %d\n",
 		length, channel_nb);
 
 	unlock_virtual_channel(channel_nb);
 	return (status == 0) ? HW_CTRL_IPC_STATUS_OK : HW_CTRL_IPC_STATUS_ERROR;
 }
+
+//#if !defined(__KERNEL__) || defined(CONFIG_MOT_WFN487)
+#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487) //  11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
+/*!
+ * Used to set various channel parameters
+ *
+ * @param channel handler to the virtual channel where read has
+ *                been requested.
+ * @param action  IPC driver control action to perform.
+ * @param param   parameters required to complete the requested action
+ */
+HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_ioctl(HW_CTRL_IPC_CHANNEL_T * channel,
+				       HW_CTRL_IPC_IOCTL_ACTION_T action,
+				       void *param)
+{
+	struct virtual_channel *v;
+	struct sdma_channel *sdma_chnl = NULL;
+
+	if (is_channel_handler_valid(channel) == 0) {
+		return HW_CTRL_IPC_STATUS_ERROR;
+	}
+
+	v = &virtual_channels[channel->channel_nb];
+	switch (action) {
+	case HW_CTRL_IPC_SET_READ_CALLBACK:
+		v->ipc->priv->k_callbacks->read = param;
+		break;
+	case HW_CTRL_IPC_SET_WRITE_CALLBACK:
+		v->ipc->priv->k_callbacks->write = param;
+		break;
+	case HW_CTRL_IPC_SET_NOTIFY_CALLBACK:
+		v->ipc->priv->k_callbacks->notify = param;
+		break;
+	case HW_CTRL_IPC_SET_MAX_CTRL_STRUCT_NB:
+		sdma_chnl = &v->ipc->ch.sdma;
+		initialize_sdma_read_channel_kernel(v->ipc, (int)param);
+		if (sdma_chnl->write_channel != -1) {
+			initialize_sdma_write_channel(v->ipc, 1, (int)param);
+		}
+		break;
+	default:
+		return HW_CTRL_IPC_STATUS_ERROR;
+	}
+
+	return HW_CTRL_IPC_STATUS_OK;
+}
+
+/*!
+ * This function is a variant on the write() function, and is used to send a
+ * group of frames made of various pieces each to the IPC driver.
+ * It is mandatory to allow high throughput on IPC while minimizing the time
+ * spent in the drivers / interrupts.
+ *
+ * @param channel       handler to the virtual channel where read has
+ *                      been requested.
+ * @param ctrl_ptr      Pointer on the control structure.
+ *
+ * @return              returns HW_CTRL_IPC_STATUS_OK on success, an error code
+ *                      otherwise.
+ */
+HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_write_ex2(HW_CTRL_IPC_CHANNEL_T * channel,
+					   HW_CTRL_IPC_DATA_NODE_DESCRIPTOR_T *
+					   ctrl_ptr)
+{
+	int status = 0;
+	struct virtual_channel *v;
+	struct sdma_channel *sdma_chnl = NULL;
+
+         int channel_nb;
+
+	channel_nb = channel->channel_nb;
+
+	v = &virtual_channels[channel_nb];
+
+	status = atomic_read(&v->write_state_ipcv2);
+	if (status == CHANNEL_WRITE_ONGOING) {
+
+		return HW_CTRL_IPC_STATUS_WRITE_ON_GOING;
+	}
+
+	if (status == CHANNEL_CLOSED) {
+
+		return HW_CTRL_IPC_STATUS_CHANNEL_UNAVAILABLE;
+	}
+
+	atomic_set(&v->write_state_ipcv2, CHANNEL_WRITE_ONGOING);
+
+	v = &virtual_channels[channel->channel_nb];
+	sdma_chnl = &v->ipc->ch.sdma;
+	mxc_dma_set_callback(sdma_chnl->write_channel,
+			     sdma_kernel_writecb_ipcv2, v->ipc->priv);
+	status = mxc_sdma_write_ipcv2(sdma_chnl->write_channel, ctrl_ptr);
+	return (status == 0) ? HW_CTRL_IPC_STATUS_OK : HW_CTRL_IPC_STATUS_ERROR;
+}
+
+/*!
+ * This function is used to give a set of buffers to the IPC and enable data
+ * transfers.
+ *
+ * @param channel       handler to the virtual channel where read has
+ *                      been requested.
+ * @param ctrl_ptr      Pointer on the control structure.
+ *
+ * @return              returns HW_CTRL_IPC_STATUS_OK on success, an error code
+ *                      otherwise.
+ */
+HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_read_ex2(HW_CTRL_IPC_CHANNEL_T * channel,
+					  HW_CTRL_IPC_DATA_NODE_DESCRIPTOR_T *
+					  ctrl_ptr)
+{
+	int status = 0;
+	struct virtual_channel *v;
+	struct sdma_channel *sdma_chnl = NULL;
+
+	int channel_nb;
+
+	channel_nb = channel->channel_nb;
+
+	v = &virtual_channels[channel_nb];
+
+	status = atomic_read(&v->read_state_ipcv2);
+	if (status == CHANNEL_READ_ONGOING) {
+
+		return HW_CTRL_IPC_STATUS_READ_ON_GOING;
+	}
+
+	if (status == CHANNEL_CLOSED) {
+		return HW_CTRL_IPC_STATUS_CHANNEL_UNAVAILABLE;
+	}
+
+	atomic_set(&v->read_state_ipcv2, CHANNEL_READ_ONGOING);
+	v = &virtual_channels[channel->channel_nb];
+	sdma_chnl = &v->ipc->ch.sdma;
+	mxc_dma_set_callback(sdma_chnl->read_channel, sdma_kernel_readcb_ipcv2,
+			     v->ipc->priv);
+	status = mxc_sdma_read_ipcv2(sdma_chnl->read_channel, ctrl_ptr);
+	return (status == 0) ? HW_CTRL_IPC_STATUS_OK : HW_CTRL_IPC_STATUS_ERROR;
+}
+#endif /* CONFIG_MXC_IPC_V2 */
 
 /*!
  * This function is called when an IPC channel is opened. This function does
@@ -2425,14 +2700,14 @@ static int mxc_ipc_open(struct inode *inode, struct file *file)
 	}
 
         memset(priv, 0, sizeof(struct ipc_priv_data));
+	priv->vc = &virtual_channels[vch_index];
         
 	if (minor < 3) {
 		/* Allocate MU channel */
 		ipc_chnl = minor;
+		priv->vc->ipc = &ipc_channels[ipc_chnl];
 		ret = allocate_mu_channel(ipc_chnl);
 		if (ret < 0) {
-                        if (ret != -EBUSY)
-				deallocate_mu_channel(ipc_chnl);
 			kfree(priv);
 			unlock_virtual_channel(vch_index);
 			return ret;
@@ -2455,16 +2730,24 @@ static int mxc_ipc_open(struct inode *inode, struct file *file)
 		ret = allocate_sdma_channel(ipc_chnl, sdma_chnl, mode);
 
 		if (ret < 0) {
-			if (ret != -EBUSY) 
-				deallocate_sdma_channel(ipc_chnl);
 			kfree(priv);
 			unlock_virtual_channel(vch_index);
 			return ret;
 		}
+		priv->vc->ipc = &ipc_channels[ipc_chnl];
+		if (mode & IPC_WRITE) {
+			ret =
+			    initialize_sdma_write_channel(priv->vc->ipc, 0, 1);
+			if (ret < 0) {
+				deallocate_sdma_channel(ipc_chnl);
+				kfree(priv);
+				unlock_virtual_channel(vch_index);
+				return ret;
+			}
+		}
 	}
 
 	atomic_set(&priv->blockmode, ((file->f_flags & (O_NONBLOCK)) ? 0 : 1));
-	priv->vc = &virtual_channels[vch_index];
 	priv->vchannel = vch_index;
 	priv->pchannel = ipc_chnl;
 	priv->owner = current;
@@ -2472,7 +2755,6 @@ static int mxc_ipc_open(struct inode *inode, struct file *file)
 	init_waitqueue_head(&priv->wq);
 	init_waitqueue_head(&priv->rq);
 
-	priv->vc->ipc = &ipc_channels[priv->pchannel];
 	priv->vc->ipc->priv = (void *)priv;
 
 	/* Start the SDMA read channel */
@@ -2552,7 +2834,6 @@ static int mxc_ipc_close(struct inode *inode, struct file *file)
 			}
 		}
 		deallocate_mu_channel(priv->pchannel);
-		;
 	} else {
 		struct sdma_channel *sdma = NULL;
 		sdma = &priv->vc->ipc->ch.sdma;
@@ -2788,7 +3069,10 @@ static ssize_t mxc_ipc_read(struct file *file, char *buf,
 	}
 
 	if (minor > 2) {
-		count = sdma_start_dsp_transfer(priv, bytes, buf);
+		struct sdma_channel *sdma = NULL;
+		sdma = &priv->vc->ipc->ch.sdma;
+
+		count = mxc_ipc_copy_from_sdmabuf(sdma, buf, bytes);
 	} else {
 		count = mu_start_dsp_transfer(priv, bytes, buf);
 	}
@@ -3019,7 +3303,7 @@ int __init ipc_init_module(void)
 		channel_handlers[i].channel_nb = i;
 	}
 
-	printk("IPC driver successfully loaded.\n");
+	printk(KERN_INFO "IPC driver successfully loaded.\n");
 	return major_num;
 
       err_out:
@@ -3043,6 +3327,11 @@ EXPORT_SYMBOL(hw_ctrl_ipc_write_ex);
 #ifdef CONFIG_MOT_FEAT_PM
 EXPORT_SYMBOL(mxc_ipc_datalog_transfer_ongoing);
 #endif
-#else
-#error UNSUPPORTED IPC CONFIGURATION
+#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487) //  11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
+EXPORT_SYMBOL(hw_ctrl_ipc_write_ex2);
+EXPORT_SYMBOL(hw_ctrl_ipc_read_ex2);
+EXPORT_SYMBOL(hw_ctrl_ipc_ioctl);
 #endif
+#else /* if defined(CONFIG_MOT_WFN444) && defined(CONFIG_MOT_WFN487) */
+#error UNSUPPORTED IPC CONFIGURATION
+#endif /* if defined(CONFIG_MOT_WFN444) && defined(CONFIG_MOT_WFN487) */

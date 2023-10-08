@@ -1,6 +1,6 @@
 /* aplogger_hook - Hooks to allow manipulation of various system calls
  *
- * Copyright 2006, 2007 Motorola, Inc.
+ * Copyright (C) 2006, 2007 Motorola, Inc.
  *
  */
 

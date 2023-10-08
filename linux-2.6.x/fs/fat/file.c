@@ -1,7 +1,7 @@
 /*
  *  linux/fs/fat/file.c
  *
- *  Copyright (C) 2007 Motorola Inc.
+ *  Copyright (C) 2007-2008 Motorola Inc.
  *
  *  Written 1992,1993 by Werner Almesberger
  *
@@ -12,7 +12,9 @@
 
 /* ChangeLog:
  * (mm-dd-yyyy)  Author    Comment
+ * 11-03-2007    Motorola  Added simple auto repair FAT
  * 11-15-2007    Motorola  Upmege from 6.1 (Added conditional fsync for loop device)
+ * 01-25-2008    Motorola  Remove repair FAT 
  */
 
 

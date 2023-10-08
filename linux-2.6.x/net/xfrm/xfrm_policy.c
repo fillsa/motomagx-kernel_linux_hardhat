@@ -28,7 +28,7 @@
  * 02111-1307, USA
  *
  * Date         Author          Comment
- * 04/2007      Motorola        UMA DSCP changes - Make
+ * 04/2007      Motorola        UMA DSCP changes (LIBll53857) - Make
  *                              xfrm_policy_lookup public
  */
 

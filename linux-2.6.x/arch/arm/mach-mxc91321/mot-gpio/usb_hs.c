@@ -25,6 +25,7 @@
  * 03-Nov-2006  Motorola        Initial revision.
  * 03-Jan-2007  Motorola        Add dual_mode and set_irqt functions.
  * 03-Jan-2007  Motorola        Change HS interrupt setup procedure.
+ * 09-Jul-2007  Motorola        Added gpio_free_irq_dev work around.
  */
 
 #include <linux/kernel.h>
@@ -150,7 +151,7 @@ void gpio_usb_hs_int_free_irq(void *dev_id)
 {
     gpio_signal_config(GPIO_SIGNAL_USB_HS_INT, GPIO_GDIR_INPUT,
             GPIO_INT_NONE);
-    gpio_signal_free_irq(GPIO_SIGNAL_USB_HS_INT, GPIO_HIGH_PRIO);
+    gpio_signal_free_irq(GPIO_SIGNAL_USB_HS_INT, GPIO_HIGH_PRIO, dev_id);
 }
 
 
@@ -239,7 +240,7 @@ void gpio_usb_hs_dma_req_set_irq_type(gpio_edge_t edge)
  */
 void gpio_usb_hs_dma_req_free_irq(void *dev_id)
 {
-    gpio_signal_free_irq(GPIO_SIGNAL_USB_HS_DMA_REQ, GPIO_HIGH_PRIO);
+    gpio_signal_free_irq(GPIO_SIGNAL_USB_HS_DMA_REQ, GPIO_HIGH_PRIO, dev_id);
 }
 
 

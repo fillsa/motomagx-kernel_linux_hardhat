@@ -1,9 +1,11 @@
 # This file is derived from the Linux kernel's toplevel Makefile.
 #
-# Copyright 2006 Motorola
+# Copyright (C) 2006-2007 Motorola, Inc.
 #
 # Motorola  2006-Nov-13 - Adapted for clearmake-compliant build of external
 #                         modules.
+# Motorola  2007-Mar-15 - Added flag to disable stack smashing protector in
+#                         kernel modules
 
 # CKBUILD : perform sanity checks
 ifeq ($(KBUILD_SRC),)
@@ -112,7 +114,7 @@ LINUXINCLUDE    := -Iinclude -Iinclude2 -I$(srctree)/include
 CPPFLAGS        := -D__KERNEL__ $(LINUXINCLUDE)
 
 CFLAGS          := -Wall -Wstrict-prototypes -Wno-trigraphs \
-                   -fno-strict-aliasing -fno-common
+                   -fno-strict-aliasing -fno-common -fno-stack-protector
 AFLAGS          := -D__ASSEMBLY__
 
 export  VERSION PATCHLEVEL SUBLEVEL EXTRAVERSION LOCALVERSION KERNELRELEASE \

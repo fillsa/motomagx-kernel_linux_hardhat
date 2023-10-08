@@ -1,6 +1,6 @@
 /*
  * Copyright 2005-2006 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright 2006 Motorola, Inc.
+ * Copyright (C) 2006-2007 Motorola, Inc.
  */
 
 /*
@@ -18,6 +18,7 @@
  * ----------   --------  ---------------------------
  * 06/06/2006   Motorola  Fixed free_hot_cold page error while using
  *                        FSL crypto through TPAPI
+ * 10/23/2007   Motorola  Add mpm advise calls and clock gating.
  *
  */
 
@@ -35,6 +36,9 @@
 #include <sah_memory_mapper.h>
 #include <sah_kernel.h>
 
+#ifdef SAHARA_MOT_FEAT_PM
+#include <linux/mpm.h>
+#endif
 
 #if defined DIAG_DRV_IF || defined(DO_DBG)
 #include <diagnostic.h>
@@ -54,14 +58,15 @@ static char Diag_msg[DIAG_MSG_SIZE];
 
 #endif /* DIAG_DRV_IF */
 
-
-
-
 /*!
  * Number of descriptors sent to Sahara.  This value should only be updated
  * with the main queue lock held.
  */
 uint32_t dar_count;
+
+#ifdef SAHARA_MOT_FEAT_PM
+extern int mpm_sahara_dev_num;
+#endif
 
 /*! The "link-list optimize" bit in the Header of a Descriptor */
 #define SAH_HDR_LLO 0x01000000
@@ -121,7 +126,6 @@ uint32_t dar_count;
 #if defined DIAG_DRV_IF || defined DO_DBG
 void sah_Dump_Region(
     const char *prefix, const unsigned char *data, unsigned length);
-
 #endif /* DIAG_DRV_IF */
 
 /* time out value when polling SAHARA status register for completion */
@@ -157,7 +161,7 @@ sah_Execute_Status sah_Wait_On_Sahara()
     /* stay in loop as long as Sahara is still busy */
     } while ((status == SAH_EXEC_BUSY) ||
              (status == SAH_EXEC_DONE1_BUSY2));
-
+    
     return status;
 }
 
@@ -217,6 +221,13 @@ int sah_HW_Reset(void)
     LOG_KDIAG(Diag_msg);
 #endif
 
+#ifdef SAHARA_MOT_FEAT_PM
+    MPM_DRIVER_ADVISE(mpm_sahara_dev_num, MPM_ADVICE_DRIVER_IS_BUSY);
+#ifdef DIAG_DRV_IF
+    printk(KERN_ALERT"sahara(sah_HW_Reset):MPM_ADVICE_DRIVER_IS_BUSY\n"); 
+#endif
+#endif /* SAHARA_MOT_FEAT_PM */
+
     /* Write the Reset & BATCH mode command to the SAHARA Command register. */
     sah_HW_Write_Command(CMD_BATCH | CMD_RESET);
 
@@ -224,10 +235,19 @@ int sah_HW_Reset(void)
 #ifdef CONFIG_VIRTIO_SUPPORT
     /* Pause 1/4 second for System C model to complete initialization */
     msleep(250);
-#endif
+
+#endif /* CONFIG_VIRTIO_SUPPORT */
 /***************** END VIRTIO PATCH ******************/
 
     sah_state = sah_Wait_On_Sahara();
+
+#ifdef SAHARA_MOT_FEAT_PM
+    MPM_DRIVER_ADVISE(mpm_sahara_dev_num, MPM_ADVICE_DRIVER_IS_NOT_BUSY);
+#ifdef DIAG_DRV_IF
+    printk(KERN_ALERT"sahara(sah_HW_Reset):MPM advise MPM_ADVICE_DRIVER_IS_NOT_BUSY\n");
+#endif
+#endif /* SAHARA_MOT_FEAT_PM */
+
     /* on reset completion, check that Sahara is in the idle state */
     status = (sah_state == SAH_EXEC_IDLE) ?  0 : OS_ERROR_FAIL_S;
 
@@ -288,6 +308,13 @@ int sah_HW_Reset(void)
             /* Force in-cache data out to RAM */
             os_cache_clean_range(random_data_ptr, rnd_cnt * sizeof(uint32_t));
 
+#ifdef SAHARA_MOT_FEAT_PM
+            MPM_DRIVER_ADVISE(mpm_sahara_dev_num, MPM_ADVICE_DRIVER_IS_BUSY);
+#ifdef DIAG_DRV_IF
+            printk(KERN_ALERT"sahara(sah_HW_Write_DAR):MPM_ADVICE_DRIVER_IS_BUSY\n");
+#endif /* DIAG_DRV_IF */
+#endif /* SAHARA_MOT_FEAT_PM */
+
             /* pass descriptor to Sahara */
             sah_HW_Write_DAR(desc_dma);
 
@@ -296,6 +323,14 @@ int sah_HW_Reset(void)
              * due to sahara being reset previously) then check for error
              */
             sah_state = sah_Wait_On_Sahara();
+
+#ifdef SAHARA_MOT_FEAT_PM
+            MPM_DRIVER_ADVISE(mpm_sahara_dev_num, MPM_ADVICE_DRIVER_IS_NOT_BUSY);
+#ifdef DIAG_DRV_IF
+            printk(KERN_ALERT"sahara(sah_HW_Reset):MPM advise MPM_ADVICE_DRIVER_IS_NOT_BUSY for radom number.\n");
+#endif
+#endif /* SAHARA_MOT_FEAT_PM */
+
             /* Force CPU to ignore in-cache and reload from RAM */
             os_cache_inv_range(random_data_ptr, rnd_cnt * sizeof(uint32_t));
 
@@ -561,7 +596,7 @@ void sah_Dump_Chain(const sah_Desc *chain)
 {
 
     LOG_KDIAG("Chain for Sahara");
-
+        
     while (chain != NULL) {
         sah_Dump_Words("Desc", (unsigned *)chain, 6 /* #words in h/w link */);
         if (chain->ptr1) {
@@ -581,6 +616,7 @@ void sah_Dump_Chain(const sah_Desc *chain)
 
         chain = chain->original_next;
     }
+
 }
 
 

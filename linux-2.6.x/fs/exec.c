@@ -1,7 +1,7 @@
 /*
  *  linux/fs/exec.c
  *
- *  Copyright (C) 2006-2008 Motorola Inc.
+ *  Copyright (C) 2006-2008 Motorola, Inc.
  *  Copyright (C) 1991, 1992  Linus Torvalds
  *
  */
@@ -13,13 +13,26 @@
  *                        Add hooks to perform mot specific coredump
  *                        If execve fails, remove secure_clock capability
  *                          and set current process' security back to 0
+ * 02-26-2007   Motorola  Remove reset of process' security
  * 04-26-2007   Motorola  Enable full coredump for non-security related application.
+ * 05-24-2007   Motorola  Enable full coredump for non-security related application.
+ * 11-21-2007   Motorola  Don't take tasklist_lock when coredump
+ * 12-14-2007   Motorola  Fix full coredump pattern issue
  * 02-27-2008   Motorola  Fix full coredump pattern issue
  * 04-15-2008   Motorola  Enable full coredump for applications which will set[u/g]id
  * 05-09-2008   Motorola  Enable aplog backup during full core dump
  * 06-24-2008   Motorola  Make aplog do coredump to MMC/SD card if it is available
- * 07-10-2008   Motorola  Add build label info in full coredump name.
+ * 04-16-2008   Motorola  Add build label info in full coredump name.
+ * 05-16-2008   Motorola  Save coredump info into system log file.
+ * 06-06-2008   Motorola  Enable full coredump on security phone.
+ * 06-24-2008   Motorola  Back up aplog during full core dump.
+ * 06-26-2008   Motorola  Prevent duplicated coredumps.
+ * 07-10-2008   Motorola  Add build label info in full coredump name in LJ6.3.
  * 07-15-2008   Motorola  Prompt when coredump generated.
+ * 07-18-2008   Motorola  Remove system log.
+ * 07-30-2008   Motorola  Support APR.
+ * 08-29-2008   Motorola  Remove coredump time interval checking.
+ * 09-27-2008 	Motorola  Remove pages from page cache on coredump.
  *
  */
 
@@ -98,6 +111,21 @@
 #ifdef CONFIG_MOT_FEAT_DRM_COREDUMP
 extern int mot_security_coredump(void);
 #endif /* CONFIG_MOT_FEAT_DRM_COREDUMP */
+
+#ifdef CONFIG_MOT_FEAT_COREDUMP_RECOVER
+
+#define COREDUMP_THRESHOLD 5
+#define INTERVAL_THRESHOLD (150 * 1000) /* 2.5 minutes */
+
+struct coredump_history
+{
+        unsigned long pc_reg;
+        unsigned long lr_reg;
+};
+
+static struct coredump_history coredump_status[COREDUMP_THRESHOLD];
+static int coredump_count = 0;
+#endif
 
 int core_uses_pid;
 char core_pattern[65] = "core";
@@ -920,6 +948,14 @@ int flush_old_exec(struct linux_binprm * bprm)
 
 	if (current->euid == current->uid && current->egid == current->gid)
 		current->mm->dumpable = 1;
+
+#if 0
+#ifdef CONFIG_MOT_FEAT_APP_DUMP
+	/* Enable partial coredump */
+	current->mm->mot_dumped = 0;
+#endif /* CONFIG_MOT_FEAT_APP_DUMP */
+#endif
+
 	name = bprm->filename;
 	for (i=0; (ch = *(name++)) != '\0';) {
 		if (ch == '/')
@@ -1488,7 +1524,12 @@ static void zap_threads (struct mm_struct *mm)
 		complete(vfork_done);
 	}
 
-	read_lock(&tasklist_lock);
+/////LJ7.1 rcu_read_lock();
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+	rcu_read_lock();
+#else
+	read_lock(&tasklist_lock); 
+#endif
 	do_each_thread(g,p)
 		if (mm == p->mm && p != tsk) {
 			force_sig_specific(SIGKILL, p);
@@ -1499,7 +1540,12 @@ static void zap_threads (struct mm_struct *mm)
 		}
 	while_each_thread(g,p);
 
+/////LJ7.1 rcu_read_lock();
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+	rcu_read_unlock();
+#else
 	read_unlock(&tasklist_lock);
+#endif
 
 	if (unlikely(traced)) {
 		/*
@@ -1554,18 +1600,25 @@ static int get_core_dump_level()
 	unsigned char bound_signature_state = BS_DIS_DISABLED;
 	int core_dump_level = 0;
 
-#ifdef CONFIG_MOT_FEAT_DRM_COREDUMP
+#if defined(CONFIG_MOT_FEAT_DRM_COREDUMP) && defined(CONFIG_SECURITY)
 	/* dump full core if not a DRM_READ privileged application */
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)
+	if(security_allow_full_coredump() == 0) {
+#else
 	if(mot_security_coredump() == 0) {
+#endif
 		return 3;
 	}
-#endif /* CONFIG_MOT_FEAT_DRM_COREDUMP */
+#endif /* CONFIG_MOT_FEAT_DRM_COREDUMP && CONFIG_SECURITY*/
 
 	/* dump the most restrictive version(s) of the core if reading any of the efuses returned an error */
 	if ((mot_otp_get_mode(&security_mode, NULL) == -1) ||
 	    (mot_otp_get_productstate(&production_state, NULL) == -1) ||
 	    (mot_otp_get_boundsignaturestate(&bound_signature_state, NULL) == -1)) {
 		printk(KERN_EMERG "Error: Could not read the OTP efuse bits. Production-Launched mode of the phone will be assumed.\n");
+#ifdef CONFIG_MOT_FEAT_ENHANCE_LOG
+		core_dump_level = 3;
+#endif
 		return core_dump_level;
 	}
 	if ((security_mode == MOT_SECURITY_MODE_ENGINEERING) ||
@@ -1584,6 +1637,9 @@ static int get_core_dump_level()
 			}
 		}
 	}
+#ifdef CONFIG_MOT_FEAT_ENHANCE_LOG
+	core_dump_level = 3;
+#endif
 	return core_dump_level;
 
 }
@@ -1698,6 +1754,89 @@ static int call_post_dump_script(int dump_level, char * dump_name)
         return call_usermodehelper(argv[0], argv, envp, 0);
 }
 
+/*
+ * A function to call a user space script to backup aplog
+ * information to SD card.
+ * Will be called during do_coredump.
+ *
+ */
+static int call_backup_aplog(char * dump_name)
+{
+	static char * envp[] = {"HOME=/", "PATH=/usr/bin:/bin", NULL};
+	char * argv[] = {"/etc/log_coredump.sh", NULL, NULL};
+	
+	argv[1] = dump_name;
+	return call_usermodehelper(argv[0], argv, envp, 0);
+}
+
+#ifdef CONFIG_MOT_FEAT_COREDUMP_RECOVER
+/*
+ * check_coredump_status()
+ * Checking latest coredumps, if there are COREDUMP_THRESHOLD in INTERVAL_THRESHOLD,
+ * fire a kernel panic. Hold aplog_do_coredump_lock or other lock before calling.
+ * regs - regs for coredump
+ */
+void check_coredump_status(struct pt_regs * regs)
+{
+	unsigned long interval, loop, pc = 0, lr = 0;
+	struct vm_area_struct *vma;
+	int pc_found = 0, lr_found = 0, fire_panic = 0;
+	char buffer[256], *pname;
+
+	coredump_status[coredump_count % COREDUMP_THRESHOLD].pc_reg = regs->ARM_pc;
+	coredump_status[coredump_count % COREDUMP_THRESHOLD].lr_reg = regs->ARM_lr;
+	if(coredump_count >= COREDUMP_THRESHOLD - 1)
+	{
+		/* Checking they are same panic - we could bypass this checking */
+		pc = coredump_status[0].pc_reg;
+		lr = coredump_status[0].lr_reg;
+		for(loop = 1; loop < COREDUMP_THRESHOLD; loop++)
+		{
+			if((coredump_status[loop].pc_reg != pc)
+			   || (coredump_status[loop].lr_reg != lr))
+				break;
+		}
+		if(loop == COREDUMP_THRESHOLD)
+		{
+			/* All COREDUMP_THRESHOLD coredumps have same pc & lr */
+			fire_panic = 1;
+		}
+	}
+	if(fire_panic)
+	{
+		/* Looking for pc & lr's lib */
+		vma = find_vma(current->mm, pc);
+		if(vma && vma->vm_file)
+		{
+			pname = d_path(vma->vm_file->f_dentry, vma->vm_file->f_vfsmnt, buffer, 256);
+			if(pname)
+				printk("pc:%x, lib:%s.\n", pc, pname);
+			else
+				printk("pc %x is unkown lib addr.\n", pc);
+		}
+		else
+			printk("pc %x is unkown lib addr.\n", pc);
+
+		vma = find_vma(current->mm, lr);
+		if(vma && vma->vm_file)
+		{
+			pname = d_path(vma->vm_file->f_dentry, vma->vm_file->f_vfsmnt, buffer, 512);
+			if(pname)
+				printk("lr:%x, lib:%s.\n", lr, pname);
+			else
+				printk("lr %x is unkown lib addr.\n", lr);
+		}
+		else
+			printk("pc %x is unkown lib addr.\n", lr);
+
+		/* Ok, fire panic */
+		printk("[APR]PanicPC: Frequent coredump process:%s,pid %d\n",current->comm,current->pid);
+		panic("Frequent Coredump");
+	}
+	coredump_count++;
+	return;
+}
+#endif /* CONFIG_MOT_FEAT_COREDUMP_RECOVER */
 #endif /* CONFIG_MOT_FEAT_APP_DUMP */
 
 int do_coredump(long signr, int exit_code, struct pt_regs * regs)
@@ -1708,6 +1847,7 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 	struct inode * inode;
 	struct file * file;
 	int retval = 0;
+
 #ifdef CONFIG_MOT_FEAT_APP_DUMP
 	int dump_level;
 #ifdef CONFIG_MOT_FEAT_APP_COREDUMP_DISPLAY
@@ -1733,6 +1873,19 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 	/* continue system coredump after aplog_do_coredump, if necessary */
 	if (aplog_do_coredump != NULL) {
 		down_read(&aplog_do_coredump_lock);
+#if 0
+		if(mm->mot_dumped)
+		{
+			up_read(&aplog_do_coredump_lock);
+			goto fail;
+		}
+		mm->mot_dumped = 1;
+#endif
+
+#ifdef CONFIG_MOT_FEAT_COREDUMP_RECOVER
+		check_coredump_status(regs);
+#endif /* CONFIG_MOT_FEAT_COREDUMP_RECOVER */
+
 		if (aplog_do_coredump != NULL) {
 			/*
 			 * The reason why dump_level is decremented to 2 if it is equal to 3 is b/c for
@@ -1828,6 +1981,8 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
         }
         else {
                 printk("Full coredump: %s.\n", corename);
+		printk("Try to backup aplog to SD card...return (%d)\n",
+			call_backup_aplog(corename));
         }
         
         /* When we come here, dump level is already 3 */
@@ -1848,5 +2003,22 @@ close_fail:
 fail_unlock:
 	complete_all(&mm->core_done);
 fail:
+#ifdef CONFIG_MOT_FEAT_FLUSH_PG_COREDUMP
+{
+	struct vm_area_struct *vma;
+	struct file *file;
+	struct address_space *mapping;
+	for (vma = current->mm->mmap; vma != NULL; vma = vma->vm_next) {
+		file = vma->vm_file;
+		if (file && (vma->vm_flags & VM_EXEC) && !(vma->vm_flags & VM_MAYSHARE)) {
+			struct inode *inode = file->f_dentry->d_inode;
+			mapping = file->f_mapping;
+			down (&inode->i_sem);
+			truncate_inode_pages (mapping, 0);
+			up (&inode->i_sem);
+		}
+	}
+}
+#endif
 	return retval;
 }

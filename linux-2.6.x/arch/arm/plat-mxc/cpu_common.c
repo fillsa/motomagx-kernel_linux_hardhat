@@ -1,5 +1,6 @@
 /*
  * Copyright 2006 Freescale Semiconductor, Inc. All Rights Reserved.
+ * Copyright (C) 2007 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,6 +15,12 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 09-Aug-2007  Motorola        Added support for new ArgonLV
  */
 
 #include <linux/config.h>
@@ -68,7 +75,14 @@ static u32 read_system_rev(void)
 	/* Now trying to retrieve the silicon rev from IIM's SREV register */
 	val = __raw_readl(SYSTEM_SREV_REG);
 
-	/* ckeck SILICON_REV[7:0] first with ROM ver at [3:2] masked off */
+	/* check SILICON_REV[7:0] */
+	for (i = 0; i < SYSTEM_REV_NUM; i++) {
+		if ((val & 0xFF) == system_rev_tbl[i][0]) {
+			return system_rev_tbl[i][1];
+		}
+	}
+
+	/* check SILICON_REV[7:0] first with ROM ver at [3:2] masked off */
 	for (i = 0; i < SYSTEM_REV_NUM; i++) {
 		if ((val & 0xF3) == system_rev_tbl[i][0]) {
 			return system_rev_tbl[i][1];
@@ -82,7 +96,10 @@ static u32 read_system_rev(void)
 	}
 	/* Reach here only the SREV value unknown. Maybe due to new tapeout? */
 	if (i == SYSTEM_REV_NUM) {
-		panic("Found wrong system_rev 0x%x. \n\n", val);
+	    val = system_rev_tbl[SYSTEM_REV_NUM - 1][1];
+ 	    printk(KERN_ALERT "WARNING: Can't find valid system rev\n");
+	    printk(KERN_ALERT "Assuming last known system_rev=0x%x\n", val);
+	    return val;
 	}
 }
 

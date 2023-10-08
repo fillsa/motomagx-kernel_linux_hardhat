@@ -6,7 +6,16 @@
  *  Mar 1999. AV. Changed cache, so that it uses the starting cluster instead
  *	of inode number.
  *  May 1999. AV. Fixed the bogosity with FAT32 (read "FAT28"). Fscking lusers.
+ *
+ *  Copyright (C) 2007-2008 Motorola, Inc.
  */
+
+/* ChangeLog:
+ * (mm-dd-yyyy)  Author    Comment
+ * 11-03-2007    Motorola  Added simple auto repair FAT.
+ * 01-25-2008    Motorola  Remove auto repair FAT and Fix issue in App.
+ * 
+ */ 
 
 #include <linux/fs.h>
 #include <linux/msdos_fs.h>

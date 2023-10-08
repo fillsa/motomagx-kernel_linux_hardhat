@@ -3,12 +3,20 @@
  *
  *  Copyright (C) 1991, 1992, 1993, 1994  Linus Torvalds
  *
+ *  Copyright (C) 2008 Motorola, Inc.
+ *  
  *  Swap reorganised 29.12.95, Stephen Tweedie.
  *  kswapd added: 7.1.96  sct
  *  Removed kswapd_ctl limits, and swap out as many pages as needed
  *  to bring the system back to freepages.high: 2.4.97, Rik van Riel.
  *  Zone aware kswapd started 02/00, Kanoj Sarcar (kanoj@sgi.com).
  *  Multiqueue VM started 5.8.00, Rik van Riel.
+ * 
+ *  Date            Author          Comment
+ *  01/10/2008      Motorola        Adjust wait time for write back
+ *  01/23/2008      Motorola        Fix performance issue 
+ *  01/30/2008	    Motorola 	    Fixed OOM issue when transfer big files to SD card.
+ *     
  */
 
 #include <linux/mm.h>
@@ -896,6 +904,7 @@ int try_to_free_pages(struct zone **zones,
 	struct scan_control sc;
 	unsigned long lru_pages = 0;
 	int i;
+	int NR_SC = 8;
 
 	sc.gfp_mask = gfp_mask;
 	sc.may_writepage = 0;
@@ -909,40 +918,42 @@ int try_to_free_pages(struct zone **zones,
 		lru_pages += zone->nr_active + zone->nr_inactive;
 	}
 
-	for (priority = DEF_PRIORITY; priority >= 0; priority--) {
-		sc.nr_mapped = read_page_state(nr_mapped);
-		sc.nr_scanned = 0;
-		sc.nr_reclaimed = 0;
-		sc.priority = priority;
-		shrink_caches(zones, &sc);
-		shrink_slab(sc.nr_scanned, gfp_mask, lru_pages);
-		if (reclaim_state) {
-			sc.nr_reclaimed += reclaim_state->reclaimed_slab;
-			reclaim_state->reclaimed_slab = 0;
-		}
-		if (sc.nr_reclaimed >= SWAP_CLUSTER_MAX) {
-			ret = 1;
-			goto out;
-		}
-		total_scanned += sc.nr_scanned;
-		total_reclaimed += sc.nr_reclaimed;
+//////LJ7.1	for (i = 0; i < NR_SC; i++)
+		for (priority = DEF_PRIORITY; priority >= 0; priority--) {
+			sc.nr_mapped = read_page_state(nr_mapped);
+			sc.nr_scanned = 0;
+			sc.nr_reclaimed = 0;
+			sc.priority = priority;
+			shrink_caches(zones, &sc);
+			shrink_slab(sc.nr_scanned, gfp_mask, lru_pages);
+			if (reclaim_state) {
+				sc.nr_reclaimed += reclaim_state->reclaimed_slab;
+				reclaim_state->reclaimed_slab = 0;
+			}
+			if (sc.nr_reclaimed >= SWAP_CLUSTER_MAX) {
+				ret = 1;
+				goto out;
+			}
+			total_scanned += sc.nr_scanned;
+			total_reclaimed += sc.nr_reclaimed;
 
-		/*
-		 * Try to write back as many pages as we just scanned.  This
-		 * tends to cause slow streaming writers to write data to the
-		 * disk smoothly, at the dirtying rate, which is nice.   But
-		 * that's undesirable in laptop mode, where we *want* lumpy
-		 * writeout.  So in laptop mode, write out the whole world.
-		 */
-		if (total_scanned > SWAP_CLUSTER_MAX + SWAP_CLUSTER_MAX/2) {
-			wakeup_bdflush(laptop_mode ? 0 : total_scanned);
-			sc.may_writepage = 1;
+			/*
+			 * Try to write back as many pages as we just scanned.  This
+			 * tends to cause slow streaming writers to write data to the
+			 * disk smoothly, at the dirtying rate, which is nice.   But
+			 * that's undesirable in laptop mode, where we *want* lumpy
+			 * writeout.  So in laptop mode, write out the whole world.
+			 */
+			if (total_scanned > SWAP_CLUSTER_MAX + SWAP_CLUSTER_MAX/2) {
+				wakeup_bdflush(laptop_mode ? 0 : total_scanned);
+				sc.may_writepage = 1;
+			}
+
+			/* Take a nap, wait for some writeback to complete */
+			if (sc.nr_scanned && priority < DEF_PRIORITY - 2)
+				blk_congestion_wait(WRITE, HZ/10);
 		}
 
-		/* Take a nap, wait for some writeback to complete */
-		if (sc.nr_scanned && priority < DEF_PRIORITY - 2)
-			blk_congestion_wait(WRITE, HZ/10);
-	}
 	if ((gfp_mask & __GFP_FS) && !(gfp_mask & __GFP_NORETRY))
 		out_of_memory(gfp_mask);
 out:

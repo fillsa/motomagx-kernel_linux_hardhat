@@ -2,10 +2,16 @@
  *  linux/include/asm-arm/page.h
  *
  *  Copyright (C) 1995-2003 Russell King
+ *  Copyright 2007 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Date     Author     Comment
+ * 02/2007  Motorola   Changed default data flags to exclude executable
+ *                     permissions
+ * 
  */
 #ifndef _ASMARM_PAGE_H
 #define _ASMARM_PAGE_H
@@ -191,8 +197,14 @@ static inline int get_order(unsigned long size)
 
 #endif /* !__ASSEMBLY__ */
 
+#ifdef CONFIG_MOT_WFN422
+/* Set all data sections to default to non-executable */
+#define VM_DATA_DEFAULT_FLAGS	(VM_READ | VM_WRITE | \
+				 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
+#else
 #define VM_DATA_DEFAULT_FLAGS	(VM_READ | VM_WRITE | VM_EXEC | \
 				 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
+#endif /* CONFIG_MOT_WFN422 */
 
 /*
  * With EABI on ARMv5 and above we must have 64-bit aligned slab pointers.

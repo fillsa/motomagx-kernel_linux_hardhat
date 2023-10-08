@@ -1,6 +1,6 @@
 /*
  * Copyright 2004 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright 2006 Motorola, Inc. All Rights Reserved.
+ * Copyright 2006-2007 Motorola, Inc.
  */
 
 /*
@@ -16,6 +16,7 @@
  * DATE          AUTHOR         COMMMENT
  * ----          ------         --------
  * 10/04/2006    Motorola       Added function prototype for mxc_dma_reset
+ * 03/06/2007    Motorola       Added FSL IPCv2 changes for WFN487
  */
 
 #ifndef SDMA_H
@@ -183,6 +184,15 @@ typedef struct {
 	 * If it is set - there was an error during BD processing.
 	 */
 	int bd_error;
+#ifdef CONFIG_MOT_WFN487
+	/*!< INT bit of the buffer descriptor,
+	 * If it is set - an interrupt is generated after BD processing.
+	 */
+	int bd_intr;
+	/*!< WRAP bit of the buffer descriptor,
+	 */
+	int bd_wrap;
+#endif
 } dma_request_t;
 
 /*!
@@ -249,6 +259,10 @@ typedef struct {
 	/*! address of dptc_dvfs script */
 	int mxc_sdma_dptc_dvfs_addr;
 
+#ifdef CONFIG_MOT_WFN483
+	int mxc_sdma_utra_addr;
+#endif
+
 	/*! address where ram code starts */
 	int mxc_sdma_ram_code_start_addr;
 	/*! size of the ram code */
@@ -304,12 +318,33 @@ int mxc_dma_set_config(int channel, dma_request_t * p, int bd_index);
 /* int mxc_dma_get_config(int channel, dma_request_t *p, int bd_index); */
 int mxc_dma_get_config(int channel, dma_request_t * p, int bd_index);
 
+#ifdef CONFIG_MOT_WFN487
+/*!
+ * This function is used by MXC IPC's write_ex2. It passes the a pointer to the 
+ * data control structure to iapi_write_ipcv2()
+ *
+ * @param channel  SDMA channel number
+ * @param ctrl_ptr Data Control structure pointer
+ */
+int mxc_sdma_write_ipcv2(int channel, void *ctrl_ptr);
+
+/*!
+ * This function is used by MXC IPC's read_ex2. It passes the a pointer to the 
+ * data control structure to iapi_read_ipcv2()
+ *
+ * @param channel   SDMA channel number
+ * @param ctrl_ptr  Data Control structure pointer
+ */
+int mxc_sdma_read_ipcv2(int channel, void *ctrl_ptr);
+#endif
+
 /*!
  * Starts dma channel.
  *
  * @param   channel           channel number
  */
 int mxc_dma_start(int channel);
+
 
 #ifdef CONFIG_MOT_WFN409
 /*!

@@ -5,7 +5,7 @@
  * Based on the OMAP devices.c
  *
  * Copyright 2005-2006 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright Motorola 2006
+ * Copyright (C) 2006-2007 Motorola, Inc.
  *
  * 2005 (c) MontaVista Software, Inc. This file is licensed under the
  * terms of the GNU General Public License version 2. This program is
@@ -17,6 +17,9 @@
  * Date         Author    Comment
  * ----------   --------  --------------
  * 10/06/2006   Motorola  Fix IPC issues
+ * 03/06/2007   Motorola  Added FSL IPCv2 changes for WFN483
+ * 06/25/2007   Motorola  Removed 2 scripts no longer used
+ * 10/24/2007   Motorola  Integrated changes related to FSL SS13 patch
  *
  */
 #include <linux/config.h>
@@ -69,7 +72,7 @@ EXPORT_SYMBOL(mxc_device_disable);
 
 void mxc_sdma_get_script_info(sdma_script_start_addrs * sdma_script_addr)
 {
-	sdma_script_addr->mxc_sdma_app_2_mcu_addr = app_2_mcu_ADDR;
+        sdma_script_addr->mxc_sdma_app_2_mcu_addr = app_2_mcu_patched_ADDR;
 	sdma_script_addr->mxc_sdma_ap_2_ap_addr = ap_2_ap_ADDR;
 #ifdef CONFIG_MOT_WFN444
 	sdma_script_addr->mxc_sdma_ap_2_bp_addr = ap_2_bp_patched_ADDR;
@@ -78,16 +81,19 @@ void mxc_sdma_get_script_info(sdma_script_start_addrs * sdma_script_addr)
 	sdma_script_addr->mxc_sdma_ap_2_bp_addr = ap_2_bp_ADDR;
 	sdma_script_addr->mxc_sdma_bp_2_ap_addr = bp_2_ap_ADDR;
 #endif
-	sdma_script_addr->mxc_sdma_loopback_on_dsp_side_addr =
-	    loopback_on_dsp_side_ADDR;
-	sdma_script_addr->mxc_sdma_mcu_2_app_addr = mcu_2_app_ADDR;
-	sdma_script_addr->mxc_sdma_mcu_2_shp_addr = mcu_2_shp_ADDR;
-	sdma_script_addr->mxc_sdma_mcu_interrupt_only_addr =
-	    mcu_interrupt_only_ADDR;
-	sdma_script_addr->mxc_sdma_shp_2_mcu_addr = shp_2_mcu_ADDR;
-	sdma_script_addr->mxc_sdma_start_addr = (unsigned short *)sdma_code;
-	sdma_script_addr->mxc_sdma_uartsh_2_mcu_addr = uartsh_2_mcu_ADDR;
-	sdma_script_addr->mxc_sdma_uart_2_mcu_addr = uart_2_mcu_ADDR;
+        sdma_script_addr->mxc_sdma_mcu_2_app_addr = mcu_2_app_patched_ADDR;
+        sdma_script_addr->mxc_sdma_mcu_2_shp_addr = mcu_2_shp_patched_ADDR;
+        sdma_script_addr->mxc_sdma_shp_2_mcu_addr = shp_2_mcu_patched_ADDR;
+        sdma_script_addr->mxc_sdma_start_addr = (unsigned short *)sdma_code;
+        sdma_script_addr->mxc_sdma_uartsh_2_mcu_addr = uartsh_2_mcu_patched_ADDR;
+        sdma_script_addr->mxc_sdma_uart_2_mcu_addr = uart_2_mcu_patched_ADDR;
+#ifdef CONFIG_MOT_WFN483
+#ifdef CONFIG_ARCH_MXC91321
+	sdma_script_addr->mxc_sdma_utra_addr = sdma_utra_ADDR;
+#else
+	sdma_script_addr->mxc_sdma_utra_addr = -1;
+#endif
+#endif
 	sdma_script_addr->mxc_sdma_ram_code_size = RAM_CODE_SIZE;
 	sdma_script_addr->mxc_sdma_ram_code_start_addr = RAM_CODE_START_ADDR;
 	sdma_script_addr->mxc_sdma_dptc_dvfs_addr = -1;
@@ -318,7 +324,6 @@ static inline void mxc_init_mu(void)
 }
 #endif
 
-
 static int __init mxc_init_devices(void)
 {
 	mxc_init_wdt();
@@ -330,7 +335,6 @@ static int __init mxc_init_devices(void)
 	spba_take_ownership(SPBA_CSPI2, SPBA_MASTER_A);
 	/* SPBA configuration for SSI2 - SDMA and MCU are set */
 	spba_take_ownership(SPBA_SSI2, SPBA_MASTER_C | SPBA_MASTER_A);
-
 	return 0;
 }
 

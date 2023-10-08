@@ -10,7 +10,8 @@
  * http://www.gnu.org/copyleft/gpl.html
  */
 
-/*
+/* Changelog:
+ *
  * DATE          AUTHOR         COMMMENT
  * ----          ------         --------
  * 10/04/2006    Motorola       Added support for MU polling.
@@ -23,6 +24,8 @@
  *                              Fixed bug documented by WFN349.
  * 12/01/2006    Motorola       Leave RX3 int enabled when suspend is called
  * 04/20/2007    Motorola       Add SDMA dump ioctl
+ * 10/17/2007    Motorola       Add a new ioctl to dump 24 SDMA registers
+ * 11/14/2007    Motorola       Add fix for errata issues.
  * 12/14/2007    Motorola       Add a new ioctl to dump 24 SDMA registers
  */
 
@@ -70,6 +73,7 @@
 
 #ifdef CONFIG_MOT_FEAT_PM
 #include <linux/mpm.h>
+#include <linux/rtc.h>
 #endif
 
 #define DVR_VER "2.0"
@@ -654,6 +658,64 @@ static irqreturn_t mxc_mu_mcutxhand(int irq, void *dev_id, struct pt_regs *regs)
 	writel(control, AS_MUMCR);
 	return IRQ_RETVAL(handled);
 }
+
+#ifdef CONFIG_MOT_FEAT_PM
+/*!
+ * An issue can occur when the DSP exits STOP or DOZE mode and sets
+ * the MPE bit while the MCU is currently in STOP mode but has not yet
+ * unlocked its PLL.  The result of this issue as that the MCU CCM
+ * locks up and the MCU has a watchdog panic.
+ *
+ * Note that the MPM bits in the CCM are not sufficient because they
+ * indicate the MCU is in STOP mode before the PLL is unlocked.
+ *
+ * The MCU must let the DSP know that it is going into STOP mode so
+ * that it can take protective measures when it comes out of STOP or
+ * DOZE mode.
+ *
+ * We use the MU MCR flag 0 to communicate the state information to
+ * the DSP.
+ *     (MU MCR flag == 1) => in STOP mode.
+ *     (MU MCR flag == 0) => not in STOP mode.
+ *
+ * Since the MU has already been put to sleep when this function is
+ * called, we cannot use any of its driver services that check if the
+ * driver is suspended.  We know that the MU is still operational even
+ * though the driver is now asleep.  This function should only be
+ * called for this purpose.
+ */
+void mxc_mu_inform_dsp_dsm_mode(void)
+{
+	writel((readl(AS_MUMCR) | AS_MUMCR_MDF0), AS_MUMCR);
+
+	/*
+	 * Note that we don't care at this point whether the MEP bit
+	 * is set in the MU MSR.  Because we are not doing anything
+	 * that will cause an interrupt to assert on the DSP, we do
+	 * not run tickle the erratum that causes an unclearable MU
+	 * interrupt to be set.
+	 *
+	 * Here wait for MU flag to synchronize with BP.
+	 */
+        __asm__ __volatile__ ( " nop; nop; nop; nop; nop; nop; nop; nop; nop; \
+                                 nop; nop; nop; nop; nop; nop; nop; nop; nop; \
+                                 nop; nop; nop; nop; nop; nop; nop; nop; nop; \
+                                 nop; nop; nop; nop; nop; nop; nop; nop; nop; \
+                                 nop; nop; nop; nop; nop; nop; nop; nop; nop; \
+                                 nop; nop; nop; nop; nop; nop; nop; nop; nop; \
+                                 nop; nop; nop; nop; nop; nop; nop; nop; nop");
+
+}
+
+/*!
+ * Clear the MU MCR flag 0 to inform the DSP that the MCU is now
+ * running.
+ */
+void mxc_mu_inform_dsp_run_mode(void)
+{
+	writel((readl(AS_MUMCR) & ~AS_MUMCR_MDF0), AS_MUMCR);
+}
+#endif /* CONFIG_MOT_FEAT_PM */
 
 /*!
  * This function is used by other modules to issue DSP (Digital Signal Processor) hardware reset.
@@ -1530,6 +1592,9 @@ static int mxc_mu_suspend(struct device *dev, u32 state, u32 level)
 {
 	int mu_id, status;
 	struct platform_device *platdev = to_platform_device(dev);
+#ifdef CONFIG_MOT_FEAT_PM
+	unsigned long ms;
+#endif
 #ifdef CONFIG_MOT_WFN349
         unsigned long flags;
 #endif
@@ -1576,6 +1641,31 @@ static int mxc_mu_suspend(struct device *dev, u32 state, u32 level)
 			mu_id++;
 		}
 #endif
+
+
+#ifdef CONFIG_MOT_FEAT_PM
+		/*
+		 * We must wait here for the MEP bit to clear.  An
+		 * MU erratum exists that causes an unclearable MU
+		 * interrupt and results in a panic if a write to the
+		 * MU is followed quickly enough by entering DSM mode.
+		 * We expect that the MEP bit is virtually always
+		 * going to be clear by the time we get here since
+		 * it only takes a few usecs to clear.  In any case,
+		 * don't wait here for longer than a couple of msecs.
+		 */
+		if (readl(AS_MUMSR) & AS_MUMSR_MEP) {
+			ms = rtc_sw_msfromboot() + 2;
+			while ((readl(AS_MUMSR) & AS_MUMSR_MEP) &&
+			       (rtc_sw_msfromboot() != ms))
+			{
+				;
+			}
+                        if (readl(AS_MUMSR) & AS_MUMSR_MEP) {
+                                printk(KERN_NOTICE "MEP bit is not cleared up waiting for 2ms\n");
+                        }
+		}
+#endif /* CONFIG_MOT_FEAT_PM */
 
 		break;
 	case SUSPEND_SAVE_STATE:
@@ -1933,6 +2023,8 @@ EXPORT_SYMBOL(mxc_mu_dsp_reset_status);
 EXPORT_SYMBOL(mxc_mu_dsp_pmode_status);
 #ifdef CONFIG_MOT_FEAT_PM
 EXPORT_SYMBOL(mxc_mu_set_ioi_response);
+EXPORT_SYMBOL(mxc_mu_inform_dsp_run_mode);
+EXPORT_SYMBOL(mxc_mu_inform_dsp_dsm_mode);
 #endif
 
 MODULE_AUTHOR("Freescale Semiconductor, Inc.");

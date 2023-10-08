@@ -38,6 +38,7 @@
  *                       control.
  *
  * 02/15/2007  Motorola  Cache optimization changes
+ * 11/14/2007  Motorola  Add functions to fix errata issue.
  */
 
 /*!
@@ -202,6 +203,25 @@
  * by assembly source code.
  */
 #ifndef __ASSEMBLY__
+#ifdef CONFIG_MOT_FEAT_PM
+/*!
+ * Perform software workaround of a chip errata that results in an L1
+ * instruction cache corruption. This function must be called with
+ * interrupts disabled and just before the call to cpu_do_idle.
+ *
+ * @return  unsigned long     Saved value of MPDR0.
+ */
+unsigned long mxc_pm_l1_instr_cache_corruption_fix_before_wfi(void);
+
+/*!
+ * Perform software workaround of a chip errata that results in an L1
+ * instruction cache corruption.  This function must be called with
+ * interrupts disabled and just after the call to cpu_do_idle.
+ *
+ * @param   mpdr0     Saved value of MPDR0.
+ */
+void mxc_pm_l1_instr_cache_corruption_fix_after_wfi(unsigned long mpdr0);
+#endif
 /*!
  * Implementing Level 1 CRM Gate Control. Level 2 gate control
  * is provided at module level using LPMD registers

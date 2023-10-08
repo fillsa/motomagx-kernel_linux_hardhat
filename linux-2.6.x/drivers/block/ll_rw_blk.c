@@ -7,12 +7,13 @@
  * Queue request tables / lock, selectable elevator, Jens Axboe <axboe@suse.de>
  * kernel-doc documentation started by NeilBrown <neilb@cse.unsw.edu.au> -  July2000
  * bio rewrite, highmem i/o, etc, Jens Axboe <axboe@suse.de> - may 2001
- * Copyright (C) 2007  Motorola
+ * Copyright (C) 2007 Motorola, inc.
  *
  * Change Log
  *
  * Date         Change
  * 23 Jan 2007  Added the Set NO_READ_AHEAD for mtdblocks
+ * 05 Dec 2007  Add write with alignment for samsung's movinand
  */
 
 /*
@@ -1106,6 +1107,115 @@ static inline int ll_new_hw_segment(request_queue_t *q,
 	req->nr_phys_segments += nr_phys_segs;
 	return 1;
 }
+
+
+#ifdef CONFIG_MOT_FEAT_MOVINAND
+
+static int ll_back_merge_fn_with_boundary(request_queue_t *q, struct request *req,
+                            struct bio *bio)
+{
+        int len;
+        int boundary_sectors = q->boundary_sectors;
+
+        if (req->nr_sectors + bio_sectors(bio) > q->max_sectors) {
+                req->flags |= REQ_NOMERGE;
+                if (req == q->last_merge)
+                        q->last_merge = NULL;
+                return 0;
+        }
+
+        if (unlikely((rq_data_dir(req) == WRITE) && (((req->sector % boundary_sectors) != 0))
+            && ((((req->sector % boundary_sectors) + req->nr_sectors) % boundary_sectors) == 0) )){
+                req->flags |= REQ_NOMERGE;
+                if (req == q->last_merge)
+                        q->last_merge = NULL;
+                return 0;
+        }
+
+        if (unlikely(!bio_flagged(req->biotail, BIO_SEG_VALID)))
+                blk_recount_segments(q, req->biotail);
+        if (unlikely(!bio_flagged(bio, BIO_SEG_VALID)))
+                blk_recount_segments(q, bio); 
+        len = req->biotail->bi_hw_back_size + bio->bi_hw_front_size;
+        if (BIOVEC_VIRT_MERGEABLE(__BVEC_END(req->biotail), __BVEC_START(bio)) &&
+            !BIOVEC_VIRT_OVERSIZE(len)) {
+                int mergeable =  ll_new_mergeable(q, req, bio);
+
+                if (mergeable) {
+                        if (req->nr_hw_segments == 1)
+                                req->bio->bi_hw_front_size = len;
+                        if (bio->bi_hw_segments == 1)
+                                bio->bi_hw_back_size = len;
+                }
+                return mergeable;
+        }
+
+        return ll_new_hw_segment(q, req, bio);
+}
+
+static int ll_front_merge_fn_with_boundary(request_queue_t *q, struct request *req,
+                             struct bio *bio)
+{
+        int len;
+        int boundary_sectors = q->boundary_sectors;
+
+        if (req->nr_sectors + bio_sectors(bio) > q->max_sectors) {
+                req->flags |= REQ_NOMERGE;
+                if (req == q->last_merge)
+                        q->last_merge = NULL;
+                return 0;
+        }
+
+        if (unlikely((rq_data_dir(req) == WRITE) && (((req->sector % boundary_sectors) != 0))
+            && ((((req->sector % boundary_sectors) + req->nr_sectors) % boundary_sectors) == 0) )){
+                req->flags |= REQ_NOMERGE;
+                if (req == q->last_merge)
+                        q->last_merge = NULL;
+                return 0;
+        }
+
+        len = bio->bi_hw_back_size + req->bio->bi_hw_front_size;
+        if (unlikely(!bio_flagged(bio, BIO_SEG_VALID)))
+                blk_recount_segments(q, bio);
+        if (unlikely(!bio_flagged(req->bio, BIO_SEG_VALID)))
+                blk_recount_segments(q, req->bio);
+        if (BIOVEC_VIRT_MERGEABLE(__BVEC_END(bio), __BVEC_START(req->bio)) &&
+            !BIOVEC_VIRT_OVERSIZE(len)) {
+                int mergeable =  ll_new_mergeable(q, req, bio);
+
+                if (mergeable) {
+                        if (bio->bi_hw_segments == 1)
+                                bio->bi_hw_front_size = len;
+                        if (req->nr_hw_segments == 1)
+                                req->biotail->bi_hw_back_size = len;
+                }
+                return mergeable;
+        }
+
+        return ll_new_hw_segment(q, req, bio);
+}
+
+/**
+ * blk_queue_set_merge_fn_with_boundary - change merge fn for samsung's movinand 
+ * @q:  the request queue for the device
+ * @boundary_sectors:  boundary sectors, for 2G movinand, it is 16 
+ *
+ * Description:
+ *    Enables a low level driver to set an upper limit on the size of
+ *    received requests.
+ **/
+void blk_queue_set_merge_fn_with_boundary(request_queue_t *q, unsigned short boundary_sectors)
+{
+        q->front_merge_fn       = ll_front_merge_fn_with_boundary;
+        q->back_merge_fn        = ll_back_merge_fn_with_boundary;
+        q->boundary_sectors     = boundary_sectors;
+}
+
+EXPORT_SYMBOL(blk_queue_set_merge_fn_with_boundary);
+
+#endif /* CONFIG_MOT_FEAT_MOVINAND */
+
+
 
 static int ll_back_merge_fn(request_queue_t *q, struct request *req, 
 			    struct bio *bio)

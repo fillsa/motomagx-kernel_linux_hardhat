@@ -13,8 +13,8 @@ SOURCES = sah_driver_interface.c  sah_hardware_interface.c            \
 
 
 # Turn on for mostly full debugging
-# DIAGS = -DDIAG_DRV_STATUS -DDIAG_DRV_QUEUE -DDIAG_DRV_INTERRUPT -DDIAG_DRV_IF
-# DIAGS += -DDIAG_DURING_INTERRUPT
+#DIAGS = -DDIAG_DRV_STATUS -DDIAG_DRV_QUEUE -DDIAG_DRV_INTERRUPT -DDIAG_DRV_IF
+#DIAGS += -DDIAG_DURING_INTERRUPT
 
 # Turn on for lint-type checking
 #EXTRA_CFLAGS = -Wall -W -Wstrict-prototypes -Wmissing-prototypes
@@ -33,6 +33,14 @@ endif
 
 ifeq ($(CONFIG_PM),y)
 EXTRA_CFLAGS += -DSAHARA_POWER_MANAGMENT
+endif
+
+ifeq ($(CONFIG_MOT_FEAT_PM),y)
+EXTRA_CFLAGS += -DSAHARA_MOT_FEAT_PM
+endif
+
+ifeq ($(CONFIG_ARCH_MXC91321),y)
+EXTRA_CFLAGS += -DSAHARA_MOT_ARCH_MXC91321
 endif
 
 EXTRA_CFLAGS += -Idrivers/mxc/security/sahara2/include

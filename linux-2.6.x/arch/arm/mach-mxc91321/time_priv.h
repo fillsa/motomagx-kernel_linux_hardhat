@@ -1,10 +1,18 @@
 /*
  *      Copyright 2004 Freescale Semiconductor, Inc. All Rights Reserved.
+ *      Copyright (C) 2007-2008 Motorola, Inc.
  *
  *      This program is free software; you can redistribute it and/or
  *      modify it under the terms of the GNU General Public License
  *      as published by the Free Software Foundation; either version
  *      2 of the License, or (at your option) any later version.
+ *
+ * Date         Author    Comment
+ * ----------   --------  --------------------
+ * 02/28/2007   Motorola  Added watchdog debug support
+ * 03/12/2007   Motorola  Rewirte the check start code of wdog make it more readable
+ * 11/13/2007   Motorola  Reset the time out and service period of the watchdog
+ * 01/14/2008   Motorola  Changed the timeout of watchdog2.
  */
 
 #ifndef __TIME_PRIV_H__
@@ -135,11 +143,36 @@
 #error HZ is not defined or not equal to 100
 #endif
 
+#ifdef CONFIG_MOT_FEAT_WDOG_CLEANUP
+#else
 #if 0				/* not enabled the two wdogs by default */
 #define WDOG1_ENABLE		/* not defined by default */
 #define WDOG2_ENABLE		/* not defined by default */
 #endif
+#endif /* CONFIG_MOT_FEAT_WDOG_CLEANUP */
+
+#ifdef CONFIG_MOT_FEAT_DEBUG_WDOG
+#define WDOG2_ENABLE
+#endif /* CONFIG_MOT_FEAT_DEBUG_WDOG */
+
+#ifdef CONFIG_MOT_FEAT_WDOG_CLEANUP || CONFIG_MOT_FEAT_DEBUG_WDOG
+#define WDOG1_TIMEOUT           32000	/* WDOG1 timeout in ms */
+#else
 #define WDOG1_TIMEOUT           4000	/* WDOG1 timeout in ms */
+#endif /* CONFIG_MOT_FEAT_WDOG_CLEANUP || CONFIG_MOT_FEAT_DEBUG_WDOG */
+
+
+#if defined(CONFIG_MOT_FEAT_WDOG_CLEANUP) || defined (CONFIG_MOT_FEAT_DEBUG_WDOG)
+#if (WDOG1_TIMEOUT < 1000)
+#error WDOG1_TIMEOUT must be greater than 1000!
+#endif
+#define WDOG2_TIMEOUT           (WDOG1_TIMEOUT - 1000)     /* WDOG2 timeout in ms */
+#if ((WDOG1_TIMEOUT/1000) < 20)
+#define WDOG_SERVICE_PERIOD     (WDOG1_TIMEOUT / 2)    /* time interval in ms to service WDOGs */
+#else
+#define WDOG_SERVICE_PERIOD     10000   /* time interval in ms to service WDOGs */
+#endif
+#else
 #define WDOG2_TIMEOUT           (WDOG1_TIMEOUT / 2)	/* WDOG2 timeout in ms */
 #define WDOG_SERVICE_PERIOD     (WDOG2_TIMEOUT / 2)	/* time interval in ms to service WDOGs */
 
@@ -155,6 +188,7 @@
 #if ((WDOG1_TIMEOUT/1000) > 128)
 #error WDOG time out has to be less than 128 seconds!
 #endif
+#endif/* CONFIG_MOT_FEAT_WDOG_CLEANUP || CONFIG_MOT_FEAT_DEBUG_WDOG */
 
 #define WDOG_WT                 0x8	/* WDOG WT starting bit inside WCR */
 #define WCR_WOE_BIT             (1 << 6)

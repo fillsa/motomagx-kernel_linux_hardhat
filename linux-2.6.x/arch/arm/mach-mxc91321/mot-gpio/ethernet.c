@@ -3,7 +3,7 @@
  *
  * ArgonLV implementation of Ethernet interrupt control.
  *
- * Copyright 2006 Motorola, Inc.
+ * Copyright 2006-2007 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
 
 /* Date         Author          Comment
  * ===========  ==============  ==============================================
+ * 09-Jul-2007  Motorola        Added gpio_free_irq_dev work around.
  * 01-Nov-2006  Motorola        Initial revision.
  */
 
@@ -82,7 +83,11 @@ int enet_free_irq(void *dev_id)
     gpio_signal_config(GPIO_SIGNAL_ENET_INT_B, GPIO_GDIR_INPUT,
             GPIO_INT_NONE);
     gpio_signal_free_irq(GPIO_SIGNAL_ENET_INT_B,
-            GPIO_HIGH_PRIO);
+            GPIO_HIGH_PRIO
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)
+								, dev_id
+#endif
+);
     return 0;
 }
 

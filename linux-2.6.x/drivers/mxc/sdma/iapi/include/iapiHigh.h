@@ -1,6 +1,7 @@
 /******************************************************************************
  *
  * Copyright 2005 Freescale Semiconductor, Inc. All Rights Reserved.
+ * Copyright 2007 Motorola, Inc.
  *
  *
  * The code contained herein is licensed under the GNU General Public
@@ -25,6 +26,12 @@
  * $Log iapiHigh.h
  *
  * ***************************************************************************/
+
+/*
+ * DATE          AUTHOR         COMMMENT
+ * ----          ------         --------
+ * 03/06/2007    Motorola       Added FSL IPCv2 changes for WFN487
+ */
 
 #ifndef _iapiHigh_h
 #define _iapiHigh_h
@@ -89,10 +96,22 @@ int iapi_MemCopy(channelDescriptor * cd_p, void* dest, void* src,
                  unsigned long size);
 int iapi_IoCtl( channelDescriptor * cd_p, unsigned long ctlRequest, 
 				unsigned long param);
+
+
+#ifdef CONFIG_MOT_WFN487
+int iapi_Read_ipcv2( channelDescriptor * cd_p, void * data_control_struct_ipcv2);
+
+int iapi_Write_ipcv2( channelDescriptor * cd_p, void * data_control_struct_ipcv2);
+#endif
+
 #ifdef MCU
 int iapi_Init(channelDescriptor * cd_p, configs_data * config_p, 
-              unsigned short* ram_image, unsigned short code_size, 
+              unsigned short* ram_image, unsigned short code_size,
+#ifdef CONFIG_MOT_WFN487
+              unsigned long start_addr);
+#else
               void * start_addr);
+#endif
 #endif /* MCU */
 #ifdef DSP
 int iapi_Init(channelDescriptor * cd_p);
@@ -115,11 +134,19 @@ IRQ_KEYWORD void IRQ_Handler(void);
 
 #ifdef MCU
 int iapi_GetScript(channelDescriptor * cd_p, void * buf, unsigned short size, 
+#ifdef CONFIG_MOT_WFN487
+                    unsigned long address);
+#else
                     void * address);
+#endif
 int iapi_GetContext(channelDescriptor * cd_p, void * buf,
                      unsigned char channel);			   
 int iapi_SetScript(channelDescriptor * cd_p, void * buf, unsigned short nbyte, 
+#ifdef CONFIG_MOT_WFN487
+                     unsigned long destAddr);
+#else
                      void * destAddr);
+#endif
 int iapi_SetContext(channelDescriptor * cd_p, void * buf, 
                      unsigned char channel);
 int iapi_AssignScript(channelDescriptor * cd_p, script_data * data_p);

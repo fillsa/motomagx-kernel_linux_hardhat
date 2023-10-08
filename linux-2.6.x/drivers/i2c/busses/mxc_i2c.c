@@ -1,6 +1,6 @@
 /*
  * Copyright 2004 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright (C) 2006 - 2007 Motorola, Inc.
+ * Copyright (C) 2006 - 2008 Motorola, Inc.
  */
 
 /*
@@ -31,7 +31,11 @@
  *  04/2007  Motorola  Block suspend when I2C transaction is in progress and
  *                     remove clock gating on a transaction basis
  *  08/2007  Motorola  Clear control register after each transaction
+ *  09/2007  Motorola  Add mpm advise calls
  *  10/2007  Motorola  Make sure have a STOP after all communication ceased
+ *  03/2008  Motorola  Remove mpm and clock gating for elba.		
+ *  03/2008  Motorola  Remove mpm advise calls due to ESD issues
+ *  04/2008  Motorola  Add failure handler for arbitration lost issue. 
  */
 /*
  * Include Files
@@ -46,6 +50,10 @@
 #include <asm/arch/mxc_i2c.h>
 #include <asm/arch/clock.h>
 #include "mxc_i2c_reg.h"
+
+#if defined(CONFIG_MOT_FEAT_PM) && !defined(CONFIG_MACH_ELBA)
+#include <linux/mpm.h>
+#endif
 
 /*! for overriding the bus speed
    This flag complements the ones for i2c_msg.flags */
@@ -108,6 +116,7 @@ static bool transfer_done = false;
  * Boolean to indicate if we received an ACK for the data transmitted
  */
 static bool tx_success = false;
+static bool arbitration_lost = false;
 
 /*!
  * This is an array where each element holds information about a I2C module,
@@ -137,6 +146,20 @@ static mxc_i2c_device mxc_i2c_devs[I2C_NR] = {
 #endif
 };
 
+#if defined(CONFIG_MOT_FEAT_PM) && !defined(CONFIG_MACH_ELBA)
+static char *mpm_i2c_dev_names[I2C_NR] = {
+        [0] = "mxc-i2c0",
+#if I2C_NR > 1
+        [1] = "mxc-i2c1",
+#if I2C_NR > 2
+        [2] = "mxc-i2c2",
+#endif
+#endif
+};
+
+static int mpm_i2c_dev_nums[I2C_NR];
+#endif
+
 extern void gpio_i2c_active(int i2c_num);
 extern void gpio_i2c_inactive(int i2c_num);
 
@@ -158,7 +181,7 @@ static void mxc_i2c_stop(mxc_i2c_device * dev)
 	/* We need to wait for the stop to be transmitted because we might
 	 * turn off the bus clock(SCL) once we exit this function. If that
 	 * happens, the stop will never occur on the bus. */
-	while ( (readw(dev->membase + MXC_I2SR) & MXC_I2SR_IBB) && count--) {
+	while ( (readw(dev->membase + MXC_I2SR) & MXC_I2SR_IBB) && --count) {
 		udelay(1);
 	}
 	if (count == 0) {
@@ -227,19 +250,27 @@ static int mxc_i2c_wait_for_tc(mxc_i2c_device * dev, int trans_flag)
 	if (retry <= 0) {
 		/* Unable to send data */
 		printk(KERN_DEBUG "Data not transmitted\n");
-		return -1;
+		return -EINTLOSTT;
 #ifdef CONFIG_MOT_WFN465
+	 } else if (arbitration_lost) {
+                arbitration_lost = false;
+                printk(KERN_DEBUG "Arbitration lost \n");
+                return -EARBLOSTT;
 	} else if (check_ack && !tx_success) {
 		/* An ACK was not received for transmitted byte */
 		printk(KERN_DEBUG "ACK not received \n");
-		return -1;
+		return -EACKLOSTT;
 	}
 #else
+	} else if (arbitration_lost) {
+                arbitration_lost = false;
+                printk(KERN_DEBUG "Arbitration lost \n");
+                return -EARBLOSTT;
 	} else if (!(trans_flag & I2C_M_RD)) {
 		if (!tx_success) {
 			/* An ACK was not received for transmitted byte */
 			printk(KERN_DEBUG "ACK not received \n");
-			return -1;
+			return -EACKLOSTT;
 		}
 	}
 #endif
@@ -254,7 +285,7 @@ static int mxc_i2c_wait_for_tc(mxc_i2c_device * dev, int trans_flag)
  * @param   *msg  pointer to a message structure that contains the slave
  *                address
  */
-static void mxc_i2c_start(mxc_i2c_device * dev, struct i2c_msg *msg)
+static int mxc_i2c_start(mxc_i2c_device * dev, struct i2c_msg *msg)
 {
 	volatile unsigned int cr, sr;
 	unsigned int addr_trans;
@@ -283,7 +314,12 @@ static void mxc_i2c_start(mxc_i2c_device * dev, struct i2c_msg *msg)
 		sr = readw(dev->membase + MXC_I2SR);
 	}
 	if (retry <= 0) {
-		printk(KERN_DEBUG "Could not grab Bus ownership\n");
+		printk(KERN_DEBUG "Could not grab Bus ownership,addr:0x%x\n",msg->addr);
+		if(arbitration_lost) {
+			arbitration_lost = false;
+			return -EARBLOSTT;
+		}
+		return -ESTARTFAILT;
 	}
 
 	/* Set the Transmit bit */
@@ -292,6 +328,7 @@ static void mxc_i2c_start(mxc_i2c_device * dev, struct i2c_msg *msg)
 	writew(cr, dev->membase + MXC_I2CR);
 
 	writew(addr_trans, dev->membase + MXC_I2DR);
+	return 0;
 }
 
 /*!
@@ -337,7 +374,7 @@ static void mxc_i2c_repstart(mxc_i2c_device * dev, struct i2c_msg *msg)
 static int mxc_i2c_readbytes(mxc_i2c_device * dev, struct i2c_msg *msg,
 			     int last, int addr_comp)
 {
-	int i;
+	int i,rett;
 	char *buf = msg->buf;
 	int len = msg->len;
 	volatile unsigned int cr;
@@ -368,12 +405,17 @@ static int mxc_i2c_readbytes(mxc_i2c_device * dev, struct i2c_msg *msg,
 		 * Wait for data transmission to complete
 		 */
 #if CONFIG_MOT_WFN465
-		if (mxc_i2c_wait_for_tc(dev, msg->flags, !(msg->flags & I2C_M_RD))) {
+		if (rett = mxc_i2c_wait_for_tc(dev, msg->flags, !(msg->flags & I2C_M_RD))) {
 #else
-		if (mxc_i2c_wait_for_tc(dev, msg->flags)) {
+		if (rett = mxc_i2c_wait_for_tc(dev, msg->flags)) {
 #endif
+
+#ifdef MENSHE_71_14_1AR || (! defined(CONFIG_MACH_ELBA) && ! defined(CONFIG_MACH_PIANOSA) && ! defined(CONFIG_MACH_KEYWEST))
 			mxc_i2c_stop(dev);
 			return -1;
+#else
+			return rett;
+#endif
 		}
 		/*
 		 * Do not generate an ACK for the last byte
@@ -409,7 +451,7 @@ static int mxc_i2c_readbytes(mxc_i2c_device * dev, struct i2c_msg *msg,
 static int mxc_i2c_writebytes(mxc_i2c_device * dev, struct i2c_msg *msg,
 			      int last)
 {
-	int i;
+	int i,rett;
 	char *buf = msg->buf;
 	int len = msg->len;
 	volatile unsigned int cr;
@@ -425,12 +467,16 @@ static int mxc_i2c_writebytes(mxc_i2c_device * dev, struct i2c_msg *msg,
 		 */
 		writew(*buf++, dev->membase + MXC_I2DR);
 #ifdef CONFIG_MOT_WFN465
-		if (mxc_i2c_wait_for_tc(dev, msg->flags, !(msg->flags & I2C_M_RD))) {
+		if (rett = mxc_i2c_wait_for_tc(dev, msg->flags, !(msg->flags & I2C_M_RD))) {
 #else
-		if (mxc_i2c_wait_for_tc(dev, msg->flags)) {
+		if (rett = mxc_i2c_wait_for_tc(dev, msg->flags)) {
 #endif
+#ifdef MENSHE_71_14_1AR || (! defined(CONFIG_MACH_ELBA) && ! defined(CONFIG_MACH_PIANOSA) && ! defined(CONFIG_MACH_KEYWEST))
 			mxc_i2c_stop(dev);
 			return -1;
+#else
+			return rett;
+#endif
 		}
         
 	}
@@ -441,6 +487,7 @@ static int mxc_i2c_writebytes(mxc_i2c_device * dev, struct i2c_msg *msg,
 	return i;
 }
 
+#if ! defined(CONFIG_MACH_PIANOSA)
 #ifdef CONFIG_MOT_FEAT_I2C_BLK_SUSPEND
 /*!
  * Function initializes the I2C the registers.
@@ -472,7 +519,7 @@ static void mxc_i2c_module_en_clks(mxc_i2c_device * dev)
         /* Set the frequency divider */
         writew(dev->clkdiv, dev->membase + MXC_IFDR);        
 }
-#else
+#else /* ifdef CONFIG_MOT_FEAT_I2C_BLK_SUSPEND*/
 /*!
  * Function enables the I2C module and initializes the registers.
  *
@@ -494,8 +541,7 @@ static void mxc_i2c_module_en(mxc_i2c_device * dev, int trans_flag)
                 writew(MXC_I2CR_IEN | MXC_I2CR_IIEN, dev->membase + MXC_I2CR);
         }
 }
-#endif
-
+#endif/*END ifdef CONFIG_MOT_FEAT_I2C_BLK_SUSPEND*/
 /*!
  * Disables the I2C module.
  *
@@ -507,6 +553,58 @@ static void mxc_i2c_module_dis(mxc_i2c_device * dev)
 	mxc_clks_disable(I2C_CLK);
 }
 
+#else /* CONFIG_MACH_ELBA */
+
+/*!
+ * Function enables the I2C module and initializes the registers.
+ *
+ * @param   dev   the mxc i2c structure used to get to the right i2c device
+ * @param   trans_flag  transfer flag
+ */
+static void mxc_i2c_module_en(mxc_i2c_device * dev, int trans_flag)
+{
+#ifdef CONFIG_MOT_FEAT_PM
+	if (mpm_driver_advise(mpm_i2c_dev_nums[dev->adap.id], MPM_ADVICE_DRIVER_IS_BUSY))
+		printk(KERN_ERR "MPM advise call failed for mxc-i2c%d\n", dev->adap.id);
+#endif
+#ifdef CONFIG_MOT_FEAT_I2C_BLK_SUSPEND
+	set_bit(MXC_I2C_IN_TRANSACTION, &(dev->status));
+#endif
+
+        mxc_clks_enable(I2C_CLK);
+        /* Set the frequency divider */
+        writew(dev->clkdiv, dev->membase + MXC_IFDR);
+        /* Clear the status register */
+        writew(0x0, dev->membase + MXC_I2SR);
+        /* Enable I2C and its interrupts */
+        if (trans_flag & MXC_I2C_FLAG_POLLING) {
+                writew(MXC_I2CR_IEN, dev->membase + MXC_I2CR);
+        } else {
+                writew(MXC_I2CR_IEN, dev->membase + MXC_I2CR);
+                writew(MXC_I2CR_IEN | MXC_I2CR_IIEN, dev->membase + MXC_I2CR);
+        }
+}
+
+/*!
+ * Disables the I2C module.
+ *
+ * @param   dev   the mxc i2c structure used to get to the right i2c device
+ */
+static void mxc_i2c_module_dis(mxc_i2c_device * dev)
+{
+	writew(0x0, dev->membase + MXC_I2CR);
+	mxc_clks_disable(I2C_CLK);
+
+#ifdef CONFIG_MOT_FEAT_I2C_BLK_SUSPEND      
+	clear_bit(MXC_I2C_IN_TRANSACTION, &(dev->status));
+#endif
+#ifdef CONFIG_MOT_FEAT_PM
+	if(mpm_driver_advise(mpm_i2c_dev_nums[dev->adap.id], MPM_ADVICE_DRIVER_IS_NOT_BUSY))
+		printk(KERN_ERR "MPM advise call failed for mxc-i2c%d\n", dev->adap.id);
+#endif
+}
+
+#endif/*END ifdef CONFIG_MACH_ELBA*/
 /*!
  * The function is registered in the adapter structure. It is called when an MXC
  * driver wishes to transfer data to a device connected to the I2C device.
@@ -522,19 +620,20 @@ static void mxc_i2c_module_dis(mxc_i2c_device * dev)
 static int mxc_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 			int num)
 {
+	int rett = 0;
 	mxc_i2c_device *dev = (mxc_i2c_device *) (i2c_get_adapdata(adap));
 	int i, ret = 0, addr_comp = 0;
 	volatile unsigned int sr;
 
 	if (dev->low_power) {
 		printk(KERN_ERR "I2C Device in low power mode\n");
-		return -EREMOTEIO;
+		return -EPWLOWT;
 	}
 
 	if (num < 1) {
 		return 0;
 	}
-#ifdef CONFIG_MOT_FEAT_I2C_BLK_SUSPEND
+#if ! defined(CONFIG_MACH_PIANOSA) && defined(CONFIG_MOT_FEAT_I2C_BLK_SUSPEND)
         set_bit(MXC_I2C_IN_TRANSACTION, &(dev->status));
 	mxc_i2c_module_en_regs(dev, msgs[0].flags);
 #else
@@ -545,18 +644,19 @@ static int mxc_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 	 * Check bus state
 	 */
 	if (sr & MXC_I2SR_IBB) {
-#ifdef CONFIG_MOT_FEAT_I2C_BLK_SUSPEND      
+#if ! defined(CONFIG_MACH_PIANOSA) && defined(CONFIG_MOT_FEAT_I2C_BLK_SUSPEND)
                 clear_bit(MXC_I2C_IN_TRANSACTION, &(dev->status));
                 writew(0x0, dev->membase + MXC_I2CR);
 #else
 		mxc_i2c_module_dis(dev);
 #endif
 		printk(KERN_DEBUG "Bus busy\n");
-		return -EREMOTEIO;
+		return -EBUSBUSYT;
 	}
 	//gpio_i2c_active(dev->adap.id);
 	transfer_done = false;
 	tx_success = false;
+	arbitration_lost = false;
 
 	for (i = 0; i < num && ret >= 0; i++) {
 
@@ -579,22 +679,32 @@ static int mxc_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 			/*
 			 * Send a start or repeat start signal
 			 */
-			mxc_i2c_start(dev, &msgs[0]);
+			if(rett = mxc_i2c_start(dev, &msgs[0])){
+                                mxc_i2c_stop(dev);
+#if defined(CONFIG_MOT_FEAT_I2C_BLK_SUSPEND)
+                                clear_bit(MXC_I2C_IN_TRANSACTION, &(dev->status));
+                                writew(0x0, dev->membase + MXC_I2CR);
+#else
+                                mxc_i2c_module_dis(dev);
+#endif
+                                return rett;
+			}
 			/* Wait for the address cycle to complete */
 #ifdef CONFIG_MOT_WFN465
-			if (mxc_i2c_wait_for_tc(dev, msgs[0].flags, 1)) {
+			if (rett = mxc_i2c_wait_for_tc(dev, msgs[0].flags, 1)) {
 #else
-			if (mxc_i2c_wait_for_tc(dev, msgs[0].flags)) {
+			if (rett = mxc_i2c_wait_for_tc(dev, msgs[0].flags)) {
 #endif
 				mxc_i2c_stop(dev);
 				//gpio_i2c_inactive(dev->adap.id);
-#ifdef CONFIG_MOT_FEAT_I2C_BLK_SUSPEND
+#if defined(CONFIG_MOT_FEAT_I2C_BLK_SUSPEND)
                                 clear_bit(MXC_I2C_IN_TRANSACTION, &(dev->status));
                                 writew(0x0, dev->membase + MXC_I2CR);
 #else
 				mxc_i2c_module_dis(dev);
 #endif
-				return -EREMOTEIO;
+
+				return rett;
 			}
 			addr_comp = 1;
 		} else {
@@ -608,19 +718,19 @@ static int mxc_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 				mxc_i2c_repstart(dev, &msgs[i]);
 				/* Wait for the address cycle to complete */
 #ifdef CONFIG_MOT_WFN465
-				if (mxc_i2c_wait_for_tc(dev, msgs[i].flags, 1)) {
+				if (rett = mxc_i2c_wait_for_tc(dev, msgs[i].flags, 1)) {
 #else
-				if (mxc_i2c_wait_for_tc(dev, msgs[i].flags)) {
+				if (rett = mxc_i2c_wait_for_tc(dev, msgs[i].flags)) {
 #endif
 					mxc_i2c_stop(dev);
 					//gpio_i2c_inactive(dev->adap.id);
-#ifdef CONFIG_MOT_FEAT_I2C_BLK_SUSPEND
+#if defined(CONFIG_MOT_FEAT_I2C_BLK_SUSPEND)
                                         clear_bit(MXC_I2C_IN_TRANSACTION, &(dev->status));
                                         writew(0x0, dev->membase + MXC_I2CR);
 #else
 					mxc_i2c_module_dis(dev);
 #endif
-					return -EREMOTEIO;
+					return rett;
 				}
 				addr_comp = 1;
 			}
@@ -646,7 +756,7 @@ static int mxc_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 		}
 	}
 	//gpio_i2c_inactive(dev->adap.id);
-#ifdef CONFIG_MOT_FEAT_I2C_BLK_SUSPEND
+#if defined(CONFIG_MOT_FEAT_I2C_BLK_SUSPEND)
 	mxc_i2c_stop(dev);
         clear_bit(MXC_I2C_IN_TRANSACTION, &(dev->status));
         writew(0x0, dev->membase + MXC_I2CR);
@@ -657,7 +767,7 @@ static int mxc_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 	 * Decrease by 1 as we do not want Start message to be included in
 	 * the count
 	 */
-	return (i - 1);
+	return (ret < 0) ? ret : (i - 1);
 }
 
 /*!
@@ -706,7 +816,11 @@ static irqreturn_t mxc_i2c_handler(int irq, void *dev_id, struct pt_regs *regs)
 	writew(0x0, dev->membase + MXC_I2SR);
 
 	if (sr & MXC_I2SR_IAL) {
+		/*In single master mode,arbitration lost is caused by one of i2c device malfunction or SCL and SDA are in wrong condition,need to wake up work queue,and return an error*/
+		transfer_done = true;
+		arbitration_lost = true;
 		printk(KERN_DEBUG "Bus Arbitration lost\n");
+                wake_up_interruptible(&dev->wq);
 	} else {
 		/* Interrupt due byte transfer completion */
 		tx_success = false;
@@ -763,7 +877,10 @@ static int mxci2c_suspend(struct device *dev, u32 state, u32 level)
 		}
 	} else if (level == SUSPEND_POWER_DOWN) {
 		gpio_i2c_inactive(mxcdev->adap.id);
+#if defined(CONFIG_MACH_ELBA) || !defined(CONFIG_MOT_FEAT_I2C_BLK_SUSPEND)
+                /* This call will always be made when we clear the TRANSACTION flag */
 		mxc_i2c_module_dis(mxcdev);
+#endif
 	}
 	return 0;
 }
@@ -791,9 +908,10 @@ static int mxci2c_resume(struct device *dev, u32 level)
 	if (level == RESUME_ENABLE) {
 		mxcdev->low_power = false;
 	} else if (level == RESUME_POWER_ON) {
-#ifdef CONFIG_MOT_FEAT_I2C_BLK_SUSPEND
+#if ! defined(CONFIG_MACH_PIANOSA) && defined(CONFIG_MOT_FEAT_I2C_BLK_SUSPEND)
 		mxc_i2c_module_en_clks(mxcdev);
 #else
+		/* This call will be made when we start another transaction */
 		mxc_i2c_module_en(mxcdev, 0);
 #endif
 		gpio_i2c_active(mxcdev->adap.id);
@@ -843,7 +961,7 @@ static int mxci2c_remove(struct device *dev)
 #endif
 
 	dev_set_drvdata(dev, NULL);
-#ifdef CONFIG_MOT_FEAT_I2C_BLK_SUSPEND
+#if defined(CONFIG_MOT_FEAT_I2C_BLK_SUSPEND)
 	mxc_i2c_module_dis(mxcdev);
 #endif
 	
@@ -942,7 +1060,16 @@ static int __init mxc_i2c_init(void)
 			free_irq(mxc_i2c_devs[i].irq, &mxc_i2c_devs[i]);
 			err = ret;
 		}
-#ifdef CONFIG_MOT_FEAT_I2C_BLK_SUSPEND
+#if defined(CONFIG_MOT_FEAT_PM) && !defined(CONFIG_MACH_ELBA)
+                mpm_i2c_dev_nums[i] = mpm_register_with_mpm(mpm_i2c_dev_names[i]);
+                if(mpm_i2c_dev_nums[i] < 0) {
+                        printk(KERN_ERR "mxc-i2c%d: failed to register with "
+                               "mpm\n", i);
+                        free_irq(mxc_i2c_devs[i].irq, &mxc_i2c_devs[i]);
+                        err = mpm_i2c_dev_nums[i];
+                }
+#endif
+#if ! defined(CONFIG_MACH_PIANOSA) && defined(CONFIG_MOT_FEAT_I2C_BLK_SUSPEND)
                 mxc_i2c_module_en_clks(&mxc_i2c_devs[i]);
 		mxc_i2c_module_en_regs(&mxc_i2c_devs[i], 0);
 #endif
@@ -968,6 +1095,9 @@ static void __exit mxc_i2c_exit(void)
 		i2c_del_adapter(&mxc_i2c_devs[i].adap);
 		driver_unregister(&mxci2c_driver);
 		platform_device_unregister(&mxci2c_devices[i]);
+#if defined(CONFIG_MOT_FEAT_PM) && !defined(CONFIG_MACH_ELBA)
+		mpm_unregister_with_mpm(mpm_i2c_dev_names[i]);
+#endif
 	}
 }
 

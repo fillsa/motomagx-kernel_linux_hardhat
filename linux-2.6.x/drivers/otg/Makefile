@@ -43,9 +43,9 @@ EXTRA_CFLAGS += -Wno-format -Wall
 obj-$(CONFIG_OTG_GENERIC) += functions/generic/
 obj-$(CONFIG_OTG_ACM) += functions/acm/
 obj-$(CONFIG_OTG_MSC) += functions/msc/
-# obj-$(CONFIG_OTG_MOUSE) += functions/mouse/
+obj-$(CONFIG_OTG_MOUSE) += functions/mouse/
 obj-$(CONFIG_OTG_NETWORK) += functions/network/
-# obj-$(CONFIG_OTG_NETWORK) += functions/isotest/
+obj-$(CONFIG_OTG_NETWORK) += functions/isotest/
 obj-$(CONFIG_OTG_MTP) += functions/mtp/
 
 ifeq ($(CONFIG_OTG),m)

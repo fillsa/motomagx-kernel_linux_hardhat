@@ -36,6 +36,7 @@
  * Includes
  */
 
+#include <linux/module.h>
 #include <asm/arch/mc13783_spi_inter.h>
 #include "../mc13783_legacy/core/mc13783_config.h"
 #include "spi.h"
@@ -77,6 +78,8 @@ int spi_init(void)
         return ERROR_NONE;
 };
 
+EXPORT_SYMBOL(spi_init);
+
 /*!
  * This function is used to write on a mc13783 register.
  *
@@ -91,6 +94,8 @@ int spi_write_reg(int num_reg, unsigned int *reg_value)
 	return ERROR_NONE;
 };
 
+EXPORT_SYMBOL(spi_write_reg);
+
 /*!
  * This function is used to read on a mc13783 register.
  *
@@ -104,6 +109,8 @@ int spi_read_reg(int num_reg, unsigned int *reg_value)
 	CHECK_ERROR(spi_send_frame_to_spi(num_reg, reg_value, 0));
         return ERROR_NONE;
 };
+
+EXPORT_SYMBOL(spi_read_reg);
 
 /*!
  * This function is used to send a frame on SPI bus.

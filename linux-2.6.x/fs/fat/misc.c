@@ -1,21 +1,21 @@
 /*
  *  linux/fs/fat/misc.c
  *
- *  Copyright (C) 2007 Motorola Inc.
- *
- *
  *  Written 1992,1993 by Werner Almesberger
  *  22/11/2000 - Fixed fat_date_unix2dos for dates earlier than 01/01/1980
  *		 and date_dos2unix for date==0 by Igor Zhbanov(bsg@uniyar.ac.ru)
  */
 
 /*
- * Copyright (C) 2007 Motorola, Inc.
+ * Copyright (C) 2007-2008 Motorola, Inc.
  *
  * Date         Author            Comment
  * ===========  ==========  ====================================
  * 11/01/2007   Motorola    Fix for TF write protected issue.
+ * 11/26/2007   Motorola	Fix for TF write protected issue.
  * 11-15-2007   Motorola    Upmerge from 6.1 (Added conditional sync dirt mark for loop device)
+ * 12-20-2007   Motorola	Added simple auto  repair FAT
+ * 01-25-2008   Motorola	Remove the FS changes about repair FAT	   
  */
 
 

@@ -22,6 +22,7 @@
 
 /* Date         Author          Comment
  * ===========  ==============  ==============================================
+ * 09-Jul-2007  Motorola        Added gpio_free_irq_dev work around.
  * 02-Jan-2007  Motorola        Initial revision.
  */
 
@@ -104,7 +105,11 @@ int gpio_usb_hs_flagc_request_irq(gpio_irq_handler handler,
  */
 void gpio_usb_hs_flagc_free_irq(void *dev_id)
 {
-    gpio_signal_free_irq(GPIO_SIGNAL_USB_HS_FLAGC, GPIO_HIGH_PRIO);
+    gpio_signal_free_irq(GPIO_SIGNAL_USB_HS_FLAGC, GPIO_HIGH_PRIO
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) ||  defined(CONFIG_MACH_KEYWEST) 
+			, dev_id // 09-Jul-2007  Motorola        Added gpio_free_irq_dev work around.
+#endif
+					);
 }
 
 
@@ -247,7 +252,11 @@ void gpio_usb_hs_dma_req_set_irq_type(gpio_edge_t edge)
  */
 void gpio_usb_hs_dma_req_free_irq(void *dev_id)
 {
-    gpio_signal_free_irq(GPIO_SIGNAL_USB_HS_DMA_REQ, GPIO_HIGH_PRIO);
+    gpio_signal_free_irq(GPIO_SIGNAL_USB_HS_DMA_REQ, GPIO_HIGH_PRIO
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) ||  defined(CONFIG_MACH_KEYWEST) 
+			, dev_id // 09-Jul-2007  Motorola        Added gpio_free_irq_dev work around.
+#endif
+);
 }
 
 

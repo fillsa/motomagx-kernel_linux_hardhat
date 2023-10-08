@@ -2,7 +2,7 @@
  *  linux/drivers/char/mem.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
- *  Copyright (C) Motorola 2006
+ *  Copyright (C) Motorola 2006-2007
  *
  *  Added devfs support. 
  *    Jan-11-1998, C. Scott Ananian <cananian@alumni.princeton.edu>
@@ -15,6 +15,9 @@
  * 06/14/2006   Motorola  Added CONFIG_MOT_SECURE_USERMEM to
  *                        conditionally remove userspace access
  *                        to /dev/mem and /dev/kmem.
+ * 03/20/2007	Motorola  Added CONFIG_MOT_FEAT_ALLOW_MEM_ACCESS to
+ *                        allow all the users of phone to access to
+ *                        /dev/mem.
  *
  */
 
@@ -577,7 +580,11 @@ static loff_t memory_lseek(struct file * file, loff_t offset, int orig)
 
 static int open_port(struct inode * inode, struct file * filp)
 {
+#ifdef CONFIG_MOT_FEAT_ALLOW_MEM_ACCESS
+	return 0;
+#else
 	return capable(CAP_SYS_RAWIO) ? 0 : -EPERM;
+#endif /*CONFIG_MOT_FEAT_ALLOW_MEM_ACCESS*/
 }
 #endif
 
@@ -712,7 +719,11 @@ static const struct {
 	struct file_operations	*fops;
 } devlist[] = { /* list of minor devices */
 #ifndef CONFIG_MOT_FEAT_SECURE_USERMEM
+#ifdef CONFIG_MOT_FEAT_ALLOW_MEM_ACCESS
+	{1, "mem",     S_IRUGO | S_IWUGO, &mem_fops},
+#else
 	{1, "mem",     S_IRUSR | S_IWUSR | S_IRGRP, &mem_fops},
+#endif /* CONFIG_MOT_FEAT_ALLOW_MEM_ACCESS */
 	{2, "kmem",    S_IRUSR | S_IWUSR | S_IRGRP, &kmem_fops},
 #endif /* CONFIG_MOT_FEAT_SECURE_USERMEM */
 	{3, "null",    S_IRUGO | S_IWUGO,           &null_fops},

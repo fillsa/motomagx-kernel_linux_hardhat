@@ -87,6 +87,8 @@
  *
  * 06-15-2007   Motorola: update read disturb max value for threshold from 2^8 to 2^16.
  *
+ * 08-23-2007   Motorola: remove WFN455
+ *
  * Credits:
  *	David Woodhouse for adding multichip support  
  *	

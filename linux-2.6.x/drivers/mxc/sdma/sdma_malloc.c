@@ -1,6 +1,6 @@
 /*
  * Copyright 2004-2006 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright (C) 2008 Motorola, Inc.
+ * Copyright (C) 2007-2008 Motorola, Inc.
  */
 
 /*
@@ -17,6 +17,8 @@
  *
  * DATE          AUTHOR         COMMMENT
  * ----          ------         --------
+ * 03/06/2007    Motorola       Added FSL IPCv2 changes for WFN487
+ * 04/20/2008    Motorola       Protect hashtable to avoid race condition
  * 19/03/2008    Motorola       Protect hashtable to avoid race condition
  *                              (For SMP, pls use spin_lock_irq() instead of local_irq_save_nort()). 
  *                              Is there a protect solution without disable irq? disable preemption,... 
@@ -86,7 +88,11 @@ static virt_phys_struct *phys_to_virt_hash[HASH_SIZE];
  * The size must be at least 512 bytes, because
  * sdma channel control blocks array size is 512 bytes
  */
+#ifdef CONFIG_MOT_WFN487
+#define SDMA_POOL_SIZE 1024
+#else
 #define SDMA_POOL_SIZE 512
+#endif
 
 /*!
  * Adds new buffer structure into conversion hash tables

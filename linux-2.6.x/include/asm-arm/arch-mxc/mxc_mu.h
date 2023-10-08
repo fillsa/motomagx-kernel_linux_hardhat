@@ -12,7 +12,8 @@
   * http://www.gnu.org/copyleft/lgpl.html
   */
 
-/*
+/* Changelog:
+ *
  * DATE          AUTHOR         COMMMENT
  * ----          ------         --------
  * 10/04/2006    Motorola       Fixed bug documented by WFN414.
@@ -21,7 +22,9 @@
  *                              Added function prototype for AP BP sleep
  *                              negotiation.
  * 04/26/2007    Motorola       Adding sdma debug ioctl
- * 12/14/2007    Motorola       Add a new ioctl to dump 24 SDMA register
+ * 10/17/2007    Motorola       Add a new ioctl to dump 24 SDMA register
+ * 12/14/2007    Motorola       Add a new ioctl to dump 24 SDMA register in LJ6.3
+ * 11/14/2007    Motorola       Add functions to fix errata issue.
  */
 
 #ifndef MU_AS_H
@@ -350,6 +353,18 @@ int mxc_mu_intdisable(int chand, enum mu_oper muoper);
  * both the MCU side and the DSP (Digital Signal Processor) side
  */
 int mxc_mu_reset(void);
+
+#ifdef CONFIG_MOT_FEAT_PM
+/*!
+ * Inform the DSP that the MCU is now in DSM mode.
+ */
+void mxc_mu_inform_dsp_dsm_mode(void);
+
+/*!
+ * Inform the DSP that the MCU is now running.
+ */
+void mxc_mu_inform_dsp_run_mode(void);
+#endif /* CONFIG_MOT_FEAT_PM */
 
 /*!
  * This function is used by other modules to issue DSP (Digital Signal Processor) hardware reset.

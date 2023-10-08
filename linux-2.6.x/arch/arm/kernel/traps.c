@@ -1,8 +1,9 @@
 /*
  *  linux/arch/arm/kernel/traps.c
  *
- *  Copyright Motorola 2006-2007
  *  Copyright (C) 1995-2002 Russell King
+ *  Copyright (C) 2006-2008 Motorola, Inc. 
+ *
  *  Fragments that appear the same as linux/arch/i386/kernel/traps.c (C) Linus Torvalds
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,9 +20,14 @@
  * ----------   --------  ---------------------
  * 10/06/2006   Motorola  Added app dump functionality
  * 12/01/2006	Motorola  Add panic on oops support
+ * 02/06/2007   Motorola  Incorporated patch to move sigreturn code to
+ *                        exception vector page
+ * 02/09/2007   Motorola  Moved sys_restart to exception vector page
  * 02/19/2007   Motorola  Add panic PC output
  * 03/09/2007   Motorola  Fixed panic PC output
- *
+ * 12/03/2007   Motorola  Added DBG code
+ * 01/11/2008   Motorola  Move mem print to panic()
+ * 03/05/2008   Motorola  Added more useful information for APR.
  */
 #include <linux/config.h>
 #include <linux/module.h>
@@ -46,6 +52,11 @@
 #ifdef CONFIG_MOT_FEAT_PRINT_PC_ON_PANIC
 extern int aprdataprinted;
 #endif
+
+#ifdef CONFIG_MOT_WFN422
+#include "signal.h"
+#endif /* CONFIG_MOT_WFN422 */
+
 extern void c_backtrace (unsigned long fp, int pmode);
 extern void show_pte(struct mm_struct *mm, unsigned long addr);
 #ifdef CONFIG_MOT_FEAT_APP_DUMP
@@ -329,8 +340,8 @@ NORET_TYPE void die(const char *str, struct pt_regs *regs, int err)
 	printk("CPU: %d\n", smp_processor_id());
 #ifdef CONFIG_MOT_FEAT_PRINT_PC_ON_PANIC
 	if (aprdataprinted == 0) {
-		printk (KERN_ERR "[APR]PanicPC: %p\n",
-		         (void *) instruction_pointer(regs));
+		print_symbol("[APR]PanicPC: %s,", instruction_pointer(regs));
+		print_symbol("%s\n", regs->ARM_lr);
 		aprdataprinted = 1;
 	}
 #endif
@@ -721,6 +732,19 @@ void __init early_trap_init(void)
 	extern void __trap_init(void);
 
 	__trap_init();
+#ifdef CONFIG_MOT_WFN422
+	/*
+	 * Copy signal return handlers into the vector page, and
+	 * set sigreturn to be a pointer to these.
+	 */
+	memcpy((void *)KERN_SIGRETURN_CODE, sigreturn_codes,
+	       sizeof(sigreturn_codes));
+
+	/* Also copy the sys_syscall_restart handlers into the vector page */
+	memcpy((void *)KERN_SYSRESTART_CODE, sysrestart_codes,
+	       sizeof(sysrestart_codes));
+
+#endif /* CONFIG_MOT_WFN422 */
 	flush_icache_range(0xffff0000, 0xffff0000 + PAGE_SIZE);
 	modify_domain(DOMAIN_USER, DOMAIN_CLIENT);
 }

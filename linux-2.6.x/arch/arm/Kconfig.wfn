@@ -428,6 +428,34 @@ config MOT_WFN478
 	  and local_irq_disable.  It should save and restore the IRQ state
 	  instead of overriding the previous setting.
 
+config MOT_WFN485
+        bool "IOMUX pad function definitions for Argon wrong"
+        default n
+        help
+          The iomux_pad_config enumeration for Argon contains values which
+          do not match the documentation.
+
+config MOT_WFN422
+	bool "Execute-never memory protection"
+	default n
+	help
+		This feature will enforce memory execution protection.  By default the
+		stack and data sections will be marked as non-executable.  This is
+		enforced by the use of the ARM XN-bit.
+
+config MOT_WFN491
+        bool "Fix IOMUX pad bit-width bug for MXC91321"
+        default n
+        help
+          IOMUX pad settings are 10 bits wide on ArgonLV; however, Freescale's
+          code defines them to be 9 bits.
+
+config MOT_WFN492
+        bool "SPI driver bug fixes for writes less than 4 bytes"
+        default n
+        help
+                This option enables a couple bug fixes in the MXC SPI driver
+                that fixes issues when performing writes smaller than 4 bytes.
 config MOT_WFN494
 	bool "Fix UTF8 decoding buffer overflow"
 	default n

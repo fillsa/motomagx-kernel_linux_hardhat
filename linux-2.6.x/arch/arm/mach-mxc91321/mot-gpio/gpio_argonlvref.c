@@ -34,7 +34,7 @@
 /**
  * GPIO signal description and initial states.
  */
-struct gpio_signal_settings initial_gpio_settings[MAX_GPIO_SIGNAL] = {
+struct gpio_signal_description initial_gpio_settings[MAX_GPIO_SIGNAL] = {
     /*
      * MCU GPIO Port Signal 31 -- Secondary Display Reset (active low)
      * LJ7.1 Reference Design Signal: GPIO_CLI_RST_B

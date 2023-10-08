@@ -1,6 +1,7 @@
 /*
  *  Copyright (C) 2001 Deep Blue Solutions Ltd.
  *  Copyright 2004-2006 Freescale Semiconductor, Inc. All Rights Reserved.
+ *  Copyright 2006-2007 Motorola, Inc.
  *  Copyright (C) 2007-2008 Motorola, Inc.
  *  
  *
@@ -21,7 +22,15 @@
  * Changelog:
  * Date               Author           Comment
  * -----------------------------------------------------------------------------
+ * 11/30/2006  Motorola          Clock gating changes    
+ * 12/05/2006  Motorola          Dynamic PLL lock/unlock
  * 05/11/2007         Motorola         Enable PLL2 Lock/Unlock Change
+ * 05/22/2007  Motorola          Remove mxc_pll_release_pll
+ *                               from mxc_cpu_init
+ *
+ * 08/28/2007  Motorola          Fix typing error on line 254:
+                                 Change AMLPMRG_4_VALUE to
+                                 AMLPMRG_3_VALUE  
  * 02/28/2008         Motorola         Fix flicker when showing logo
  */
 

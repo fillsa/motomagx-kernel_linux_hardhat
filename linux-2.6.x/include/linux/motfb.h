@@ -16,6 +16,7 @@
  *                    interfaces and type definitions for both the MXCFB and
  *                    MXCFB_HVGA framebuffer drivers.
  * 04/2007  Motorola  Removed support for HVGA driver
+ * 06/2007  Motorola  Removed support for HVGA driver.
  * 07/2008  Motorola  Added APP coredump prompt support
  */
 

@@ -3,10 +3,15 @@
  *
  *  Copyright (C) 1995  Linus Torvalds
  *  Modifications for ARM processor (c) 1995-2004 Russell King
+ *  Copyright 2007 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Date     Author     Comment
+ * 02/2007  Motorola   Added functionality to handle XN faults 
+ *
  */
 #include <linux/config.h>
 #include <linux/module.h>
@@ -22,6 +27,15 @@
 #include <asm/uaccess.h>
 
 #include "fault.h"
+
+#ifdef CONFIG_MOT_WFN422
+/*
+ * We overload bits 8 and 9 that will never be set in a
+ * data abort.  We can send this as the FSR for a prefetch abort
+ * and use it later on to check the type of abort.
+ */
+#define FSR_PREFETCH_ABORT  0x300
+#endif
 
 /*
  * This is useful to dump out the page tables associated with
@@ -171,12 +185,27 @@ __do_page_fault(struct mm_struct *mm, unsigned long addr, unsigned int fsr,
 good_area:
 	if (fsr & (1 << 11)) /* write? */
 		mask = VM_WRITE;
+#ifdef CONFIG_MOT_WFN422
+	else if (fsr == FSR_PREFETCH_ABORT)
+		mask = VM_EXEC;
+#endif /* CONFIG_MOT_WFN422 */
 	else
 		mask = VM_READ|VM_EXEC;
 
 	fault = VM_FAULT_BADACCESS;
 	if (!(vma->vm_flags & mask))
+#ifdef CONFIG_MOT_WFN422
+	{
+		if(mask == VM_EXEC && printk_ratelimit())
+			printk(KERN_WARNING 
+			       "XN bit violation in process: '%s',"
+			       " at address: 0x%08lx\n",
+			       current->comm, addr);
 		goto out;
+	}
+#else
+		goto out;
+#endif /* CONFIG_MOT_WFN422 */
 
 	/*
 	 * If for any reason at all we couldn't handle
@@ -454,6 +483,10 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 asmlinkage void
 do_PrefetchAbort(unsigned long addr, struct pt_regs *regs)
 {
+#ifdef CONFIG_MOT_WFN422
+	do_translation_fault(addr, FSR_PREFETCH_ABORT, regs);
+#else
 	do_translation_fault(addr, 0, regs);
+#endif /* CONFIG_MOT_WFN422 */
 }
 

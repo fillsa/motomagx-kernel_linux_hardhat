@@ -36,6 +36,7 @@ job_get_toolchain:
     - git clone $SDK_TOOLCHAIN_LINK && mv motomagx-SDK-toolchain arm-eabi
     - source /opt/toolchain/motomagx/set-env.sh
     - echo `ls /opt/toolchain/motomagx/`
+   when: manual
 
 
 job_get_platform_src:
@@ -50,6 +51,7 @@ job_get_platform_src:
     - echo `ls platform`
     - cp -a ./platform/Makefile.top ./Makefile && sed -i 's/\/vobs\/jem\/cee4_lsp\/mobilinux\/devkit\/arm\/v6_vfp_le\/bin/\/opt\/toolchain\/motomagx\/bin/' ./Makefile
     - echo `ls ./`
+   when: manual
 
 job_get_and_build_src:
   stage: build

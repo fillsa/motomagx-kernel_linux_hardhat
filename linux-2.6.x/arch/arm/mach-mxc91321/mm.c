@@ -4,6 +4,7 @@
  *  Copyright (C) 2002 Shane Nay (shane@minirl.com)
  *  Copyright 2004-2006 Freescale Semiconductor, Inc. All Rights Reserved.
  *    - add MXC specific definitions
+ * Copyright 2007 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,6 +19,13 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+/*
+ * Revision History:
+ *
+ * Date        Author    Comment
+ * 01/02/2007  Motorola  Added CS3 to the memory map
  */
 
 #include <linux/mm.h>
@@ -48,6 +56,9 @@ static struct map_desc mxc_io_desc[] __initdata = {
 	{SPBA0_BASE_ADDR_VIRT, SPBA0_BASE_ADDR, SPBA0_SIZE, MT_DEVICE},
 	{AIPS2_BASE_ADDR_VIRT, AIPS2_BASE_ADDR, AIPS2_SIZE, MT_DEVICE},
 	{CS2_BASE_ADDR_VIRT, CS2_BASE_ADDR, CS2_SIZE, MT_DEVICE},
+#ifdef CONFIG_MOT_FEAT_ANTIOCH
+	{CS3_BASE_ADDR_VIRT, CS3_BASE_ADDR, CS3_SIZE, MT_DEVICE},
+#endif
 	{CS4_BASE_ADDR_VIRT, CS4_BASE_ADDR, CS4_SIZE, MT_DEVICE},
 };
 

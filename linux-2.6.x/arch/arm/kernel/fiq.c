@@ -41,8 +41,12 @@
  * ---------    --------  ---------------------------
  * 01/26/2007   Motorola  Fixed the asm clobber issue. It is fixed in the
  *                        later versions of Linux kernel.
+ * 10/02/2007   Motorola  Added FIQ C dispatcher in kernel.
+ * 10/05/2007   Motorola  Implement the IPU FIQ solution code in kernel and module layer.
  * 10/15/2007   Motorola  FIQ related modified.
+ * 10/19/2007   Motorola  Introduce the image resolution information into FIQ handler
  * 10/21/2007   Motorola  Introduce the image resolution information into FIQ handler
+ * 12/27/2007   Motorola  Change Watchdog 2 interrupt part of mxc_fiq_handler
  * 03/11/2008   Motorola  Added WDOG2 FIQ handler to common FIQ handler
  */
 
@@ -242,28 +246,8 @@ void __init init_FIQ(void)
 }
 
 #ifdef CONFIG_MOT_FEAT_FIQ_IN_C
-
-#ifndef _IPU_REGS_INCLUDED_
-#define _IPU_REGS_INCLUDED_
- 
 /* IPU Common registers */
-#define IPU_REG_BASE            IO_ADDRESS(IPU_CTRL_BASE_ADDR)
- 
-#define IPU_CHA_BUF0_RDY        (IPU_REG_BASE + 0x0004)
-#define IPU_CHA_BUF1_RDY        (IPU_REG_BASE + 0x0008)
- 
-#define IPU_IMA_ADDR            (IPU_REG_BASE + 0x0020)
-#define IPU_IMA_DATA            (IPU_REG_BASE + 0x0024)
- 
-#define IPU_INT_CTRL_1          (IPU_REG_BASE + 0x0028)
- 
-#define IPU_INT_STAT_1          (IPU_REG_BASE + 0x003C)
-#define IPU_INT_STAT_2          (IPU_REG_BASE + 0x0040)
-#define IPU_INT_STAT_3          (IPU_REG_BASE + 0x0044)
-#define IPU_INT_STAT_4          (IPU_REG_BASE + 0x0048)
-#define IPU_INT_STAT_5          (IPU_REG_BASE + 0x004C)
-
-#endif
+#include "../../../drivers/mxc/ipu/ipu_regs.h"
 
 #define FIQ_C_HANDLER_STACK_LEN 8192
 
@@ -317,16 +301,19 @@ static void __attribute__ ((naked)) mxc_fiq_handler(void)
         case 42: //for IPU 4K transfer interrupt.
               buf_num =  ipu_reserved_buff_fiq[1200];
               last_fiq_event = *p; 
+#if 1
               //disable SENSOR_EOF interrupts
               __raw_writel(0x00000000UL,IPU_INT_CTRL_1);
               //read eof	      
               reg = __raw_readl(IPU_INT_STAT_1) & 0x00000080;
+#if 1
               //clear all of interrupt state registers
               __raw_writel(0xFFFFFFFF, IPU_INT_STAT_1);
               __raw_writel(0xFFFFFFFF, IPU_INT_STAT_2);
               __raw_writel(0xFFFFFFFF, IPU_INT_STAT_3);
               __raw_writel(0xFFFFFFFF, IPU_INT_STAT_4);
               __raw_writel(0xFFFFFFFF, IPU_INT_STAT_5);
+#endif              
               if(reg)
               {
                 //clear eof
@@ -337,6 +324,7 @@ static void __attribute__ ((naked)) mxc_fiq_handler(void)
                   {
                     if ((buf_num%2) == 0)
                     {
+#if 1
                         /* update physical address for idma buffer 0 */
                         __raw_writel((unsigned long)0x10078, IPU_IMA_ADDR);
                         __raw_writel((uint32_t) ipu_reserved_buff_fiq[buf_num], IPU_IMA_DATA);
@@ -350,6 +338,7 @@ static void __attribute__ ((naked)) mxc_fiq_handler(void)
                         __raw_writel((uint32_t) ipu_reserved_buff_fiq[buf_num], IPU_IMA_DATA);
                         /* set buffer 1 ready bit */
                         __raw_writel((unsigned long)0x00000080, IPU_CHA_BUF1_RDY);
+#endif
                     }
                   }
                 }
@@ -362,6 +351,7 @@ static void __attribute__ ((naked)) mxc_fiq_handler(void)
               }
               //enable interrupt
               __raw_writel(0x00000080UL,IPU_INT_CTRL_1);
+#endif
               break;
 	}
 

@@ -26,7 +26,11 @@
  *                              specific features and several WFN bug fixes
  *                              for invalid defines.
  * 03-Nov-2006  Motorola        Adjusted ArgonLV related defines.
+ * 02-Jan-2007  Motorola        Added CS3 settings
+ * 01-Mar-2007  Motorola        Added FIQ_START for watchdog debug support.
+ * 06-Mar-2007  Motorola        Added FSL IPCv2 changes for WFN487
  * 24-Apr-2007  Motorola	Added the definition for 32KHz clock.
+ * 09-Aug-2007  Motorola        Added support for new ArgonLV
  */
 
 #ifndef __ASM_ARM_ARCH_MXC_MXC91321_H__
@@ -245,6 +249,10 @@
 #define CS2_BASE_ADDR_VIRT      0xEA000000
 #define CS2_SIZE                SZ_16M
 #define CS3_BASE_ADDR           0xB2000000
+#ifdef CONFIG_MOT_FEAT_ANTIOCH
+#define CS3_BASE_ADDR_VIRT      0xEC000000
+#define CS3_SIZE                SZ_16M
+#endif
 #define CS4_BASE_ADDR           0xB4000000
 #define CS4_BASE_ADDR_VIRT      0xEB000000
 #define CS4_SIZE                SZ_16M
@@ -256,6 +264,23 @@
  * and returning the virtual address. If the physical address is not mapped,
  * it returns 0xDEADBEEF
  */
+#ifdef CONFIG_MOT_FEAT_ANTIOCH
+#define IO_ADDRESS(x)   \
+        (((x >= IRAM_BASE_ADDR) && (x < (IRAM_BASE_ADDR + IRAM_SIZE))) ? IRAM_IO_ADDRESS(x):\
+        ((x >= L2CC_BASE_ADDR) && (x < (L2CC_BASE_ADDR + L2CC_SIZE))) ? L2CC_IO_ADDRESS(x):\
+        ((x >= SMC_BASE_ADDR) && (x < (SMC_BASE_ADDR + SMC_SIZE))) ? SMC_IO_ADDRESS(x):\
+        ((x >= SIRF_BASE_ADDR) && (x < (SIRF_BASE_ADDR + SIRF_SIZE))) ? SIRF_IO_ADDRESS(x):\
+        ((x >= AIPS1_BASE_ADDR) && (x < (AIPS1_BASE_ADDR + AIPS1_SIZE))) ? AIPS1_IO_ADDRESS(x):\
+        ((x >= SPBA0_BASE_ADDR) && (x < (SPBA0_BASE_ADDR + SPBA0_SIZE))) ? SPBA0_IO_ADDRESS(x):\
+        ((x >= AIPS2_BASE_ADDR) && (x < (AIPS2_BASE_ADDR + AIPS2_SIZE))) ? AIPS2_IO_ADDRESS(x):\
+        ((x >= ROMP_BASE_ADDR) && (x < (ROMP_BASE_ADDR + ROMP_SIZE))) ? ROMP_IO_ADDRESS(x):\
+        ((x >= AVIC_BASE_ADDR) && (x < (AVIC_BASE_ADDR + AVIC_SIZE))) ? AVIC_IO_ADDRESS(x):\
+        ((x >= CS2_BASE_ADDR) && (x < (CS2_BASE_ADDR + CS2_SIZE))) ? CS2_IO_ADDRESS(x):\
+        ((x >= CS3_BASE_ADDR) && (x < (CS3_BASE_ADDR + CS3_SIZE))) ? CS3_IO_ADDRESS(x):\
+        ((x >= CS4_BASE_ADDR) && (x < (CS4_BASE_ADDR + CS4_SIZE))) ? CS4_IO_ADDRESS(x):\
+        ((x >= X_MEMC_BASE_ADDR) && (x < (X_MEMC_BASE_ADDR + X_MEMC_SIZE))) ? X_MEMC_IO_ADDRESS(x):\
+        0xDEADBEEF)
+#else
 #define IO_ADDRESS(x)   \
         (((x >= IRAM_BASE_ADDR) && (x < (IRAM_BASE_ADDR + IRAM_SIZE))) ? IRAM_IO_ADDRESS(x):\
         ((x >= L2CC_BASE_ADDR) && (x < (L2CC_BASE_ADDR + L2CC_SIZE))) ? L2CC_IO_ADDRESS(x):\
@@ -270,7 +295,7 @@
         ((x >= CS4_BASE_ADDR) && (x < (CS4_BASE_ADDR + CS4_SIZE))) ? CS4_IO_ADDRESS(x):\
         ((x >= X_MEMC_BASE_ADDR) && (x < (X_MEMC_BASE_ADDR + X_MEMC_SIZE))) ? X_MEMC_IO_ADDRESS(x):\
         0xDEADBEEF)
-
+#endif
 /*
  * define the address mapping macros: in physical address order
  */
@@ -304,6 +329,11 @@
 
 #define CS2_IO_ADDRESS(x)   \
         (((x) - CS2_BASE_ADDR) + CS2_BASE_ADDR_VIRT)
+
+#ifdef CONFIG_MOT_FEAT_ANTIOCH
+#define CS3_IO_ADDRESS(x)   \
+        (((x) - CS3_BASE_ADDR) + CS3_BASE_ADDR_VIRT)
+#endif
 
 #define CS4_IO_ADDRESS(x)   \
         (((x) - CS4_BASE_ADDR) + CS4_BASE_ADDR_VIRT)
@@ -346,8 +376,19 @@
 #define DMA_REQ_SIM2       4
 #define DMA_REQ_UART3_TX   3
 #define DMA_REQ_UART3_RX   2
+#ifdef CONFIG_MOT_WFN483
+#define DMA_REQ_GEM        1
+#else
 #define DMA_REQ_CCM        1
+#endif
 #define DMA_REQ_reserved   0
+
+#ifdef CONFIG_MOT_WFN483
+/*!
+* Following define the SDMA Channel assigned for SuperGem Script
+*/
+#define SUPER_GEM_CH       11 
+#endif
 
 /*
  * Interrupt numbers
@@ -430,6 +471,10 @@
 #define MXC_MAX_INT_LINES       63
 #define MXC_MAX_EXT_LINES       8
 
+#ifdef CONFIG_MOT_FEAT_DEBUG_WDOG
+#define FIQ_START               0
+#endif
+
 /*!
  * Interrupt Number for ARM11 PMU
  */
@@ -456,6 +501,27 @@
 #define CSCRL                   0x04
 #define CSCRA                   0x08
 
+#ifdef CONFIG_MOT_FEAT_ANTIOCH
+#define WEIM_CTRL_CS3		(WEIM_BASE_ADDR + 0x30)
+#define WEIM_CONFIG_REG		(WEIM_BASE_ADDR + 0x60)
+
+/* Defines for CSCRU */
+#define WEIM_EDC_SHIFT		0
+#define WEIM_WSC_SHIFT		8
+
+
+/* Defines for CSCRL */
+#define WEIM_CSEN_SHIFT		0
+#define WEIM_DSZ_SHIFT		8
+#define WEIM_EBWN_SHIFT		16
+#define WEIM_EBWA_SHIFT		20
+
+/* Defines for CSCRA */
+#define WEIM_DWW_SHIFT		6
+#define WEIM_EBRN_SHIFT		24
+#define WEIM_EBRA_SHIFT		28
+#endif
+
 /*
  *  These are useconds NOT ticks.
  *
@@ -471,8 +537,11 @@
 #define CHIP_REV_1_1		0x11
 #define CHIP_REV_1_2		0x12
 #endif
+#define CHIP_REV_1_2_2		0x13
 #define CHIP_REV_2_0            0x20
 #define CHIP_REV_2_1            0x21
+#define CHIP_REV_2_3            0x22
+#define CHIP_REV_2_3_2          0x23    
 
 #ifdef CONFIG_ARCH_MXC91331
 #define PROD_SIGNATURE          0x4	/* For MXC91331 */
@@ -483,7 +552,7 @@
 #define PROD_SIGNATURE          0x6	/* For MXC91321 */
 #define SYSTEM_REV_MIN          CHIP_REV_1_0
 #ifdef CONFIG_MOT_WFN423
-#define SYSTEM_REV_NUM          3
+#define SYSTEM_REV_NUM          6
 #else
 #define SYSTEM_REV_NUM          1
 #endif

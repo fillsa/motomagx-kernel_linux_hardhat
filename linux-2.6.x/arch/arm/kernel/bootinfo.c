@@ -34,7 +34,8 @@
  * 10/06/2006   Motorola  MBM support 
  * 12/14/2006   Motorola  Added new ATAGs.
  * 05/01/2007   Motorola  Add cli logo support.
- * 07/10/2008   Motorola  Add build label support.
+ * 04/16/2008   Motorola  Add build label support
+ * 07/10/2008   Motorola  Add build label support in LJ6.3.
  *
  */
 

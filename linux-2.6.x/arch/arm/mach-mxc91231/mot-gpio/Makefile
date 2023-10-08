@@ -1,17 +1,24 @@
 #
 # Makefile for SCM-A11 implementation of Motorola GPIO API.
 #
-obj-y			:= iomux_init.o gpio_init.o base.o
+obj-y			:= iomux_init.o base.o
 
+
+ifeq ($(CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE),y)
+obj-y			+= gpio_init.o
+else
+obj-y			+=  gpio_init.o
 obj-$(CONFIG_MACH_SCMA11REF)			+= gpio_scma11ref.o
 obj-$(CONFIG_MACH_ASCENSION)			+= gpio_ascension.o
 obj-$(CONFIG_MACH_LIDO)	        		+= gpio_lido.o
 obj-$(CONFIG_MACH_SAIPAN)       		+= gpio_saipan.o
 obj-$(CONFIG_MACH_ELBA)         		+= gpio_elba.o
+obj-$(CONFIG_MACH_PIANOSA)         		+= gpio_elba.o
 obj-$(CONFIG_MACH_PICO)				+= gpio_pico.o
 obj-$(CONFIG_MACH_MARCO)  			+= gpio_marco.o
 obj-$(CONFIG_MACH_XPIXL)			    += gpio_xpixl.o
 obj-$(CONFIG_MACH_NEVIS)  			+= gpio_nevis.o
+endif
 
 obj-${CONFIG_MOT_FEAT_GPIO_API_BTPOWER} 	+= btpower.o
 obj-${CONFIG_MOT_FEAT_GPIO_API_CSI}		+= csi.o
