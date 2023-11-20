@@ -18,6 +18,7 @@
  * 05-24-2007   Motorola  Enable full coredump for non-security related application.
  * 11-21-2007   Motorola  Don't take tasklist_lock when coredump
  * 12-14-2007   Motorola  Fix full coredump pattern issue
+ * 12-17-2007   Motorola  Add support for CONFIG_MOT_FEAT_LTT_LITE
  * 02-27-2008   Motorola  Fix full coredump pattern issue
  * 04-15-2008   Motorola  Enable full coredump for applications which will set[u/g]id
  * 05-09-2008   Motorola  Enable aplog backup during full core dump
@@ -1296,6 +1297,10 @@ int do_execve(char * filename,
 
 	retval = search_binary_handler(bprm,regs);
 	if (retval >= 0) {
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+		/* Trace only if exec has been successful */
+		ltt_lite_ev_process(LTT_LITE_EV_PROCESS_EXEC, current);
+#endif
 		free_arg_pages(bprm);
 
 		/* execve success */
@@ -1525,7 +1530,7 @@ static void zap_threads (struct mm_struct *mm)
 	}
 
 /////LJ7.1 rcu_read_lock();
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 	rcu_read_lock();
 #else
 	read_lock(&tasklist_lock); 
@@ -1541,7 +1546,7 @@ static void zap_threads (struct mm_struct *mm)
 	while_each_thread(g,p);
 
 /////LJ7.1 rcu_read_lock();
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 	rcu_read_unlock();
 #else
 	read_unlock(&tasklist_lock);

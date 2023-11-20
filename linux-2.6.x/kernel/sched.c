@@ -29,6 +29,8 @@
  * 2006-11-11  Motorola		 Added panic on scheduling while atomic support
  * 2007-12-03  Motorola: Added DBG code
  * 2008-03-11  Motorola 	 Log the schedule events
+ *  2007-12-17  Motorola	Add support for CONFIG_MOT_FEAT_LTT_LITE
+ *  2008-01-29	Motorola	Remove LTT_EV_PROCESS_WAKEUP track from LTT
  * 2008-01-30  Motorola: Adjust the parameter to be identical with mem log mechnism.
  */
  
@@ -352,7 +354,8 @@ static runqueue_t *task_rq_lock(task_t *p, unsigned long *flags)
 {
 	struct runqueue *rq;
 
-	ltt_ev_process(LTT_EV_PROCESS_WAKEUP, p->pid, p->state);
+	/* NOTES: ltt_ev_process here would cause Mearl phone reboot*/
+	/*ltt_ev_process(LTT_EV_PROCESS_WAKEUP, p->pid, p->state);*/ // 2008-01-29	Motorola	Remove LTT_EV_PROCESS_WAKEUP track from LTT
 
 repeat_lock_task:
 	local_irq_save(*flags);
@@ -3008,7 +3011,7 @@ switch_tasks:
 
 	sched_info_switch(prev, next);
 	if (likely(prev != next)) {
-#ifdef CONFIG_LTT
+#if defined(CONFIG_LTT) || defined(CONFIG_MOT_FEAT_LTT_LITE)
 		ltt_schedchange sched_event;
 #endif
 		next->timestamp = now;
@@ -3027,11 +3030,15 @@ switch_tasks:
                 mem_log_event();
 #endif
 		
+#if defined(CONFIG_LTT) || defined(CONFIG_MOT_FEAT_LTT_LITE)
 		ltt_init_sched_event(&sched_event, prev, current);
+#endif
 		if (prev && current)
 			trace_special_pid(prev->pid, prev->prio, current->prio);
 		finish_task_switch(prev);
+#if defined(CONFIG_LTT) || defined(CONFIG_MOT_FEAT_LTT_LITE)
 		ltt_ev_schedchange(&sched_event);
+#endif
 		preempt_enable_no_resched();
 	} else {
 		trace_stop_sched_switched(next);

@@ -19,6 +19,7 @@
  * 01/2008	Motorola	Make memory log more flexable.
  * 03/2008	Motorola	Make memory log more flexable in LJ6.3
  * 03/2008      Motorola        Deleted APR PC.
+ * 04/2008	Motorola	Reset charge current when panic
  * 06/2008	Motorola	Enable full backtrace on security phones.
  */
 
@@ -54,6 +55,13 @@
 #endif /* CONFIG_MOT_FEAT_KPANIC */
 
 #define MOTO_BLD_FLAG "motobldlabel"
+
+#ifdef CONFIG_MOT_FEAT_PANICNOCHG
+int (*set_charge_current)(int current) = 0;
+int (*set_trickle_current)(int current) = 0;
+EXPORT_SYMBOL(set_charge_current);
+EXPORT_SYMBOL(set_trickle_current);
+#endif /* CONFIG_MOT_FEAT_PANICNOCHG */
 
 #ifdef CONFIG_MOT_FEAT_LOG_SCHEDULE_EVENTSS // old #ifdef CONFIG_DEBUG_GNPO
 #include <linux/mem-log.h>
@@ -173,6 +181,16 @@ NORET_TYPE void panic(const char * fmt, ...)
 	printk(KERN_EMERG "Kernel panic - not syncing: %s\n",buf);
 
 	bust_spinlocks(0);
+	
+#ifdef CONFIG_MOT_FEAT_PANICNOCHG
+	if (set_charge_current != 0) {
+		set_charge_current(0);
+	}
+	if (set_trickle_current != 0) {
+		set_trickle_current(0);
+	}
+#endif /* CONFIG_MOT_FEAT_PANICNOCHG */
+
 #ifdef CONFIG_SMP
 	smp_send_stop();
 #endif

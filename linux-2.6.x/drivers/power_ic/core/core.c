@@ -113,16 +113,16 @@
 #if defined(CONFIG_MACH_ASCENSION)
 #include "../hdr/ascension_p2a.h"
 #include "../hdr/ascension_p3a.h"
-#elif defined(CONFIG_ARCH_MXC91321)
-#if defined(CONFIG_MOT_FEAT_RF_PYTHON)
-#include "../hdr/python_base.h"
-#elif defined(CONFIG_MACH_BUTEREF)
-#include "../hdr/bute_base.h"
-#include "../hdr/bute_p4a.h"
-#include "../hdr/bute_p4aw.h"
-#else
-#include "../hdr/argonref71_base.h"
-#endif
+#elif defined(CONFIG_ARCH_MXC91321) // Argon
+  #if defined(CONFIG_MOT_FEAT_RF_PYTHON)
+  #include "../hdr/python_base.h"
+  #elif defined(CONFIG_MACH_BUTEREF)
+  #include "../hdr/bute_base.h"
+  #include "../hdr/bute_p4a.h"
+  #include "../hdr/bute_p4aw.h"
+  #else
+  #include "../hdr/argonref71_base.h"
+  #endif
 #elif defined(CONFIG_MACH_ELBA)
 #include "../hdr/elba_base.h"
 #elif defined(CONFIG_MACH_SAIPAN)

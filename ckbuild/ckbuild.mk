@@ -14,9 +14,11 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #
-# Copyright 2006 Motorola
+# Copyright 2006, 2008 Motorola, Inc.
 #
 # Motorola  2006-Nov-13 - Initial revision.
+# Motorola  2008-Jan-09 - Fix CHECK_deps issue, clean the hidden none
+#                             vob object files, at modules-posthook phase
 
 ifndef _ckbuild_ckbuild
 _ckbuild_ckbuild = 1
@@ -32,6 +34,8 @@ modules-prehook::
 # this is a customisable hook for operations that need
 # to be performed after ckbuild is invoked
 modules-posthook::
+	find . \( -name '.*.d' -o -name '.*.tmp' -o -name '.*.cmd' \) \
+		-type f -print | xargs rm -f
 
 modules_install: kbuild/modules_install
 

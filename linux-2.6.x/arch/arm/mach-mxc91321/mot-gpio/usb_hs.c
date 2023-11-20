@@ -26,6 +26,7 @@
  * 03-Jan-2007  Motorola        Add dual_mode and set_irqt functions.
  * 03-Jan-2007  Motorola        Change HS interrupt setup procedure.
  * 09-Jul-2007  Motorola        Added gpio_free_irq_dev work around.
+ * 07-Mar-2008  Motorola        Add gpio_usb_hs_ref_clk_en_set_data() stub.
  */
 
 #include <linux/kernel.h>
@@ -66,6 +67,17 @@ void gpio_usb_hs_wakeup_set_data(__u32 wakeup)
  * @param   swtch   Set to zero for USB connected to Atlas.
  */
 void gpio_usb_hs_switch_set_data(__u32 swtch)
+{
+    /* stub on ArgonLV */
+}
+
+/**
+ * Enable USB_CLK
+ *
+ * @param   enable    Set high to enable USB_CLK or zero to disabel
+ *                    USB_CLK.
+ */
+void gpio_usb_hs_ref_clk_en_set_data(__u32 enable)
 {
     /* stub on ArgonLV */
 }

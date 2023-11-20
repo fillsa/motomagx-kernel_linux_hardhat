@@ -25,9 +25,11 @@
  * 10/2007  Motorola  FIQ related modified.
  * 11/2007  Motorola  Added Dynamic AP Clock Gating for IPU clock.
  * 11/2007  Motorola  Flash in display is observed during phone powering up, add wait for BG EOF in ipu_update_channel_buffer.
+ * 12/2007  Motorola  Fix System cannot enter DSM mode due to mxc_ipu driver busy
  * 12/2007  Motorola  Added function pointer check before call it.
  * 12/2007  Motorola  Remove ipu csi mclk disable from ipu_go_to_sleep, this is done in camera omx 
  * 12/2007  Motorola  Removed Dynamic AP Clock Gating due to the introduced issue that phone resets
+ * 01/2008  Motorola  Change macro definition for IPU clk CR and added check for the clk ralted to sensor in ipu_go_to_sleep 
  * 01/2008  Motorola  Added unlock operation before error return in ipu_link_channel
  * 03/2008  Motorola  Add support for new keypad 
  * 03/2008  Motorola  Fix red screen issue
@@ -2252,7 +2254,11 @@ static void restore_int(void)
 void ipu_go_to_sleep(void)
 {
     uint32_t lock_flags;
-    if(gChannelInitMask != 0)
+    int csi_mclk_flag = 0;
+
+    csi_mclk_flag = ipu_csi_read_mclk_flag();
+
+    if(gChannelInitMask != 0 || csi_mclk_flag != 0)
     {
         DPRINTK(KERN_ALERT"ipu_common: ipu is in use, can't go to sleep!!!! \n");
         return;
@@ -2269,12 +2275,12 @@ void ipu_go_to_sleep(void)
     ipu_in_sleep_flag = 1;
 
     clear_int();
+    spin_unlock_irqrestore(&ipu_lock, lock_flags);
     // just to ensure CSI clock has been disabled.
     //ipu_csi_enable_mclk(CSI_MCLK_VF|CSI_MCLK_ENC|CSI_MCLK_RAW|CSI_MCLK_I2C, false, 1);
 
     mxc_clks_disable(IPU_CLK);
 
-    spin_unlock_irqrestore(&ipu_lock, lock_flags);
 
     return;
 }
@@ -2292,10 +2298,10 @@ void ipu_wake_from_sleep(void)
 
     printk(KERN_ALERT"ipu_common: wakeup from sleeping *_* *_* *_* *_* *_* \n");
 
-    spin_lock_irqsave(&ipu_lock, lock_flags);
 
     mxc_clks_enable(IPU_CLK);
 
+    spin_lock_irqsave(&ipu_lock, lock_flags);
     restore_int();
 
     ipu_in_sleep_flag = 0;

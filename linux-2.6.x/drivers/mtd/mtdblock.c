@@ -21,6 +21,8 @@
  *                        MOT_FEAT_SECURE_MTD
  *
  * 03-15-2007   Motorola added 'rsv' partition as a protected device.
+ * 09-17-2007   Motorola added CONFIG_MOT_FEAT_MTD_SHA feature. 
+ *                       Reduces bootup time by doing on demand shasum verification 
  */
 
 #include <linux/config.h>
@@ -33,6 +35,13 @@
 #include <linux/vmalloc.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/blktrans.h>
+#ifdef CONFIG_MOT_FEAT_MTD_SHA
+#include <linux/bitmap.h>
+#include <linux/crypto.h>
+#include <asm/scatterlist.h>
+#include <linux/mm.h>
+#include <linux/mtd/mtd-sha.h>
+#endif /* ifdef CONFIG_MOT_FEAT_MTD_SHA */
 
 static struct mtdblk_dev {
 	struct mtd_info *mtd;
@@ -42,7 +51,14 @@ static struct mtdblk_dev {
 	unsigned long cache_offset;
 	unsigned int cache_size;
 	enum { STATE_EMPTY, STATE_CLEAN, STATE_DIRTY } cache_state;
+#ifdef CONFIG_MOT_FEAT_MTD_SHA
+	struct mtdblk_sha *sha_state;
+#endif /* CONFIG_MOT_FEAT_MTD_SHA */
 } *mtdblks[MAX_MTD_DEVICES];
+
+#ifdef CONFIG_MOT_FEAT_MTD_SHA
+static int lru_init=0;
+#endif /* CONFIG_MOT_FEAT_MTD_SHA */
 
 #ifdef CONFIG_MOT_FEAT_SECURE_MTD // old #ifdef CONFIG_MOT_FEAT_SECURE_DRM
 static inline int is_protected_device(struct mtd_info *mtd)
@@ -255,23 +271,52 @@ static int do_cached_read (struct mtdblk_dev *mtdblk, unsigned long pos,
 		unsigned int size = sect_size - offset;
 		if (size > len) 
 			size = len;
+#ifdef CONFIG_MOT_FEAT_MTD_SHA
+		if (((mtd->flags & MTD_SHA_ENABLED) == MTD_SHA_ENABLED) && 
+			((pos/mtdblk->sha_state->hdt.chunk_size) < 
+			 mtdblk->sha_state->hdt.number_of_chunks) &&
+			!test_and_set_bit(pos/mtdblk->sha_state->hdt.chunk_size, 
+			mtdblk->sha_state->sha_hash_bitmap)) {
+			ret = MTD_READ(mtd, sect_start, 
+					mtdblk->sha_state->hdt.chunk_size, 
+					&retlen, mtdblk->cache_data);
+			if (ret || (retlen != mtdblk->cache_size)) {
+				printk("ERROR :: do_cached_read :: MTD_READ failure, panicing\n");
+				mtdblock_write_to_atlas_and_panic(mtdblk->mtd);
+			}
 
-		/*
-		 * Check if the requested data is already cached
-		 * Read the requested amount of data from our internal cache if it
-		 * contains what we want, otherwise we read the data directly
-		 * from flash.
-		 */
-		if (mtdblk->cache_state != STATE_EMPTY &&
-		    mtdblk->cache_offset == sect_start) {
+			mtdblk->cache_offset = sect_start;
+			mtdblk->cache_state = STATE_CLEAN;
+
+			/* mtdblock_verify_sha sum will not return incase of
+			 * failure, It will AP panic */
+			mtdblock_verify_sha_sum(mtdblk->mtd, 
+					mtdblk->sha_state, 
+					mtdblk->cache_data,
+					mtdblk->cache_size,pos);
+
 			memcpy (buf, mtdblk->cache_data + offset, size);
 		} else {
-			ret = MTD_READ (mtd, pos, size, &retlen, buf);
-			if (ret)
-				return ret;
-			if (retlen != size)
-				return -EIO;
+#endif /* CONFIG_MOT_FEAT_MTD_SHA */
+			/*
+			 * Check if the requested data is already cached
+			 * Read the requested amount of data from our internal cache if it
+			 * contains what we want, otherwise we read the data directly
+			 * from flash.
+			 */
+			if (mtdblk->cache_state != STATE_EMPTY &&
+			    mtdblk->cache_offset == sect_start) {
+				memcpy (buf, mtdblk->cache_data + offset, size);
+			} else {
+				ret = MTD_READ (mtd, pos, size, &retlen, buf);
+				if (ret)
+					return ret;
+				if (retlen != size)
+					return -EIO;
+			}
+#ifdef CONFIG_MOT_FEAT_MTD_SHA
 		}
+#endif /* CONFIG_MOT_FEAT_MTD_SHA */
 
 		buf += size;
 		pos += size;
@@ -325,6 +370,11 @@ static int mtdblock_open(struct mtd_blktrans_dev *mbd)
 	struct mtdblk_dev *mtdblk;
 	struct mtd_info *mtd = mbd->mtd;
 	int dev = mbd->devnum;
+#ifdef CONFIG_MOT_FEAT_MTD_SHA
+	int ret;
+	size_t retlen;
+	uint32_t start;
+#endif /* CONFIG_MOT_FEAT_MTD_SHA */
 
 	DEBUG(MTD_DEBUG_LEVEL1,"mtdblock_open\n");
 	
@@ -341,11 +391,60 @@ static int mtdblock_open(struct mtd_blktrans_dev *mbd)
 	memset(mtdblk, 0, sizeof(*mtdblk));
 	mtdblk->count = 1;
 	mtdblk->mtd = mtd;
+#ifdef CONFIG_MOT_FEAT_MTD_SHA
+	if ((mtd->flags & MTD_SHA_ENABLED) == MTD_SHA_ENABLED) {
+		mtdblk->sha_state = vmalloc(sizeof(struct mtdblk_sha));
+		if (!mtdblk->sha_state) {
+			panic("ERROR :: MTD_SHA :: Could not allocate mem for mtdlk->sha_state\n");
+		}
+		memset(mtdblk->sha_state, 0, sizeof(struct mtdblk_sha));
 
+		/* Read in the HDT */
+		ret = MTD_READ (mtd,mtd->size - CSF_SIZE - HDT_SIZE, HDT_SIZE, 
+				&retlen, (char *)&mtdblk->sha_state->hdt); 
+		if (ret || (retlen != HDT_SIZE)) {
+			printk("ERROR :: Could not read HDT, retlen :: %d\n", retlen);
+			mtdblock_write_to_atlas_and_panic(mtdblk->mtd);
+		} 
+		if((strncmp("root", mtdblk->mtd->name, 4)) == 0 ) {
+			mtdblk->sha_state->code_group=0;
+		}
+		if((strncmp("lang", mtdblk->mtd->name, 4)) == 0 ) {
+			mtdblk->sha_state->code_group=1;
+		}
+
+		mtdblock_hdt_sanity_check(mtdblk->sha_state);
+
+		if(lru_init == 0) {
+			lru_init = 1;
+			sec_hash_lru_init(LRU_INIT_PAGES);
+		}
+		start = mtdblk->sha_state->hdt.hash_block_start_offset_from_image_start;
+		sec_hash_add_code_group(mtdblk->sha_state->code_group, 
+				mtdblk->sha_state->hdt.number_of_chunks,start); 
+
+		mtdblk->cache_size = mtdblk->sha_state->hdt.chunk_size;
+		mtdblk->cache_data = vmalloc(mtdblk->cache_size);
+		if(!mtdblk->cache_data) {
+			panic("ERROR :: MTD_SHA :: Could not allocate mem for mtblk->cache_data\n");
+		}
+		mtdblock_setup_crypto(mtdblk->sha_state, mtdblk->mtd, mtdblk->cache_size);
+	}
+#endif /* CONFIG_MOT_FEAT_MTD_SHA */
 	init_MUTEX (&mtdblk->cache_sem);
 	mtdblk->cache_state = STATE_EMPTY;
+#ifdef CONFIG_MOT_FEAT_MTD_SHA
+	/* The below check is needed to prevent cache_data being set 
+	 * to NULL when the feature is defined, since we use this 
+	 * for shasum validation 
+	 */
+	if ( ((mtd->flags & MTD_SHA_ENABLED) != MTD_SHA_ENABLED) && 
+		((mtdblk->mtd->flags & MTD_CAP_RAM) != MTD_CAP_RAM) &&
+		mtdblk->mtd->erasesize) {
+#else /* CONFIG_MOT_FEAT_MTD_SHA */
 	if ((mtdblk->mtd->flags & MTD_CAP_RAM) != MTD_CAP_RAM &&
 	    mtdblk->mtd->erasesize) {
+#endif /* CONFIG_MOT_FEAT_MTD_SHA */
 		mtdblk->cache_size = mtdblk->mtd->erasesize;
 		mtdblk->cache_data = NULL;
 	}
@@ -373,6 +472,13 @@ static int mtdblock_release(struct mtd_blktrans_dev *mbd)
 		mtdblks[dev] = NULL;
 		if (mtdblk->mtd->sync)
 			mtdblk->mtd->sync(mtdblk->mtd);
+#ifdef CONFIG_MOT_FEAT_MTD_SHA
+	if ((mtdblk->mtd->flags & MTD_SHA_ENABLED) == MTD_SHA_ENABLED) {
+		vfree(mtdblk->sha_state->sha_hashes);
+		vfree(mtdblk->sha_state->sha_hash_bitmap);
+		vfree(mtdblk->sha_state);
+	}
+#endif /* CONFIG_MOT_FEAT_MTD_SHA */
 		vfree(mtdblk->cache_data);
 		kfree(mtdblk);
 	}

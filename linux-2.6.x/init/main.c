@@ -2,7 +2,7 @@
  *  linux/init/main.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
- *           (c) Copyright Motorola 2006
+ *  Copyright (C) 2006, 2007  Motorola, Inc.
  *
  *  GK 2/5/95  -  Changed to support mounting root fs via NFS
  *  Added initrd & change_root: Werner Almesberger & Hans Lermen, Feb '96
@@ -14,6 +14,7 @@
  * Date         Author    Comment
  * ----------   --------  -------------------
  * 11/16/2006   Motorola  Hardware Config Framework
+ * 12/17/2007   Motorola  Add support for CONFIG_MOT_FEAT_LTT_LITE
  */
 
 #define __KERNEL_SYSCALLS__
@@ -54,6 +55,7 @@
 #include <linux/irq.h>
 #include <linux/mempolicy.h>
 #include <linux/key.h>
+#include <linux/ltt-events.h>
 
 #include <asm/io.h>
 #include <asm/bugs.h>
@@ -458,6 +460,11 @@ static void noinline rest_init(void)
 	__releases(kernel_lock)
 {
 	system_state = SYSTEM_BOOTING_SCHEDULER_OK;
+	
+	/* initialize before the init process is started */
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+	ltt_lite_early_init(); 
+#endif
 
 	kernel_thread(init, NULL, CLONE_FS | CLONE_SIGHAND);
 	numa_default_policy();

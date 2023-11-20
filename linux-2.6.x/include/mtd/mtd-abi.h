@@ -10,6 +10,8 @@
  *			  read disturb detection and correction functionality.
  *
  * 06-15-2007   Motorola  update read disturb max value for threshold from 2^8 to 2^16.
+ * 09-17-2007   Motorola  Add a flag to allow MTD SHA checking to be turned on via a
+ *                        kernel cmdline option
  * 
  * Portions of MTD ABI definition which are shared by kernel and user space 
  */
@@ -53,6 +55,9 @@ struct mtd_oob_buf {
 #define MTD_ECC			128	// Device capable of automatic ECC
 #define MTD_NO_VIRTBLOCKS	256	// Virtual blocks not allowed
 #define MTD_PROGRAM_REGIONS	512	// Configurable Programming Regions
+#ifdef CONFIG_MOT_FEAT_MTD_SHA
+#define MTD_SHA_ENABLED         1024    // MTD SHA Feature enabled. 
+#endif /* CONFIG_MOT_FEAT_MTD_SHA */
 
 // Some common devices / combinations of capabilities
 #define MTD_CAP_ROM		0

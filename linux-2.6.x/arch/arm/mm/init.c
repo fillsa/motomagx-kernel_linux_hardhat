@@ -18,6 +18,7 @@
  * 10/05/2007   Motorola  Implement the IPU FIQ solution code in kernel and module layer.
  * 10/15/2007   Motorola  FIQ related modified.
  * 12/14/2007   Motorola  Add support for new keypad
+ * 12/17/2007   Motorola  Add support for CONFIG_MOT_FEAT_LTT_LITE
  * 04/23/2008   Motorola  Added IPU memory for new display
  * 08/28/2008   Motorola  Increase IPU reserved memory
  *
@@ -44,6 +45,11 @@
 #ifdef CONFIG_MOT_FEAT_BOOTINFO
 #include <asm/bootinfo.h>
 #endif /* CONFIG_MOT_FEAT_BOOTINFO */
+
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+#include <linux/ioport.h>
+#include <linux/ltt-events.h>
+#endif
 
 #define TABLE_SIZE	(2 * PTRS_PER_PTE * sizeof(pte_t))
 
@@ -410,6 +416,18 @@ static __init void reserve_node_zero(unsigned int bootmap_pfn, unsigned int boot
 	if (res_size)
 		reserve_bootmem_node(pgdat, PHYS_OFFSET, res_size);
 }
+
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+        /*
+	 * reserve memory for ltt lite
+	 */
+	if (ltt_lite_res.start) {
+		printk(KERN_ERR "LTT-LITE: reserve %lu\n", ltt_lite_res.start);
+
+		/* Set starting address for large privateram */
+		reserve_bootmem_node(pgdat, ltt_lite_res.start, ltt_lite_res.end - ltt_lite_res.start + 1);
+	}
+#endif
 
 /*
  * Register all available RAM in this node with the bootmem allocator.

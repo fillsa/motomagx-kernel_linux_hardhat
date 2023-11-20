@@ -56,6 +56,7 @@
  *  Date     Author    Comment
  *  03/2007  Motorola  FN482: Added break to do_hrtimers_expire_timers
  *                     to prevent spinning on timers 
+ *  12/2007  Motorola  Add support for CONFIG_MOT_FEAT_LTT_LITE
  */
 
 #include <linux/percpu.h>
@@ -66,6 +67,7 @@
 #include <linux/hrtimers.h>
 #include <linux/interrupt.h>
 #include <linux/notifier.h>
+#include <linux/ltt-events.h>
 
 /*
  * waiting, in the following structure, is the address of the timer we
@@ -194,6 +196,9 @@ static void do_hrtimers_expire_timers(hrtimer_lists_t *hrtimers)
 		smp_wmb();
 		timer->base = NULL;
 		spin_unlock_irq(&hrtimers->lock);
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+		ltt_lite_run_timer(LTT_LITE_RUN_HRT_EXP, (unsigned long)fn, data);
+#endif
 		fn(data);
 		spin_lock_irq(&hrtimers->lock);
 	}
@@ -218,6 +223,9 @@ again:
 			hrtimers->waiting = NULL;
 #endif
 			spin_unlock_irq(&hrtimers->lock);
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+			ltt_lite_run_timer(LTT_LITE_RUN_HRT_PED, (unsigned long)fn, data);
+#endif
 			fn(data);
 			spin_lock_irq(&hrtimers->lock);
 		} else {

@@ -4,6 +4,7 @@
  * (C) Copyright, 1999, 2000, 2001, 2002, 2003, 2004 -
  *              Karim Yaghmour (karim@opersys.com)
  * (C) Copyright 2004, 2005 - MontaVista Software, Inc. (source@mvista.com)
+ * (C) Copyright 2008 - Motorola, Inc.
  *
  * Contains the kernel code for the Linux Trace Toolkit.
  *
@@ -48,6 +49,9 @@
  *	milli-seconds. There has to be at least one event every 2^32-1
  *	microseconds, otherwise the size of the variable holding the time
  *	doesn't work anymore.
+ *
+ *  Date         Author          Comment
+ *  01-29-2008	Motorola	Avoid panic when memory low.
  */
 
 #include <linux/init.h>
@@ -2174,8 +2178,11 @@ trace_event:
  
 	relay_lock_channel(rchan, flags); /* nop for lockless */
 	reserved = relay_reserve(rchan, data_size, &time_stamp, &time_delta, &reserve_code, &interrupting);
-	if (reserved == NULL)
+	if (reserved == NULL) {
+	        relay_unlock_channel(rchan, flags);
+                rchan_put(rchan);
 		return -EINVAL;
+	}
 	
 	if (reserve_code & RELAY_WRITE_DISCARD) {
 		events_lost(trace->trace_handle, cpu_id)++;

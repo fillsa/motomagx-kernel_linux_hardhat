@@ -13,6 +13,7 @@
  * 03/12/2007   Motorola  Rewirte the check start code of wdog make it more readable
  * 11/13/2007   Motorola  Reset the time out and service period of the watchdog
  * 01/14/2008   Motorola  Changed the timeout of watchdog2.
+ * 03/19/2008	Motorola  Fix one macro definition issue
  */
 
 #ifndef __TIME_PRIV_H__
@@ -166,7 +167,7 @@
 #if (WDOG1_TIMEOUT < 1000)
 #error WDOG1_TIMEOUT must be greater than 1000!
 #endif
-#define WDOG2_TIMEOUT           (WDOG1_TIMEOUT - 1000)     /* WDOG2 timeout in ms */
+#define WDOG2_TIMEOUT           (WDOG1_TIMEOUT / 2)     /* WDOG2 timeout in ms */
 #if ((WDOG1_TIMEOUT/1000) < 20)
 #define WDOG_SERVICE_PERIOD     (WDOG1_TIMEOUT / 2)    /* time interval in ms to service WDOGs */
 #else

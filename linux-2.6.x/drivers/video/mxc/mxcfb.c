@@ -21,6 +21,7 @@
  * 01/2007  Motorola  Added support for dynamic IPU pool config.
  * 01/2007  Motorola  abstracted PowerIC APIs.
  * 04/2007  Motorola  Remove calls to power_ic lighting
+ * 06/2007  Motorola  Added workaround for Keywest display inversion issue.
  * 08/2007  Motorola  Chagne CONFIG_PM to CONFIG_PM_NOMEDL to remove the suspend
  *                    and resume routines which have been done in medl.
  * 08/2007  Motorola  remove unused mxcfb_suspend/resume definition
@@ -29,6 +30,7 @@
  * 11/2007  Motorola  remove display init calls in open/close.
  * 11/2007  Motorola  add function to set global variables in ipu sdc
  * 03/2008  Motorola  remove calls to power_ic lighting
+ * 03/2008  Motorola  Remove ipu interface call and gpio configuration
  * 04/2008  Motorola  Modified comments.
  */
 
@@ -78,7 +80,12 @@
 #include <asm/mot-gpio.h>
 #endif /* CONFIG_MOT_FEAT_GPIO_API_LCD||CONFIG_MOT_FEAT_GPIO_API_LIGHTING_LCD */
 
+#include "../../mxc/spi/spi.h"
 #include "mxcfb.h"
+/*
+ * Macro to disable ipu interface call
+ */
+///////enabled in  MAGX_N_06.19.60I  #define MXCFB_MEDL_INITDISP
 
 /*
  * Driver name
@@ -359,6 +366,44 @@ extern u32 mot_mbm_is_ipu_initialized;
 extern u32 mot_mbm_ipu_buffer_address;
 #endif
 
+#if defined(CONFIG_MACH_KEYWEST)
+static void invert_main()
+{
+    char data[3];
+    spi_config display_spi_inter_config;
+
+    mdelay(40);
+
+    display_spi_inter_config.module_number = SPI2;
+    display_spi_inter_config.priority = HIGH;
+    display_spi_inter_config.master_mode = 1;
+    display_spi_inter_config.bit_rate = 4000000;
+    display_spi_inter_config.bit_count = 24;
+    display_spi_inter_config.active_high_polarity = 1;
+    display_spi_inter_config.active_high_ss_polarity = 0;
+    display_spi_inter_config.phase = 0;
+    display_spi_inter_config.ss_low_between_bursts = 1;
+    display_spi_inter_config.ss_asserted = SS_1;
+    display_spi_inter_config.tx_delay = 0;
+
+    /* invert the display */
+    data[0] = 0x70;
+    data[1] = 0x00;
+    data[2] = 0x01;
+
+    spi_send_frame(data, 3, &display_spi_inter_config);
+    printk("hylim-a\n");
+
+    data[0] = 0x72;
+    data[1] = 0x00;
+    data[2] = 0x00;
+
+    spi_send_frame(data, 3, &display_spi_inter_config);
+    printk("hylim-b\n");
+
+    return;
+}
+#endif
 /*
  * Open the main framebuffer.
  *
@@ -485,7 +530,9 @@ static int mxcfb_open(struct fb_info *fbi, int user)
 		sema_init(&mxc_fbi->flip_sem, 1);
 		mxc_fbi->cur_ipu_buf = 0;
 
+#ifndef MXCFB_MEDL_INITDISP
 		ipu_select_buffer(MEM_SDC_BG, IPU_INPUT_BUFFER, 0);
+#endif
 
 		mxc_fbi->ipu_ch = MEM_SDC_BG;
 
@@ -519,7 +566,9 @@ static int mxcfb_release(struct fb_info *fbi, int user)
 	if (mxc_fbi->open_count == 0) {
 		mxcfb_blank(FB_BLANK_POWERDOWN, fbi);
 
+#ifndef MXCFB_MEDL_INITDISP
 		ipu_uninit_channel(MEM_SDC_BG);
+#endif
 		ipu_free_irq(IPU_IRQ_SDC_BG_EOF, fbi);
 	}
 	return 0;
@@ -575,6 +624,7 @@ static int mxcfb_set_par(struct fb_info *info)
 
 	FUNC_START;
 
+#ifndef MXCFB_MEDL_INITDISP
 	if ((retval = wait_event_interruptible(mxcfb_drv_data.suspend_wq,
 					       (mxcfb_drv_data.suspended ==
 						false))) < 0) {
@@ -601,6 +651,7 @@ static int mxcfb_set_par(struct fb_info *info)
 	ipu_select_buffer(mxc_fbi->ipu_ch, IPU_INPUT_BUFFER, 0);
 
 	ipu_enable_channel(mxc_fbi->ipu_ch);
+#endif
 	return 0;
 }
 
@@ -833,6 +884,7 @@ static int mxcfb_ioctl(struct inode *inode, struct file *file,
 {
 	int retval = 0;
 
+#ifndef MXCFB_MEDL_INITDISP
 	if ((retval = wait_event_interruptible(mxcfb_drv_data.suspend_wq,
 					       (mxcfb_drv_data.suspended ==
 						false))) < 0) {
@@ -1149,6 +1201,7 @@ static int mxcfb_ioctl(struct inode *inode, struct file *file,
 	default:
 		retval = -EINVAL;
 	}
+#endif //MXCFB_MEDL_INITDISP
 	return retval;
 }
 
@@ -1177,6 +1230,7 @@ static int mxcfb_ovl_open(struct fb_info *fbi, int user)
 		mxc_fbi->ipu_ch_irq = IPU_IRQ_SDC_FG_EOF;
 		ipu_clear_irq(mxc_fbi->ipu_ch_irq);
 
+#ifndef MXCFB_MEDL_INITDISP
 		ipu_sdc_set_window_pos(MEM_SDC_FG, fbi->var.xoffset,
 				       fbi->var.yoffset);
 
@@ -1188,10 +1242,13 @@ static int mxcfb_ovl_open(struct fb_info *fbi, int user)
 					IPU_ROTATE_NONE,
 					(void *)fbi->fix.smem_start,
 					(void *)fbi->fix.smem_start);
+#endif
 		sema_init(&mxc_fbi->flip_sem, 1);
 		mxc_fbi->cur_ipu_buf = 0;
 
+#ifndef MXCFB_MEDL_INITDISP
 		ipu_select_buffer(MEM_SDC_FG, IPU_INPUT_BUFFER, 0);
+#endif
 		mxc_fbi->ipu_ch = MEM_SDC_FG;
 
 		if (ipu_request_irq(IPU_IRQ_SDC_FG_EOF, mxcfb_irq_handler, 0,
@@ -1200,7 +1257,9 @@ static int mxcfb_ovl_open(struct fb_info *fbi, int user)
 			return -EBUSY;
 		}
 		ipu_disable_irq(mxc_fbi->ipu_ch_irq);
+#ifndef MXCFB_MEDL_INITDISP
 		ipu_enable_channel(MEM_SDC_FG);
+#endif
 	}
 	mxc_fbi->open_count++;
 	return 0;
@@ -1228,8 +1287,10 @@ static int mxcfb_ovl_release(struct fb_info *fbi, int user)
 
 	--mxc_fbi->open_count;
 	if (mxc_fbi->open_count == 0) {
+#ifndef MXCFB_MEDL_INITDISP
 		ipu_disable_channel(MEM_SDC_FG, true);
 		ipu_uninit_channel(MEM_SDC_FG);
+#endif
 		ipu_free_irq(IPU_IRQ_SDC_FG_EOF, fbi);
 	}
 	return 0;
@@ -1388,14 +1449,21 @@ static int mxcfb_blank(int blank, struct fb_info *info)
 	case FB_BLANK_VSYNC_SUSPEND:
 	case FB_BLANK_HSYNC_SUSPEND:
 	case FB_BLANK_NORMAL:
+#ifndef MXCFB_MEDL_INITDISP
 		ipu_disable_channel(MEM_SDC_BG, true);
 		gpio_lcd_inactive();
 		ipu_sdc_set_brightness(0);
+#endif
 		break;
 	case FB_BLANK_UNBLANK:
+#ifndef MXCFB_MEDL_INITDISP
 		gpio_lcd_active();
 		ipu_enable_channel(MEM_SDC_BG);
 		ipu_sdc_set_brightness(mxcfb_drv_data.backlight_level);
+#endif
+#if defined(CONFIG_MACH_KEYWEST)
+                invert_main();
+#endif
 		break;
 	}
 	return 0;
@@ -1420,6 +1488,7 @@ mxcfb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 
 	FUNC_START;
 
+#ifndef MXCFB_MEDL_INITDISP
 	if ((retval = wait_event_interruptible(mxcfb_drv_data.suspend_wq,
 					       (mxcfb_drv_data.suspended ==
 						false))) < 0) {
@@ -1482,6 +1551,7 @@ mxcfb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 	} else {
 		info->var.vmode &= ~FB_VMODE_YWRAP;
 	}
+#endif
 
 	return 0;
 }
@@ -1540,6 +1610,7 @@ static struct fb_ops mxcfb_ovl_ops = {
 };
 #endif
 
+#ifndef MXCFB_MEDL_INITDISP
 #if defined(CONFIG_MOT_FEAT_EMULATED_CLI)
 static struct fb_ops mxcfb_cli_ops = {
 	.owner = THIS_MODULE,
@@ -1557,6 +1628,7 @@ static struct fb_ops mxcfb_cli_ops = {
 #endif
 };
 #endif
+#endif //MXCFB_MEDL_INITDISP
 
 #ifdef NEW_MBX
 static irqreturn_t mxcfb_vsync_irq_handler(int irq, void *dev_id,
@@ -1618,6 +1690,11 @@ static int mxcfb_suspend(struct device *dev, u32 state, u32 level)
 #endif
 #endif /* CONFIG_MOT_FEAT_ENABLE_LPMC */
 
+#if MAGX_N_06_19_60I 
+	/* The suspend/resume in fb0 has issue with Kassos display, bybass them until LM/MDEL change released.*/
+	return 0;
+#endif
+
 	FUNC_START;
 	DPRINTK("level = %d\n", level);
 
@@ -1673,6 +1750,10 @@ static int mxcfb_resume(struct device *dev, u32 level)
 #ifdef CONFIG_FB_MXC_OVERLAY
 	struct mxcfb_info *mxc_fbi_ovl =
 	    (struct mxcfb_info *)drv_data->fbi_ovl->par;
+#endif
+#if MAGX_N_06_19_60I
+	/* The suspend/resume in fb0 has issue with Kassos display, bybass them until LM/MDEL change released.*/
+	return 0;
 #endif
 
 	FUNC_START;

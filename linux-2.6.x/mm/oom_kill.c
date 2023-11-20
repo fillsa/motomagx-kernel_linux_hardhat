@@ -19,6 +19,7 @@
  * ----          ------         --------
  * 03/16/2007    Motorola       Added memory usage information in out of memory
  *                              handler before kernel panic.
+ * 09/05/2007    Motorola       Remove kernel panic in out_of _memory function.
  * 11/21/2007    Motorola       Remove OOM kernel panic.
  * 03/05/2008    Motorola       Enable APR.
  *

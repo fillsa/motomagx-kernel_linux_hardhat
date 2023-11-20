@@ -442,7 +442,11 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 #ifdef CONFIG_MOT_FEAT_SECURE_MTD // old #ifdef CONFIG_MOT_FEAT_SECURE_DRM
 		if (is_protected_device(mtd))
 		{
-			return -EPERM;
+			if (!strcmp(current->comm, "data_shred"))
+				/* allow for user data shred */
+				printk(KERN_INFO "data shredding in progress ...\n");
+			else
+				return -EPERM;
 		}
 #endif /* CONFIG_MOT_FEAT_SECURE_DRM */
 

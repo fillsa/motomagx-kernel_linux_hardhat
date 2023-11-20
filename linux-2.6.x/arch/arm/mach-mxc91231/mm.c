@@ -4,7 +4,7 @@
  *  Copyright (C) 2002 Shane Nay (shane@minirl.com)
  *  Copyright 2004-2005 Freescale Semiconductor, Inc. All Rights Reserved.
  *    - add MXC specific definitions
- *  Copyright 2006 Motorola, Inc.
+ *  Copyright (C) 2006,2008 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
  * Date     Author    Comment
  * 10/2006  Motorola  Added Motorola product specific additions to the 
  *                    MXC memory map structure
+ * 01/2008  Motorola  Added Antioch support 
  *
  */
 
@@ -58,6 +59,8 @@ static struct map_desc mxc_io_desc[] __initdata = {
 	{CS5_BASE_ADDR_VIRT, CS5_BASE_ADDR, CS5_SIZE, MT_DEVICE},
 #elif defined (CONFIG_MACH_SCMA11REF)
 	{CS4_BASE_ADDR_VIRT, CS4_BASE_ADDR, CS4_SIZE, MT_DEVICE},
+#elif defined (CONFIG_MOT_FEAT_ANTIOCH)
+	{CS5_BASE_ADDR_VIRT, CS5_BASE_ADDR, CS5_SIZE, MT_DEVICE},
 #endif
 };
 

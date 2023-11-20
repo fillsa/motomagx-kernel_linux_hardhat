@@ -2,11 +2,22 @@
  *  linux/kernel/exit.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *  Copyright (C) 2004-2007 Motorola, Inc.
  *  Copyright (c) 2006, 2008  Motorola
  */
 
 /* Date         Author          Comment
  * ===========  ==============  ==============================================
+ * 06/25/2004  Motorola   Creat initial version
+ * 03/29/2005  Motorola   add support for CONFIG_CODETEST
+ * 05/13/2005  Motorola   delete support for CONFIG_CODETEST
+ * 05/30/2006  Motorola   delete support for CONFIG_SMP
+ * 09/09/2006  Motorola   add support for CONFIG_MOT_FEAT_ANTIVIRUS_HOOKS
+ * 02/15/2007  Motorola   Initial Version for ljos_7.1        
+ * 04/18/2007  Motorola   export the symbol reparent_to_init
+ * 04/18/2007  Motorola   include the file module.h
+ * 07/24/2007  Motorola   modify daemonize()
+ * 12/17/2007  Motorola   Add support for CONFIG_MOT_FEAT_LTT_LITE
  * 26-Sep-2008  Motorola        Dump out the exit process infomation in do_exit()
  * 06-12-2020	fill.sa		Delet Dump out the exit process infomation in do_exit()
  */
@@ -342,6 +353,11 @@ void daemonize(const char *name, ...)
 	va_start(args, name);
 	vsnprintf(current->comm, sizeof(current->comm), name, args);
 	va_end(args);
+
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+	ltt_lite_ev_process(LTT_LITE_EV_PROCESS_COMM_CHANGE,
+		current);
+#endif
 
 	/*
 	 * If we were started as result of loading a module, close all of the

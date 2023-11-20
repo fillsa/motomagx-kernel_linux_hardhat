@@ -30,6 +30,8 @@
  *                     disabled. 
  *  04/2007  Motorola  Block suspend when I2C transaction is in progress and
  *                     remove clock gating on a transaction basis
+ *  05/2007  Motorola  Added hardware configuration (device tree)
+ *		       support for clock frequency divider.
  *  08/2007  Motorola  Clear control register after each transaction
  *  09/2007  Motorola  Add mpm advise calls
  *  10/2007  Motorola  Make sure have a STOP after all communication ceased
@@ -49,6 +51,9 @@
 #include <linux/i2c.h>
 #include <asm/arch/mxc_i2c.h>
 #include <asm/arch/clock.h>
+#ifdef CONFIG_MOT_FEAT_DEVICE_TREE
+#include <asm/mothwcfg.h>
+#endif
 #include "mxc_i2c_reg.h"
 
 #if defined(CONFIG_MOT_FEAT_PM) && !defined(CONFIG_MACH_ELBA)
@@ -285,6 +290,7 @@ static int mxc_i2c_wait_for_tc(mxc_i2c_device * dev, int trans_flag)
  * @param   *msg  pointer to a message structure that contains the slave
  *                address
  */
+//static void mxc_i2c_start(mxc_i2c_device * dev, struct i2c_msg *msg)
 static int mxc_i2c_start(mxc_i2c_device * dev, struct i2c_msg *msg)
 {
 	volatile unsigned int cr, sr;
@@ -1000,6 +1006,15 @@ static struct platform_device mxci2c_devices[I2C_NR] = {
 #endif
 };
 
+#ifdef CONFIG_MOT_FEAT_DEVICE_TREE
+
+/**
+ * Path to node containing I2C clock divider
+ */
+static const char i2c_hwcfg_path[] __initdata = "/System@0/I2C@0";
+
+#endif
+
 /*!
  * Function requests the interrupts and registers the i2c adapter structures.
  *
@@ -1008,6 +1023,10 @@ static struct platform_device mxci2c_devices[I2C_NR] = {
 static int __init mxc_i2c_init(void)
 {
 	int i, ret = 0, err = 0;
+#ifdef CONFIG_MOT_FEAT_DEVICE_TREE
+	unsigned int clkdiv = 0;
+	MOTHWCFGNODE *node;
+#endif
 
 	printk(KERN_INFO "MXC I2C driver\n");
 
@@ -1033,6 +1052,25 @@ static int __init mxc_i2c_init(void)
 		init_waitqueue_head(&mxc_i2c_devs[i].wq);
 
 		mxc_i2c_devs[i].low_power = false;
+#ifdef CONFIG_MOT_FEAT_DEVICE_TREE
+		/*
+		 * Read the clock divider from hardware config tree
+		 */
+		if (node = mothwcfg_get_node_by_path(i2c_hwcfg_path)) {
+			if (mothwcfg_read_prop(node, "clk_div", &clkdiv, sizeof(clkdiv))
+			    == sizeof(clkdiv)) {
+				mxc_i2c_devs[i].clkdiv = clkdiv;
+			}
+			mothwcfg_put_node(node);
+		} else {
+			/*
+			 * If failed to get the I2C node, just use the
+			 * default clock divider
+			 */
+			printk("%s:unable to read node \"%s\" from HWCFG\n",
+			       __FUNCTION__, i2c_hwcfg_path);
+		}
+#endif
 		/*
 		 * Set the adapter information
 		 */

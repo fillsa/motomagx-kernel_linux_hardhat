@@ -6,12 +6,14 @@
  * Re-written by Russell King
  */
 /*
- * Copyright (C) 2007 Motorola, Inc.
+ * Copyright (C) 2007-2008 Motorola, Inc.
  *
  * Date           Author            Comment
  * ===========  ==========  ====================================
  * 10/02/2007   Motorola  Added FIQ C dispatcher in kernel.
  * 10/15/2007   Motorola    FIQ related modified.
+ * 9-April-2008  Motorola       Implement FIQ C dispatcher wrapped by
+ *                              CONFIG_MOT_FEAT_FIQ_IN_C
  */
 
 #ifndef __ASM_FIQ_H

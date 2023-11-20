@@ -19,6 +19,7 @@
  * 02/21/2007  Motorola          Added fix for errata 411920
  * 02/2007  Motorola   Enabled hardware XN support
  * 03/28/2007  Motorola          Added cache optimization
+ * 12/2007  Motorola   Added workaround for ARM errata 328429
  * 06/2008  Motorola   Invalidated main locked TLB.
  * 07/14/2008  Motorola          Invalidated main locked TLB in LJ6.3.
  */
@@ -356,6 +357,21 @@ Inval_next_TLB:
 	 * into full low interrupt latency mode to workaround possible
 	 * cache data corruption in ARM1136 r0pX parts when hit-under-miss
 	 * is enabled.
+	 *
+	 * We also set the Auxiliary Control Register RV bit (bit[5]) here to
+	 * disable block transfer cache operations on rev r0pX processors to
+	 * prevent triggerring the ARM1136J-S/ARM1136JF-S erratum "328429: An
+	 * instruction cache invalidate by MVA or Prefetch by MVA operation,
+	 * if interrupted, can result in microTLB corruption".  Disabling
+	 * ARM1136 cache block operations "causes an undefined instruction
+	 * trap if they are used.  This will also prevent the use of the
+	 * instruction cache invalidate range operation" on r0pX processors.
+	 * No side effects are anticipated because, to our knowledge, cache
+	 * block operations are not utilised in current code.  Otherwise,
+	 * disabling block transfer cache operations on affected parts will
+	 * cause user space programs to SIGILL if they attempt to use cache
+	 * block operations which will at least prevent data corruption from
+	 * occuring on those parts.
 	 */
 	ldr	r5, =0x4107b360			@ id for ARM1136 r0pX
 	mrc	p15, 0, r0, c0, c0, 0		@ get processor id
@@ -369,6 +385,7 @@ Inval_next_TLB:
 	teq	r0, r5				@ check for the faulty core
 	mrceq	p15, 0, r0, c1, c0, 1		@ load aux control reg
 	orreq	r0, r0, #0x80000000		@ set bit 31
+	orreq	r0, r0, #(1<<5)			@ Disable block cache ops
 	mcreq	p15, 0, r0, c1, c0, 1		@ write aux control reg
 	mrc	p15, 0, r0, c1, c0, 0		@ read control register
 	ldr	r5, v6_cr1_clear		@ get mask for bits to clear

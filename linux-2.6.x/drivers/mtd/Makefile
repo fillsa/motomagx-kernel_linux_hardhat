@@ -7,6 +7,7 @@
 mtd-y				:= mtdcore.o
 mtd-$(CONFIG_MTD_PARTITIONS)	+= mtdpart.o
 mtd-$(CONFIG_MOT_FEAT_KPANIC)	+= kpanic_mtd.o
+mtd-$(CONFIG_MOT_FEAT_MTD_SHA)  += sha_mtd.o
 obj-$(CONFIG_MTD)		+= $(mtd-y)
 
 obj-$(CONFIG_MTD_CONCAT)	+= mtdconcat.o

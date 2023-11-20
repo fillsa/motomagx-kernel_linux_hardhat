@@ -6,7 +6,7 @@
  *  Copyright (C) 2000 Deep Blue Solutions Ltd
  *  Copyright (C) 2002 Shane Nay (shane@minirl.com)
  *  Copyright 2004 Freescale Semiconductor, Inc. All Rights Reserved.
- *  Copyright (C) 2006-2007 Motorola, Inc.
+ *  Copyright (C) 2006-2008 Motorola, Inc.
  * 
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,6 +31,7 @@
  * 02/2007  Motorola  added hooks to allow power ic driver to be released as a module.
  * 05/2007  Motorola  Added CONFIG_MOT_FEAT_PM control.
  * 05/2007  Motorola  Expose reboot procedure via __mxc_power_off().
+ * 01/2008  Motorola  Add Antioch support
  */
 
 #include <linux/config.h>
@@ -167,6 +168,47 @@ static void mxc_power_off(void)
         __mxc_power_off();
 }
 
+#ifdef CONFIG_MOT_FEAT_ANTIOCH
+/*!
+ * Initilization for the optional Antioch hisgh speed USB
+ */
+static void mxc_init_antioch(void)
+{
+    u32 weim_data;
+
+    /* Set the IOMUX GPR */
+    //iomux_config_gpr(MUX_SDCTL_CSD1_SEL_B, true);
+
+    /* Set up the WEIM CS5 */
+
+    weim_data = 0;
+    __raw_writel(weim_data, IO_ADDRESS(WEIM_CONFIG_REG));
+
+    /* 5 wait states, 1 extra dead cycle between accesses */
+    weim_data = (5 << WEIM_WSC_SHIFT) | (1 << WEIM_EDC_SHIFT);
+
+    __raw_writel(weim_data, IO_ADDRESS(WEIM_CTRL_CS5 + CSCRU));
+
+    /*
+     * 1 half AHB cycles before EB write assert, 2 half AHB cycles before EB
+     * write negate, DSZ = 5 for 16 data bit port, CSEN = 1 for chip select
+     * enable
+     */
+    weim_data = (1 << WEIM_EBWA_SHIFT) | (2 << WEIM_EBWN_SHIFT) |
+            (5 << WEIM_DSZ_SHIFT) | (1 << WEIM_CSEN_SHIFT);
+
+    __raw_writel(weim_data, IO_ADDRESS(WEIM_CTRL_CS5 + CSCRL));
+
+    /* 1 half AHB cycles before EB read assert, 2 half AHB cycles before EB
+     * read negate, decrease write wait states.
+     */
+    weim_data = (1 << WEIM_EBRA_SHIFT) | (2 << WEIM_EBRN_SHIFT) |
+            (1 << WEIM_DWW_SHIFT);
+
+    __raw_writel(weim_data, IO_ADDRESS(WEIM_CTRL_CS5 + CSCRA));
+}
+#endif /* CONFIG_MOT_FEAT_ANTIOCH */
+
 /*!
  * Board specific initialization.
  */
@@ -202,6 +244,10 @@ static void __init mxc_board_init(void)
         } else {
                 printk("FX2LP firmware download completed\n");
         }
+#endif
+
+#ifdef CONFIG_MOT_FEAT_ANTIOCH
+        mxc_init_antioch();
 #endif
 
 #if defined(CONFIG_MOT_FEAT_PM)

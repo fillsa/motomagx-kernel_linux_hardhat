@@ -3,7 +3,7 @@
  *
  * SCM-A11 implementation of Motorola GPIO API for high-speed USB support.
  *
- * Copyright 2007 Motorola, Inc.
+ * Copyright 2007-2008 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
 
 /* Date         Author          Comment
  * ===========  ==============  ==============================================
+ * 25-Jan-2008  Motorola        Add gpio_usb_hs_ref_clk_en_set_data() funtion.
  * 09-Jul-2007  Motorola        Added gpio_free_irq_dev work around.
  * 02-Jan-2007  Motorola        Initial revision.
  */
@@ -69,6 +70,18 @@ void gpio_usb_hs_switch_set_data(__u32 swtch)
             swtch ? GPIO_DATA_HIGH : GPIO_DATA_LOW);
 }
 
+
+/**
+ * Enable USB_CLK
+ *
+ * @param   enable    Set high to enable USB_CLK or zero to disabel 
+ *                    USB_CLK.
+ */
+void gpio_usb_hs_ref_clk_en_set_data(__u32 enable)
+{
+    gpio_signal_set_data(GPIO_SIGNAL_USB_HS_REF_CLK_EN,
+            enable ? GPIO_DATA_HIGH : GPIO_DATA_LOW);
+}
 
 /**
  * Install an interrupt handler for the FLAGC signal.

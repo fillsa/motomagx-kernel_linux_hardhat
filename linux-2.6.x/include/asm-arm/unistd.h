@@ -2,7 +2,7 @@
  *  linux/include/asm-arm/unistd.h
  *
  *  Copyright (C) 2001-2005 Russell King
- *  Copyright (C) 2007 Motorola, Inc.
+ *  Copyright (C) 2007-2008 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -16,6 +16,7 @@
  * Author            Date          Description of Changes
  * ----------------  ----------    --------------------------
  * Motorola          08/13/2007    Commented out warning which is out of date.
+ * Motorola          01/09/2008    Add support for LTT-lite syscall
  */
 #ifndef __ASM_ARM_UNISTD_H
 #define __ASM_ARM_UNISTD_H
@@ -389,6 +390,9 @@
 #define __NR_mbind			(__NR_SYSCALL_BASE+319)
 #define __NR_get_mempolicy		(__NR_SYSCALL_BASE+320)
 #define __NR_set_mempolicy		(__NR_SYSCALL_BASE+321)
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+#define __NR_lttlite			(__NR_SYSCALL_BASE+322)
+#endif
 
 #define NR_syscalls			328
 

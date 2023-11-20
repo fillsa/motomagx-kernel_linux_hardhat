@@ -2,6 +2,15 @@
  *  linux/fs/ioctl.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *  Copyright (C) 2007  Motorola, Inc.
+ *
+ * Revision History:
+ *
+ * Date         Author    Comment
+ * ----------   --------  ---------------------
+ * Revision History:
+ * 12/17/2007   Motorola  Add support for CONFIG_MOT_FEAT_LTT_LITE
+ *
  */
 
 #include <linux/config.h>
@@ -89,6 +98,15 @@ int vfs_ioctl(struct file *filp, unsigned int fd, unsigned int cmd, unsigned lon
 {
 	unsigned int flag;
 	int on, error = 0;
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+	char ltt_string[LTT_LITE_MAX_LOG_STRING_SIZE];
+
+	sprintf(ltt_string, "fd=%X/cmd=%X/arg=%X/pid=%d\n", fd,
+		cmd, (int)arg, current->pid);
+	ltt_lite_syscall_param(LTT_EV_FILE_SYSTEM_IOCTL, ltt_string, strlen(ltt_string));
+	sprintf(ltt_string, "f_op=%X/pid=%d\n", (int)filp->f_op, current->pid);
+	ltt_lite_syscall_param(LTT_EV_FILE_SYSTEM_IOCTL, ltt_string, strlen(ltt_string));
+#endif
 
 	ltt_ev_file_system(LTT_EV_FILE_SYSTEM_IOCTL,
 			   fd,

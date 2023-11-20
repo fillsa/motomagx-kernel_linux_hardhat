@@ -14,12 +14,13 @@
  *  it to save wrong values...  Be aware!
  */
 /*
- * Copyright (C) 2007 Motorola, Inc.
+ * Copyright (C) 2008 Motorola, Inc.
  *
  * Date           Author            Comment
  * ===========  ==========  ====================================
  * 10/02/2007   Motorola  Added FIQ C dispatcher in kernel.
  * 10/15/2007   Motorola    FIQ related modified.
+ *  4/11/2008   Motorola  Added FIQ C dispatcher wrapped by CONFIG_MOT_FEAT_FIQ_IN_C
  */
 #include <linux/config.h>
 #include <linux/init.h>

@@ -201,7 +201,7 @@ static void enable_fiq_for_int_wdog2(void)
         set_fiq_handler(&wdog2_fiq_handler_start, &wdog2_fiq_handler_end - &wdog2_fiq_handler_start);
 	fiq_regs.ARM_r8 = (long)(AVIC_BASE);
 	set_fiq_regs(&fiq_regs);
-#endif
+#endif /* CONFIG_MOT_FEAT_FIQ_IN_C */
 	enable_fiq(INT_WDOG2);
 }
 #endif /* CONFIG_MOT_FEAT_DEBUG_WDOG */

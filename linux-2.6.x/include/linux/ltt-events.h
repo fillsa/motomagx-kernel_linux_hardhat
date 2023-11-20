@@ -3,12 +3,20 @@
  *
  * Copyright (C) 1999-2004 Karim Yaghmour (karim@opersys.com)
  * Copyright (C) 2004, 2005 - MontaVista Software, Inc. (source@mvista.com)
+ * Copyright (C) 2007-2008 Motorola Inc.
  *
  * This contains the event definitions for the Linux Trace Toolkit.
  *
  * This file is released  under the terms of the GNU GPL version 2.
  * This program  is licensed "as is" without any warranty of any kind,
  * whether express or implied.
+ *
+ *-------------------------------- REVISIONS ----------------------------------
+ * Date       Author               Comments
+ * ---------  -------------------  ---------------------------------------------
+ * 10JUL2007  Motorola Inc.        Added Motorola-specific "LTT-Lite"
+ * 01/22/2008 Motorola Inc.        Add performance track id.
+ * 
  */
 
 #ifndef _LINUX_TRACE_H
@@ -16,6 +24,49 @@
 
 #include <linux/ltt-core.h>
 #include <linux/sched.h>
+
+/* Define performance track events */
+enum {
+	/* 0x00000000 to 0x00FFFFFF can be used by components for general debugging */
+
+	/* 0xFF000000 to 0xFFFFFFFF used for global performance tracking */
+	LTTLITE_KPERF_TRACK_BASE = 0xFF000000,
+	
+	LTTLITE_KPERF_TRACK_MOUNT_USERFS = LTTLITE_KPERF_TRACK_BASE + 0x1000, /* mount userfs finished */
+	
+	LTTLITE_KPERF_TRACK_WINDOWSSERVER_START = LTTLITE_KPERF_TRACK_BASE + 0x2000, /* WindowsServer start time */
+	
+	LTTLITE_KPERF_TRACK_SOUNDMANAGER_START = LTTLITE_KPERF_TRACK_BASE + 0x2100, /* Start Sound Manager */
+	
+	LTTLITE_KPERF_TRACK_ANIMATE_START = LTTLITE_KPERF_TRACK_BASE + 0x2200, /* Start Animation */
+
+	LTTLITE_KPERF_TRACK_XP_START = LTTLITE_KPERF_TRACK_BASE + 0x2300, /* XP start time */
+
+	LTTLITE_KPERF_TRACK_PHONE_START = LTTLITE_KPERF_TRACK_BASE + 0x2400, /* phone start time */
+	
+	LTTLITE_KPERF_TRACK_POWERUP_ALERT = LTTLITE_KPERF_TRACK_BASE + 0x2500, /* Powerup Alert */
+	
+	LTTLITE_KPERF_TRACK_CARRIERNAME_DISPLAY_START = LTTLITE_KPERF_TRACK_BASE + 0x2600, /* HomeScreen display Carrier Nam
+											      e */
+	LTTLITE_KPERF_TRACK_HOMESCREEN_LOAD_START = LTTLITE_KPERF_TRACK_BASE + 0x2700, /* Start loading Homescreen */
+	
+	LTTLITE_KPERF_TRACK_IDLE_SCREEN_START = LTTLITE_KPERF_TRACK_BASE + 0x2800, /* Reach IDLE screen */
+	
+	LTTLITE_KPERF_TRACK_TAPIMSG_SYNC_START = LTTLITE_KPERF_TRACK_BASE + 0x5000, /* First Sync msg from TAPI */
+	LTTLITE_KPERF_TRACK_TAPIMSG_REGISTER_SUCCESS, /* Register success msg from TAPI */
+	
+	LTTLITE_KPERF_TRACK_BP_START = LTTLITE_KPERF_TRACK_BASE + 0x10000, /* BP start time */
+	LTTLITE_KPERF_TRACK_BP_END, /* BP end time */
+	
+	LTTLITE_KPERF_TRACK_MODEMSERVICE_START = LTTLITE_KPERF_TRACK_BASE + 0x10100, /* Modem Service Starts */
+	LTTLITE_KPERF_TRACK_MODEMSERVICE_REGISTER /* Modem Service sends Register Req */
+};
+
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+#define KTRACK_PERF(i) sys_lttlite(i)
+#else
+#define KTRACK_PERF(i)
+#endif
 
 /* Is kernel tracing enabled */
 #if defined(CONFIG_LTT)
@@ -494,6 +545,22 @@ static inline void dpm_ltt_trace_init(void)
 
 #else /* defined(CONFIG_LTT) */
 #define ltt_ev(ID, DATA)
+
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+#include <linux/unistd.h>
+#define LTT_EV_FILE_SYSTEM_IOCTL __NR_ioctl
+#define ltt_ev_trap_entry(DATA1, DATA2)	ltt_lite_ev_trap_entry(DATA1, DATA2)
+#define ltt_ev_trap_exit() ltt_lite_ev_trap_exit()
+#define ltt_ev_irq_entry(ID, KERNEL) ltt_lite_int_entry((unsigned short)ID, KERNEL)
+#define ltt_ev_irq_exit() ltt_lite_int_exit((unsigned short)irq)
+#define ltt_init_sched_event(DATA, OUT, IN) ltt_lite_init_sched_event(DATA, OUT, IN)
+#define ltt_ev_schedchange(DATA) ltt_lite_ev_schedchange(DATA)
+
+#define LTT_EV_SOFT_IRQ_SOFT_IRQ LTT_LITE_EV_SOFT_IRQ
+#define LTT_EV_SOFT_IRQ_TASKLET_ACTION LTT_LITE_EV_TASKLET
+#define LTT_EV_SOFT_IRQ_TASKLET_HI_ACTION LTT_LITE_EV_TASKLET_HI
+#define ltt_ev_soft_irq(ID, DATA) ltt_lite_log_softirq(ID, LTT_LITE_EVENT_ENTER, DATA)
+#else /* CONFIG_MOT_FEAT_LTT_LITE */
 #define ltt_ev_trap_entry(ID, EIP)
 #define ltt_ev_trap_exit()
 #define ltt_ev_irq_entry(ID, KERNEL)
@@ -501,8 +568,113 @@ static inline void dpm_ltt_trace_init(void)
 #define ltt_init_sched_event(DATA, OUT, IN)
 #define ltt_ev_schedchange(DATA)
 #define ltt_ev_soft_irq(ID, DATA)
+#endif
+
+#ifndef CONFIG_MOT_FEAT_LTT_LITE
+#define ltt_lite_early_init()
+#endif
+
 #define ltt_ev_process(ID, DATA1, DATA2)
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+void ltt_lite_int_entry(unsigned short, char);
+void ltt_lite_int_exit(unsigned short);
+void ltt_lite_log_softirq(unsigned short, unsigned int, unsigned int);
+void ltt_lite_ev_sig(unsigned short, unsigned short, unsigned short);
+void ltt_lite_ev_handle_sig(unsigned short, unsigned short, unsigned long);
+void ltt_lite_log_timer(struct timer_list *, unsigned short);
+void ltt_lite_run_timer(unsigned short, unsigned long, unsigned long);
+
+enum {
+	LTT_LITE_RUN_TIMER,
+	LTT_LITE_RUN_HRT_EXP,
+	LTT_LITE_RUN_HRT_PED,
+};
+
+typedef struct ltt_lite_schedchange {
+        unsigned short opid;   /* switch-out pid */
+        unsigned short out_state; /* process state */
+        unsigned short oprio; /* priority of process*/
+        unsigned short reserve;
+        /* following elements are data about switch in process */
+        unsigned short ipid;   /* switch-in pid */
+        unsigned short iprio; /* priority of process */
+} ltt_schedchange;
+/* process event enum */
+enum {
+	LTT_LITE_EV_PROCESS_TABLE,
+	LTT_LITE_EV_PROCESS_FORK,
+	LTT_LITE_EV_PROCESS_EXEC,
+	LTT_LITE_EV_PROCESS_EXIT,
+	LTT_LITE_EV_PROCESS_COMM_CHANGE,
+};
+
+/* 
+ * LTTLITE event enum, start from 1 is to keep consistent with deinition of
+ * APLV.
+ */
+enum {
+	LTT_LITE_EV_SYSCALL_ENTRY = 1,
+	LTT_LITE_EV_SCHEDULE,
+	LTT_LITE_EV_MEM_PROFILE,
+	LTT_LITE_EV_PROCESS,
+	LTT_LITE_EV_TRAP,
+	LTT_LITE_EV_INT,
+	LTT_LITE_EV_SOFT_IRQ,
+	LTT_LITE_EV_TASKLET,
+	LTT_LITE_EV_TASKLET_HI,
+	LTT_LITE_EV_STRING,
+	LTT_LITE_EV_SIG,
+	LTT_LITE_EV_SIG_HANDLE,
+	LTT_LITE_EV_TIMER,
+	LTT_LITE_EV_TIMER_RUN,
+	/* keep LTT_LITE_EV_REPORT as the last event type */
+	LTT_LITE_EV_REPORT,
+	/* the item below is used as array length */
+	LTT_LITE_EV_LAST,
+};
+
+/* log event in/out enum */
+enum {
+	/* sign used to indicate return of a log event */
+	LTT_LITE_EVENT_RETURN,
+	/* sign used to indicate enter of a log event */
+	LTT_LITE_EVENT_ENTER,
+};
+extern struct resource ltt_lite_res;
+static inline void ltt_lite_init_sched_event(ltt_schedchange *sched_event,
+					task_t *task_out, task_t *task_in)
+{
+	sched_event->opid = (u32)task_out->pid;
+	sched_event->ipid  = (u32)task_in->pid;
+	sched_event->oprio = task_out->prio;
+	sched_event->iprio = task_in->prio;
+	sched_event->out_state = task_out->state;
+}
+void ltt_lite_early_init(void);
+void ltt_lite_ev_process_exit(void);
+void ltt_lite_ev_log_process (int type, struct task_struct* p);
+void ltt_lite_log_syscall(char sign, int scno);
+void ltt_lite_ev_trap_entry(unsigned short trapid, unsigned long address);
+void ltt_lite_ev_trap_exit(void);
+void ltt_lite_ev_schedchange(ltt_schedchange*);
+int ltt_lite_get_ms_time(struct timeval *ktv);
+int ltt_lite_log_string(char* string, int size);
+void ltt_lite_printf(char* fmt, ...);
+void ltt_lite_syscall_param(int scno, char* string, int size);
+#define LTT_LITE_MAX_LOG_STRING_SIZE 50
+#define LTT_LITE_LOG_STRING(var) ltt_lite_log_string(var, sizeof(var) - 1)
+#define ltt_lite_ev_process(DATA1, DATA2) ltt_lite_ev_log_process(DATA1, DATA2)
+#define ltt_ev_process_exit(DATA1, DATA2) ltt_lite_ev_process_exit()
+#else
+#define ltt_lite_log_softirq(DATA1,DATA2,DATA3)
+#define ltt_lite_int_entry(DATA1, DATA2)
+#define ltt_lite_int_exit(DATA1)
+#define ltt_lite_ev_process(DATA1, DATA2)
 #define ltt_ev_process_exit(DATA1, DATA2)
+#define ltt_lite_syscall_param(DATA1, DATA2, DATA3)
+#define ltt_lite_printf(DATA1, ...)
+#define LTT_LITE_LOG_STRING(var)
+#endif
 #define ltt_ev_file_system(ID, DATA1, DATA2, FILE_NAME)
 #define ltt_ev_timer(ID, SDATA, DATA1, DATA2)
 #define ltt_ev_memory(ID, DATA)

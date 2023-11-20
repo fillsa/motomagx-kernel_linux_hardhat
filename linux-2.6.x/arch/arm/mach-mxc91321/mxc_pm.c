@@ -41,6 +41,8 @@
  * 05/15/2007  Motorola  Use AHB_FREQ instead of CLOCK_TICK_RATE when
  *                       determining AHB frequency.
  * 08/07/2007  Motorola  Remove code of clearing up DPE bit.
+ * 09/03/2007  Motorola  No longer use Power_ready signal as handshake
+ *                       during the Turbo mode transition process in LJ7.2
  * 10/31/2007  Motorola  Integrate the patch for removing WFI SW workaround.
  * 11/14/2007  Motorola  Add fix for errata issues.
  * 08/25/2008  Motorola  Force panic when neither DFSI or DFSP bits is correct
@@ -131,7 +133,6 @@
  * Adds a 40us CKIH delay to allow POWER_RDY to go low after voltage change.
  */
 /* #define PMCR1_PMIC_HS_CNT       0x420 */
-
 /* 
  * As a workaround to avoid blocking at PMIC HS, PMICHE is disabled
  * Adjust 80us waiting for voltage change
@@ -341,10 +342,16 @@ static int mxc_pm_dvsenable(void)
 #endif
 
 	if (mxc_pm_chk_dfsp() == DFS_NO_SWITCH) {
+#ifdef CONFIG_MOT_FEAT_PM_NO_POWER_READY 	
 		/* Enable DVS, EMI handshake disable PMIC handshake and mask DFSI interrupt */
 		pmcr = ((((__raw_readl(MXC_CCM_PMCR0) | (MXC_CCM_PMCR0_DVSE)) &
-			  (~MXC_CCM_PMCR0_PMICHE)) | (MXC_CCM_PMCR0_EMIHE)) |
+			  (~(MXC_CCM_PMCR0_PMICHE))) | (MXC_CCM_PMCR0_EMIHE)) |
 			(MXC_CCM_PMCR0_DFSIM));
+#else
+		pmcr = ((((__raw_readl(MXC_CCM_PMCR0) | (MXC_CCM_PMCR0_DVSE)) |
+			  (MXC_CCM_PMCR0_PMICHE)) | (MXC_CCM_PMCR0_EMIHE)) |
+			(MXC_CCM_PMCR0_DFSIM));
+#endif
 		__raw_writel(pmcr, MXC_CCM_PMCR0);
 #ifdef CONFIG_MOT_FEAT_PM
                 pmic_hs_cnt = __raw_readl(MXC_CCM_PMCR1) & 

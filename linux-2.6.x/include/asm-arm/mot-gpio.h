@@ -34,9 +34,14 @@
  * 13-Mar-2007  Motorola        Added more gpio_signal IRQ manipulators.
  * 20-Mar-2007  Motorola        Remove unused flip/slider functions.
  * 23-Mar-2007  Motorola        Add GPIO_SIGNAL_ANT_MMC_EN.
+ * 24-May-2007  Motorola        Add GPIO_SIGNAL_LGT_CAP_RESET.
  * 28-Jun-2007  Motorola        Added xPIXL specific signal names.
+ * 06-Jul-2007  Motorola        Kassos P2 bring up.
  * 19-Jul-2007  Motorola        Add dev_id to free_irq.
+ * 21-Sep-2007  Motorola        Added GPIO_SIGNAL_USB_HS_REF_CLK_EN 
+ *                              and GPIO_SIGNAL_MORPH_TKC_RESET
  * 24-Sep-2007  Motorola        Added lens cover signal name.
+ * 24-Jan-2008  Motorola        Added gpio_usb_hs_ref_clk_en_set_data
  * 16-Mar-2008  Motorola	Modify signals for Nevis.
  * 04-Apr-2008  Motorola        Removed Nevis's code change in gpio_signal of Marco.
  * 29-Jul-2008  Motorola        Removed Nevie's code related with GP_BP_A_PORT.
@@ -195,6 +200,13 @@ enum gpio_signal {
     GPIO_SIGNAL_MAIN_BKL,
     GPIO_SIGNAL_IRDA_SD,
     GPIO_SIGNAL_ANT_MMC_EN,
+    GPIO_SIGNAL_LGT_CAP_RESET,
+    GPIO_SIGNAL_DM500_WAKE_B,
+    GPIO_SIGNAL_DM500_RESET_B,
+    GPIO_SIGNAL_DM500_INT_B,
+    GPIO_SIGNAL_DM500_VCC_EN,
+    GPIO_SIGNAL_MORPH_TKC_RESET,
+    GPIO_SIGNAL_USB_HS_REF_CLK_EN,
 #elif defined(CONFIG_MACH_ARGONLVPHONE)
     GPIO_SIGNAL_CLI_RST_B = 0,
     GPIO_SIGNAL_ENET_INT_B,
@@ -881,6 +893,9 @@ extern void  gpio_usb_hs_wakeup_set_data(__u32 wakeup);
 
 /* USB_HS_SWITCH */
 extern void  gpio_usb_hs_switch_set_data(__u32 swtch);
+
+/* USB_HS_REF_CLK_EN */
+extern void gpio_usb_hs_ref_clk_en_set_data(__u32 enable);
 
 /* USB_HS_FLAGC */
 extern int   gpio_usb_hs_flagc_request_irq(gpio_irq_handler handler,

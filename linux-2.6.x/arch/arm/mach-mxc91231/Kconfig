@@ -78,6 +78,12 @@ config MACH_NEVIS
 	  Include support for Motorola Product: nevis. This includes 
 	  specific configurations for the board and its peripherals.
 
+config MACH_PEARL
+	bool "Support Motorola Product: pearl"
+	help
+	  Include support for Motorola Product: pearl. This includes 
+	  specific configurations for the board and its peripherals.
+
 comment 'End of Motorola SCM-A11 Products'
 
 endmenu

@@ -31,6 +31,8 @@
  * 02/04/2008    Motorola       Fix panic issue when multi-open a SDMA channel
  * 02/15/2008    Motorola       Fixed SDMA and mu channel panic issue
  * 03/17/2008    Motorola       Fix panic issue when multi-open a MU channel
+ * 02/21/2008    Motorola       Enlarge AP SDMA rx buffer
+ * 01/25/2007    Motorola       Pull in Freescale IPC driver updates
  */
 
 /*!
@@ -67,6 +69,7 @@
 #include <linux/uio.h>
 #include <linux/poll.h>
 #include <linux/dma-mapping.h>
+#include <linux/jiffies.h>
 #include <asm/arch/mxc_mu.h>
 #include <asm/arch/mxc_ipc.h>
 #include <asm/dma.h>
@@ -110,9 +113,9 @@
  * Number of buffers used for SDMA receive, used by user API. This should
  * be set to a power of 2.
  */
-#define NUM_RX_SDMA_BUF                16
+#define NUM_RX_SDMA_BUF                64
 /*! Size of each SDMA receive buffer */
-#define SDMA_RX_BUF_SIZE               512
+#define SDMA_RX_BUF_SIZE               4*1024
 /*! MU buffer maximum size */
 #define MAX_MU_BUF_SIZE                512
 
@@ -206,6 +209,8 @@
 #define IPC_WRITE                               0x2
 #define IPC_RDWR                                IPC_READ | IPC_WRITE
 
+#define IPC_WRITE_BYTE_INIT_VAL                 -4
+
 #define IPC_DEFAULT_MAX_CTRL_STRUCT_NUM         50
 
 typedef void (*read_callback_t) (HW_CTRL_IPC_READ_STATUS_T *);
@@ -254,6 +259,12 @@ struct sdma_channel {
 
 	/*! Tail to keep track of DMA read buffers */
 	int rbuf_tail;
+
+	/*! Head to keep track of DMA write buffers */
+	int wbuf_head;
+
+	/*! Tail to keep track of DMA write buffers */
+	int wbuf_tail;
 
 	/*! Tasklet to call SDMA read callback */
 	struct tasklet_struct read_tasklet;
@@ -417,6 +428,12 @@ static unsigned int wbits[4] = { AS_MUMSR_MTE0, AS_MUMSR_MTE1, AS_MUMSR_MTE2,
 static unsigned int rbits[4] = { AS_MUMSR_MRF0, AS_MUMSR_MRF1, AS_MUMSR_MRF2,
 	AS_MUMSR_MRF3
 };
+
+/*!
+ * Total data in ipc buffer
+ */
+static atomic_t sdma_total;
+static atomic_t max_buffers;
 
 /*!
  * Major number
@@ -619,6 +636,7 @@ static void mu_write_tasklet(int chnum)
 	struct ipc_priv_data *priv = NULL;
 	char *p = NULL;
 	int bytes = 0;
+	int error = 0;
 
 	priv = ipc_channels[chnum].priv;
 	mu = &ipc_channels[chnum].ch.mu;
@@ -631,10 +649,14 @@ static void mu_write_tasklet(int chnum)
 		DPRINTK("remaining bytes = %d\n", bytes);
 
 		p = &mu->wbuf->buf[mu->wbuf->tail];
+
+		if (mxc_mu_mcuwrite(mu->index, p)) {
+			DPRINTK("Mu MCU write Failed\n");
+			error = 1;
+			break;
+		}
+
 		mu->wbuf->tail = (mu->wbuf->tail + 4) & (MAX_MU_BUF_SIZE - 1);
-
-		mxc_mu_mcuwrite(mu->index, p);
-
 		bytes = CIRC_CNT(mu->wbuf->head, mu->wbuf->tail,
 				 MAX_MU_BUF_SIZE);
 	}
@@ -642,7 +664,7 @@ static void mu_write_tasklet(int chnum)
 	spin_lock(&ipc_channels[chnum].channel_lock);
 	bytes = CIRC_CNT(mu->wbuf->head, mu->wbuf->tail, MAX_MU_BUF_SIZE);
 	/* Disable interrupts if buffer is empty */
-	if (bytes == 0) {
+	if ((bytes == 0) && (error == 0)) {
 		DPRINTK("(2)remaining bytes = %d\n", bytes);
 		mxc_mu_intdisable(mu->index, TX);
 	}
@@ -668,6 +690,7 @@ static void mu_read_tasklet(int chnum)
 	struct ipc_priv_data *priv = NULL;
 	int bytes = 0;
 	char p[4];
+	int error = 0;
 
 	priv = ipc_channels[chnum].priv;
 	mu = &ipc_channels[chnum].ch.mu;
@@ -678,7 +701,11 @@ static void mu_read_tasklet(int chnum)
 
 		DPRINTK("space available = %d\n", bytes);
 
-		mxc_mu_mcuread(mu->index, p);
+		if (mxc_mu_mcuread(mu->index, p)) {
+			DPRINTK("MU MCU Read Failed\n");
+			error = 1;
+			break;
+		}
 
 		*((int *)(&(mu->rbuf->buf[mu->rbuf->head]))) = *((int *)p);
 		mu->rbuf->head = (mu->rbuf->head + 4) & (MAX_MU_BUF_SIZE - 1);
@@ -690,7 +717,7 @@ static void mu_read_tasklet(int chnum)
 	/* Check if space available in read buffer */
 	spin_lock(&ipc_channels[chnum].channel_lock);
 	bytes = CIRC_SPACE(mu->rbuf->head, mu->rbuf->tail, MAX_MU_BUF_SIZE);
-	if (bytes < 4) {
+	if ((bytes < 4) && (error == 0)) {
 		mxc_mu_intdisable(mu->index, RX);
 	} else {
 		DPRINTK("(2)space available = %d\n", bytes);
@@ -719,6 +746,7 @@ static void mu_read_tasklet_kernel(int chnum)
 	struct mu_channel *mu = NULL;
 	char p[4];
 	int bytes = 0;
+	int error = 0;
 
 	priv = ipc_channels[chnum].priv;
 	mu = &ipc_channels[chnum].ch.mu;
@@ -730,13 +758,20 @@ static void mu_read_tasklet_kernel(int chnum)
 		if(mxc_mu_mcuread(mu->index, p))
 			return;
 #else
-		mxc_mu_mcuread(mu->index, p);
+		if (mxc_mu_mcuread(mu->index, p)) {
+			DPRINTK("MU MCU Read Failed\n");
+			error = 1;
+			break;
+		}
 #endif
 
 		*((int *)(&(priv->vc->data[bytes]))) = *((int *)p);
 		bytes += 4;
 	}
 
+	if (error != 0) {
+		mxc_mu_intenable(mu->index, RX);
+	} else {
 	mxc_mu_intdisable(mu->index, RX);
 	mxc_mu_unbind(mu->index, RX);
 	atomic_set(&priv->vc->state, CHANNEL_OPEN);
@@ -747,6 +782,7 @@ static void mu_read_tasklet_kernel(int chnum)
 		status.channel = &channel_handlers[priv->vchannel];
 		status.nb_bytes = bytes;
 		priv->k_callbacks->read(&status);
+		}
 	}
 }
 
@@ -767,6 +803,8 @@ static void mu_write_tasklet_kernel(int chnum)
 	struct mu_channel *mu = NULL;
 	char *p = NULL;
 	int bytes = 0;
+	int error = 0;
+
 #ifdef CONFIG_MOT_WFN436
         unsigned long writeStart;
         int i;
@@ -776,22 +814,28 @@ static void mu_write_tasklet_kernel(int chnum)
 	priv = ipc_channels[chnum].priv;
 	mu = &ipc_channels[chnum].ch.mu;
 
-#ifdef CONFIG_MOT_WFN436
-	while (bytes < priv->write_count)
-#else
-	while ((bytes < priv->write_count) && (readl(AS_MUMSR) & wbits[chnum]))
-#endif
-        {
-		DPRINTK("remaining bytes = %d\n", bytes);
+	/* Indication that previous write was successful */
+	mu->bytes_written += 4;
 
-		p = &mu->wbuf->buf[bytes];
+#ifdef CONFIG_MOT_WFN436
+	while (mu->bytes_written < priv->write_count)
+#else
+	while ((mu->bytes_written < priv->write_count) && (readl(AS_MUMSR) & wbits[chnum]))
+#endif
+	{
+		DPRINTK("remaining bytes = %d\n", mu->bytes_written);
+
+		p = &mu->wbuf->buf[mu->bytes_written];
 #ifdef CONFIG_MOT_WFN475
 		if(mxc_mu_mcuwrite(mu->index, p))
 			return;
 #else
-		mxc_mu_mcuwrite(mu->index, p);
+		if (mxc_mu_mcuwrite(mu->index, p)) {
+			error = 1;
+			break;
+		}
 #endif
-		bytes += 4;
+        mu->bytes_written += 4;
 #ifdef CONFIG_MOT_WFN436
                 /* wait for the write register to clear */
                 writeStart = jiffies;
@@ -835,6 +879,9 @@ static void mu_write_tasklet_kernel(int chnum)
 #endif
 	}
 
+	if ((error == 0) && (mu->bytes_written < priv->write_count)) {
+		mxc_mu_intenable(mu->index, TX);
+	} else {
 	mxc_mu_intdisable(mu->index, TX);
 	mxc_mu_unbind(mu->index, TX);
 	atomic_set(&priv->vc->state, CHANNEL_OPEN);
@@ -843,8 +890,9 @@ static void mu_write_tasklet_kernel(int chnum)
 		HW_CTRL_IPC_WRITE_STATUS_T status;
 
 		status.channel = &channel_handlers[priv->vchannel];
-		status.nb_bytes = bytes;
-		priv->k_callbacks->write(&status);
+			status.nb_bytes = mu->bytes_written;
+			priv->k_callbacks->write(&status);
+		}
 	}
 }
 
@@ -1078,6 +1126,7 @@ static int initialize_sdma_read_channel_user(int ipc_chnl)
 
 	read_chnl->rbuf_head = 0;
 	read_chnl->rbuf_tail = 0;
+    atomic_set(&max_buffers, 0);
 
 	mxc_dma_set_callback(read_chnl->read_channel, sdma_user_readcb,
 			     ipc_num.priv);
@@ -1571,6 +1620,10 @@ static int sdma_start_mcu_transfer_kernel(struct ipc_channel *ipc_chn,
 	}
 
 	mxc_dma_set_config(sdma->write_channel, &sdma_request, buff_id);
+	sdma->wbuf_head++;
+	if (sdma->wbuf_head >= sdma->wbuf_tail) {
+		sdma->wbuf_head = 0;
+	}
 
 	return 0;
 }
@@ -1746,6 +1799,10 @@ static int sdma_start_dsp_transfer_kernel(struct ipc_priv_data *priv,
 
 	mxc_dma_set_callback(sdma->read_channel, sdma_kernel_readcb, priv);
 	mxc_dma_set_config(sdma->read_channel, &sdma_request, 0);
+	sdma->rbuf_head++;
+	if (sdma->rbuf_head >= sdma->rbuf_tail) {
+		sdma->rbuf_head = 0;
+	}
 	mxc_dma_start(sdma->read_channel);
 
 	return 0;
@@ -1788,6 +1845,11 @@ static void sdma_user_readcb(void *args)
 	       && (sdma->rbuf[sdma->rbuf_head].count == 0)) {
 		DPRINTK("buf head=%d, cnt=%d\n", sdma->rbuf_head,
 			sdma_request.count);
+
+		atomic_inc(&max_buffers);
+		atomic_add(sdma_request.count, &sdma_total); 
+		printk("[IPC_BUF]%s[%lu]:sdma total count: %d  max_buffers: %d [total size %d * %d]\n", __FUNCTION__, jiffies, sdma_total.counter, max_buffers, NUM_RX_SDMA_BUF, SDMA_RX_BUF_SIZE);
+
 		sdma->rbuf[sdma->rbuf_head].count = sdma_request.count;
 		sdma->rbuf_head = (sdma->rbuf_head + 1) & (NUM_RX_SDMA_BUF - 1);
 		memset(&sdma_request, 0, sizeof(dma_request_t));
@@ -1838,6 +1900,9 @@ static int mxc_ipc_copy_from_sdmabuf(struct sdma_channel *sdma, char *buf,
 		}
 		DPRINTK("copied %d bytes into user's buffer\n", amt_cpy);
 		DPRINTK("Buf Tail=%d\n", sdma->rbuf_tail);
+
+		atomic_sub(amt_cpy, &sdma_total);
+                
 		/* Check if we emptied the SDMA read buffer */
 		if (count < n) {
 			sdma->rbuf[sdma->rbuf_tail].count -= amt_cpy;
@@ -1862,7 +1927,12 @@ static int mxc_ipc_copy_from_sdmabuf(struct sdma_channel *sdma, char *buf,
 #endif
 			sdma->rbuf_tail =
 			    (sdma->rbuf_tail + 1) & (NUM_RX_SDMA_BUF - 1);
+                        
+			/* Restart sdma channel after data copy */
+			mxc_dma_start(sdma->read_channel);
+             atomic_dec(&max_buffers);
 		}
+        printk("[IPC_BUF]%s[%lu]:sdma total count: %d  max_buffers: %d [total size %d * %d]\n", __FUNCTION__, jiffies, sdma_total.counter, max_buffers, NUM_RX_SDMA_BUF, SDMA_RX_BUF_SIZE);
 
 		buf += amt_cpy;
 		count -= amt_cpy;
@@ -2199,6 +2269,11 @@ HW_CTRL_IPC_CHANNEL_T *hw_ctrl_ipc_open(const HW_CTRL_IPC_OPEN_T * config)
 		struct sdma_channel *sdma_chnl;
 		sdma_chnl = &v->ipc->ch.sdma;
 
+		sdma_chnl->rbuf_head = 0;
+		sdma_chnl->rbuf_tail = IPC_DEFAULT_MAX_CTRL_STRUCT_NUM;
+		sdma_chnl->wbuf_head = 0;
+		sdma_chnl->wbuf_tail = IPC_DEFAULT_MAX_CTRL_STRUCT_NUM;
+
 		tasklet_init(&sdma_chnl->read_tasklet,
 			     mxc_ipc_sdma_readtasklet,
 			     (unsigned long)v->ipc->priv);
@@ -2412,6 +2487,7 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_write(HW_CTRL_IPC_CHANNEL_T * channel,
 		mxc_dma_start(sdma_chnl->write_channel);
 	} else {
 		mu_chnl = &v->ipc->ch.mu;
+		mu_chnl->bytes_written = IPC_WRITE_BYTE_INIT_VAL;
 		memcpy(mu_chnl->wbuf->buf, buf, nb_bytes);
 		v->ipc->priv->write_count = nb_bytes;
 		status = mu_start_mcu_transfer_kernel(mu_chnl);
@@ -2559,8 +2635,13 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_ioctl(HW_CTRL_IPC_CHANNEL_T * channel,
 	case HW_CTRL_IPC_SET_MAX_CTRL_STRUCT_NB:
 		sdma_chnl = &v->ipc->ch.sdma;
 		initialize_sdma_read_channel_kernel(v->ipc, (int)param);
+		/* Reinitialize the buff pointers to start at zero BD */
+		sdma_chnl->rbuf_tail = (int)param;
+		sdma_chnl->rbuf_head = 0;
 		if (sdma_chnl->write_channel != -1) {
 			initialize_sdma_write_channel(v->ipc, 1, (int)param);
+			sdma_chnl->wbuf_tail = (int)param;
+			sdma_chnl->wbuf_head = 0;
 		}
 		break;
 	default:

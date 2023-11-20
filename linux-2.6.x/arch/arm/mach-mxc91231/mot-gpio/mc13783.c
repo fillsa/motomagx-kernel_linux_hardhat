@@ -20,6 +20,13 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 26-Sep-2006  Motorola        Initial revision.
+ * 15-Nov-2006  Motorola        Add Pearl support which uses CSPI1 for Atlas
+ */
+ 
+#include <linux/config.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <asm/mot-gpio.h>
@@ -50,7 +57,11 @@ void gpio_mc13783_clear_int(void)
 int gpio_mc13783_get_spi(void) 
 {
         /* SCMA11 -> SPI2 = 1 */
+#ifdef CONFIG_MACH_PEARL
+        return 0;
+#else
         return 1;
+#endif
 }
 
 
@@ -61,6 +72,10 @@ int gpio_mc13783_get_spi(void)
 int gpio_mc13783_get_ss(void) 
 {
         /* SCMA11BB -> SS = 2 */
+#ifdef CONFIG_MACH_PEARL
+        return 0;
+#else
         return 2;
+#endif
 }
 #endif /* CONFIG_MOT_FEAT_GPIO_API_MC13783 */

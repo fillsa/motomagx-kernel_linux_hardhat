@@ -30,9 +30,12 @@
  *
  * 04-15-2007   update part_read_distfix function with reason_code for CONFIG_MOT_FEAT_NAND_RDDIST
  *		feature
+ * 09-17-2007   Added support for CONFIG_MOT_MTD_SHA. 
  * 12-20-2007	initialize rsvdblock_offset to avoid this variable being used without initialization. 
  * 01-03-2008	initialize rsvdblock_offset to avoid this variable being used without initialization. 
  * 01-15-2008   Add support for new keypad
+ * 01-21-2008   Initialize the variable rsvdblock_offset.		
+ * 02-15-2008   Change rsvdblock_offset back to unintialized.
  * 02-26-2008   change flash rsvblock address for xpixl
  */	
 
@@ -480,6 +483,10 @@ int add_mtd_partitions(struct mtd_info *master,
 		/* set up the MTD object for this partition */
 		slave->mtd.type = master->type;
 		slave->mtd.flags = master->flags & ~parts[i].mask_flags;
+#ifdef CONFIG_MOT_FEAT_MTD_SHA
+		/* If MTD SHA feature is not masked out for a partition enable it */
+		slave->mtd.flags |= (MTD_SHA_ENABLED & ~parts[i].mask_flags);
+#endif /* CONFIG_MOT_FEAT_MTD_SHA */
 		slave->mtd.size = parts[i].size;
 		slave->mtd.oobblock = master->oobblock;
 		slave->mtd.oobsize = master->oobsize;

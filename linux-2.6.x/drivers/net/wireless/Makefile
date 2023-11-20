@@ -36,5 +36,6 @@ obj-$(CONFIG_PCMCIA_WL3501)	+= wl3501_cs.o
 
 
 # Marvell WLAN drivers
+##04-Dec-2007  Motorola        Remove WLAN driver files.
 obj-$(CONFIG_MARVELL_WIFI_8385) += Marvell/8385/src/
 obj-$(CONFIG_MARVELL_WIFI_8686) += Marvell/8686/src/

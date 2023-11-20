@@ -24,6 +24,7 @@
 #include <linux/fs.h>
 #include <linux/msdos_fs.h>
 #include <linux/buffer_head.h>
+#include <linux/blkdev.h>
 #ifdef CONFIG_MOT_FEAT_FAT_SYNC
 #include <linux/loop.h>
 #endif
@@ -36,6 +37,8 @@
  */
 
 static char panic_msg[512];
+
+static void wakeup_repairfat(struct super_block *sb);
 static void (*repairfat_callback)(struct super_block *sb) = NULL;
 void register_repairfat_callback(void (*callback_fun)(struct super_block *sb))
 {
@@ -72,6 +75,9 @@ void fat_fs_panic(struct super_block *s, const char *fmt, ...)
 		printk(KERN_INFO "FAT: mxclay call back\n");
 		repairfat_callback(s);
 	}
+#if defined(MAGX_N_06_19_60I)
+	wakeup_repairfat(s);
+#endif
 }
 
 void lock_fat(struct super_block *sb)
@@ -377,3 +383,73 @@ next:
 
 	return 0;
 }
+
+#if defined(MAGX_N_06_19_60I)
+
+static char device_name[BDEVNAME_SIZE];
+static volatile int panic_script_running=0;
+spinlock_t panic_script_lock=SPIN_LOCK_UNLOCKED;
+
+static void call_repairfat(char *dev_name)
+{
+#define NUM_ENVP 32
+	int i=0,ret;
+	char *argv[3];
+	char **envp=NULL;
+	char script_path[]="/etc/repairfat.sh";
+
+	envp = kmalloc(NUM_ENVP * sizeof (char *), GFP_KERNEL);
+	if (!envp)
+		return;
+	memset (envp, 0x00, NUM_ENVP * sizeof (char *));
+
+				
+	spin_lock(&panic_script_lock);
+	if( !panic_script_running )
+		panic_script_running = 1;
+	else
+	{
+		spin_unlock(&panic_script_lock);
+		kfree(envp);
+		return;
+	}
+
+	spin_unlock(&panic_script_lock);
+
+
+	argv[0]= script_path;
+	argv[1]= dev_name;
+	argv[2]= NULL;
+
+        envp [i++] = "HOME=/";
+	envp [i++] = "PATH=/sbin:/bin:/usr/sbin:/usr/bin";
+	//envp [i++] = 
+	ret = call_usermodehelper(argv[0], argv, envp, 0 );
+	if( ret )
+                printk( "%s: call repairfat.sh returned %d \n", __FUNCTION__,  ret);
+
+	spin_lock(&panic_script_lock);
+	panic_script_running=0;
+	spin_unlock(&panic_script_lock);
+	kfree(envp);
+}
+
+static void wakeup_repairfat(struct super_block *sb)
+{
+	int part = 0;
+	struct block_device *panic_bdev = sb->s_bdev;
+	printk("%s: mxclay repairfat \n", __FUNCTION__);
+
+	if(panic_bdev && panic_bdev->bd_disk && 
+                        !(strncmp("mmc", panic_bdev->bd_disk->devfs_name, 3))) {
+		printk("wmnbmh:repairfat %s\n", panic_bdev->bd_disk->devfs_name);
+		part = MINOR(panic_bdev->bd_dev) - panic_bdev->bd_disk->first_minor;
+		snprintf(device_name, BDEVNAME_SIZE, "/dev/%s/part%d", 
+				panic_bdev->bd_disk->devfs_name, part);
+		printk("wmnbmh:repairfat device= %s\n", device_name);
+								
+		call_repairfat(device_name);	
+		/*complete(&fatpanic_completion);*/
+	}
+}
+#endif

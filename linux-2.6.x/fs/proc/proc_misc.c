@@ -657,6 +657,157 @@ static int slabfree_read_proc(char *page, char **start, off_t off, int count, in
 }
 #endif /* CONFIG_MOT_FEAT_SLABFREE_PROC */
 
+#ifdef CONFIG_MOT_FEAT_BOOTUP_TIME_BREAKDOWN
+static unsigned long init_finish_time = 0;
+
+static void *btime_start(struct seq_file *seq, loff_t *pos)
+{
+	struct task_struct *p = &init_task;
+	loff_t n = *pos;
+
+	read_lock(&tasklist_lock);
+
+	if (n < 0)
+		return ERR_PTR(-EACCES);
+	else if (n == 0)
+		return SEQ_START_TOKEN;
+	
+	for (p = &init_task ; (p = next_task(p)) != &init_task ; ) {
+		n--;
+		if (n == 0)
+			return p;
+	}
+
+	return NULL;
+}
+
+static void *btime_next(struct seq_file *seq, void *v, loff_t *pos)
+{
+	struct task_struct *p = NULL;
+
+	++*pos;
+
+	if (v == SEQ_START_TOKEN)
+		p = &init_task;
+	else 
+		p = (struct task_struct *)v;
+
+	p = next_task(p);
+
+	if (p == &init_task)
+		return NULL;
+	return p;
+}
+
+static int btime_show(struct seq_file *seq, void *v)
+{
+	struct task_struct *p;
+	
+	if (v == SEQ_START_TOKEN) {
+		/* get the real "init" thread */
+		p = next_task(&init_task);
+
+		/* mbm bootup time: time spent by MBM bootup */
+		seq_printf(seq, "mbm bootup time: \n");
+
+		/* kernel start: Linux kernel (jiffies) starts, set to 0 */
+		seq_printf(seq, "kernel start: 0\n");
+
+		/* init start: init scripts start */
+		seq_printf(seq, "init start: %lu.%02li\n", 
+			(unsigned long) p->start_time.tv_sec,
+			p->start_time.tv_nsec / (NSEC_PER_SEC / 100));
+
+		/* 
+		 * init finish: init scripts finish. 
+		 * Currently we print out the bootup time, since this is 
+		 * called by the last init script, it inicates the init 
+		 * finish time.
+		 */
+		seq_printf(seq, "init finish: %lu jiffies\n", init_finish_time);
+
+		/* print the header */
+		seq_puts(seq, "utime and stime are times of jiffies.\n");
+		seq_puts(seq, "pid , process name   , start time,   utime,"
+			"   stime,"
+			" utime + stime, schedule policy,"
+			" static_prio/rt_prio, priority\n");
+	} else {
+
+		p = (struct task_struct *)v;
+		seq_printf(seq, "%4u,%16s,%8lu.%02lu,%8lu,%8lu,%14lu,",
+			p->pid,p->comm,
+			(unsigned long)p->start_time.tv_sec,
+			p->start_time.tv_nsec / (NSEC_PER_SEC / 100),
+			p->utime,p->stime,p->utime+p->stime);
+		seq_printf(seq, "%16s,", (p->policy == SCHED_NORMAL) ? 
+			"NORMAL" : "REAL TIME");
+		seq_printf(seq, "%20i,", (p->policy == SCHED_NORMAL) ?
+			p->static_prio : (int)p->rt_priority);
+		seq_printf(seq, "%8i\n", p->prio);
+	}
+
+	return 0;
+}
+
+static void btime_stop(struct seq_file *seq, void *v)
+{
+	read_unlock(&tasklist_lock);
+}
+
+static struct seq_operations btime_op = {
+        .start =        btime_start,
+        .next =         btime_next,
+        .stop =         btime_stop,
+        .show =         btime_show
+};
+
+static int btime_open(struct inode *inode, struct file *file)
+{
+        return seq_open(file, &btime_op);
+}
+
+/*
+ * Write below strings:
+ *
+ * "2nd stage"  : record the time that 2nd stage of init starts.
+ * "init finish": indicates the time init finish running all the scripts.
+ */
+#define SND_INIT_STAGE	"2nd stage"
+#define INIT_FINISH	"init finish"
+#define MAX_BTIME_WRITE	16
+ssize_t btime_write(struct file *file, const char __user *buffer,
+                                size_t count, loff_t *ppos)
+{
+        char kbuf[MAX_BTIME_WRITE + 1];
+
+        if (count > MAX_BTIME_WRITE)
+                return -EINVAL;
+
+        memset(kbuf, 0, MAX_BTIME_WRITE + 1);
+        if (copy_from_user(&kbuf, buffer, count))
+                return -EFAULT;
+
+	if (0 == strncmp(kbuf, SND_INIT_STAGE, strlen(SND_INIT_STAGE))) {
+		/* currently do nothing */
+	} else if (0 == strncmp(kbuf, INIT_FINISH, strlen(INIT_FINISH)))
+		if (init_finish_time == 0)
+			init_finish_time = jiffies;
+	else
+		return -EINVAL;
+
+	return count;
+}
+
+static struct file_operations proc_btime_breakdown_operations = {
+	.open		= btime_open,
+	.read		= seq_read,
+	.write		= btime_write,
+	.llseek		= seq_lseek,
+	.release	= seq_release,
+};
+#endif /* CONFIG_MOT_FEAT_BOOTUP_TIME_BREAKDOWN */
+
 struct proc_dir_entry *proc_root_kcore;
 
 static void create_seq_entry(char *name, mode_t mode, struct file_operations *f)
@@ -711,6 +862,10 @@ void __init proc_misc_init(void)
 	create_seq_entry("buddyinfo",S_IRUGO, &fragmentation_file_operations);
 	create_seq_entry("vmstat",S_IRUGO, &proc_vmstat_file_operations);
 	create_seq_entry("diskstats", 0, &proc_diskstats_operations);
+#ifdef CONFIG_MOT_FEAT_BOOTUP_TIME_BREAKDOWN
+	create_seq_entry("bootup_time_breakdown", 0, 
+		&proc_btime_breakdown_operations);
+#endif
 #ifdef CONFIG_MODULES
 	create_seq_entry("modules", 0, &proc_modules_operations);
 #endif

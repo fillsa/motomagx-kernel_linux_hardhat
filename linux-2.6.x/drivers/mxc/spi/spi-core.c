@@ -20,6 +20,7 @@
  * 07/16/2007   Motorola  Implement Dynamic Clock Gating
  * 08/10/2007   Motorola  Add spin_lock() to protect clock gating calls
  * 10/24/2007   Motorola  Remove CSPI1(for DM399/DM500) clock from Dynamic Clock Gating 
+ * 11/15/2007   Motorola  Add Pearl support which CSPI2 for DM500
  *
  */
 
@@ -30,6 +31,7 @@
  *
  * @ingroup SPI
  */
+#include <linux/config.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>

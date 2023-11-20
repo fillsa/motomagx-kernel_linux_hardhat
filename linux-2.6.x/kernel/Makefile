@@ -9,6 +9,8 @@ obj-y     = sched.o fork.o exec_domain.o panic.o printk.o profile.o \
 	    rcupdate.o intermodule.o extable.o params.o posix-timers.o \
 	    kthread.o wait.o kfifo.o sys_ni.o lspinfo.o
 
+obj-$(CONFIG_MOT_FEAT_LTT_LITE) += ltt-lite.o
+
 obj-$(CONFIG_PREEMPT_RT) += rt.o
 obj-$(CONFIG_GCOV_PROFILE) += gcov/
 obj-$(CONFIG_DEBUG_PREEMPT) += latency.o

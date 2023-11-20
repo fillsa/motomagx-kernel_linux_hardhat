@@ -29,16 +29,19 @@
 # 06/23/2007  Motorola          Added MOT_FEAT_YAFFS_SYNC & MOT_FEAT_FAT_SYNC
 # 07/2007      Motorola        Fix the problem about test case failed.
 # 08/2007      Motorola        Add comments.
+# 09/03/2007  Motorola          Added MOT_FEAT_PM_NO_POWER_READY
 # 09/27/2007  Motorola		Added MOT_FEAT_IPU_MEM_SIZE
 # 09/2007      Motorola        Enable config option MOT_FEAT_I2C_BLK_SUSPEND
 # 10/2007      Motorola	       Enable config option MOT_FEAT_YAFFS_SYNC and MOT_FEAT_FAT_SYNC 
 # 09/30/2007  Motorola          Added MOT_FEAT_FIQ_IN_C
 # 10/2007      Motorola        Added MOT_FEAT_FIQ_IN_C
+# 10/24/2007  Motorola          Add MOT_FEAT_MTD_SHA
 # 11/2007      Motorola        Add BT LED debug option processing
 # 11/27/2007  Motorola          Added MOT_FEAT_MSS_CMCC
 # 11/2007      Motorola        Added MOT_FEAT_MSS_CMCC
 # 12/03/2007  Motorola          Added MOT_FEAT_ENABLE_WD_IN_DSM
 # 12/07/2007  Motorola          Added DEBUG_GNPO
+# 12/17/2007  Motorola		Added MOT_FEAT_LTT_LITE
 # 12/25/2007  Motorola          Added CONFIG_MOT_FEAT_MOVINAND
 # 01/2008      Motorola        Added MOT_FEAT_BT_WLAN_SINGLE_ANTENNA switch
 # 01/21/2008  Motorola          Added MOT_FEAT_ENABLE_JFFS2VFS_PATCH
@@ -46,6 +49,7 @@
 # 03/2008      Motorola        Added MOT_FEAT_LOG_SCHEDULE_EVENTS
 # 04/2008      Motorola        Added MOT_FEAT_GETTIMEOFFSET_2618
 # 04/2008      Motorola        Added MOT_FEAT_DISPLAY_EPSON
+# 04/15/2008  Motorola		Added MOT_FEAT_PANICNOCHG
 # 06/04/2008  Motorola		Added MOT_FEAT_ENHANCE_LOG
 # 06/24/2008  Motorola          Added MOT_FEAT_FLUSH_LOCKED_TLB 
 # 06/26/2008  Motorola		Added MOT_FEAT_COREDUMP_RECOVER
@@ -60,6 +64,13 @@
 # 10/15/2008  Motorola 		Added MOT_FAT_CHECKDIR
 #
 menu "Motorola Features"
+
+config MOT_FEAT_MTD_SHA
+	bool "Enable sha hash checking in kernel"
+	default n
+	help
+	 This setting enables sha hash checking in kernel. This is
+	 for boot speed improvement
 
 config MOT_FEAT_POWER_IC_API
         bool "Enables Power IC API hooks"
@@ -87,6 +98,14 @@ config MOT_FEAT_BRDREV
 	  Motorola supports a board revision feature that provides
 	  dynamic access to the board revision.  Code can dynamically
 	  be targeted to specific revisions of the board.
+
+config MOT_FEAT_BOOTUP_TIME_BREAKDOWN
+	bool "Boot up Time Break Down Feature"
+	default n
+	help
+	  This feature provides system boot up time break down via 
+	  /proc/bootup_time_breakdown. This is useful when doing performance 
+	  analysis.
 
 config MOT_FEAT_BOOTINFO
 	bool "Boot Information Feature"
@@ -501,6 +520,13 @@ config MOT_FEAT_PM_DEVICE_SUSPEND_DEBUG
         help
                 This flag controls Motorola specific changes for debugging
                 of the device suspend sequence for Power Management.
+
+config MOT_FEAT_PM_NO_POWER_READY
+        bool "No longer use the power_ready as handshake for Turbo mode" 
+        default n
+        help
+                This flag controls whether set PMICHE in PMCR to use Power_ready 
+                signal of PMIC as shake hands when transmitting to Turbo mode.
 
 config PROFILER
         bool "Profiler support"
@@ -1217,6 +1243,14 @@ config MOT_FEAT_INVERTED_SPI_DISPLAY
            connected via the CSPI2 interface. Enabling this option allows a user space 
            application to SPI send commands to invert the display when necessary.
 
+config MOT_FEAT_SPI_DM500
+        bool "Enable spi driver for dm500"
+        default n
+        help
+	   Certain Kassos hardware version have dm500 ISP connected via CSPI1 interface. Enabling this 
+	   option to allow app to download program from Argon host to DM500 chip and to transfer
+	   encoded/decoded frames between Argon and DM500. 
+
 config MOT_FEAT_SDMA_DEBUG
         bool "enable ioctl debuggins of sdma controller"
         default n
@@ -1303,6 +1337,21 @@ config MOT_FEAT_ENABLE_WD_IN_DSM
         help
            If this feature is enabled, watchdog will be enabled in DSM mode. A user space
            needs to wake up to kick up watchdog. 
+
+config MOT_FEAT_LTT_LITE
+	bool "Lite version of the Linux Trace Toolkit support"
+	depends on !LTT
+        default n
+        help
+	   provide a scaled-down version of LTT: logs only some of the events;
+	   logs them to a file rather than to relayfs; does not require a user-space
+	   daemon.
+
+config MOT_FEAT_PANICNOCHG
+	bool "Disable the battery charge when panic"
+	default n
+	help
+	   If this feature is enabled, the phone will stop charging when panic.
 
 config MOT_FEAT_ENABLE_JFFS2VFS_PATCH
         bool "Enable jffs2 inode sync with VFS patch"

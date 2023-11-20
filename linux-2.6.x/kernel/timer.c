@@ -18,11 +18,14 @@
  *                              Copyright (C) 2000, 2001, 2002  Ingo Molnar
  *              Designed by David S. Miller, Alexey Kuznetsov and Ingo Molnar
  *  
- *  Copyright (C) 2007 Motorola, Inc.
+ *  Copyright (C) 2007-2008 Motorola, Inc.
  *  
  *  Date	Author		Comment
  *  2007-11-07  Motorola	Add check_timer_func for timer function addr check.
  *  2007-11-22  Motorola	Correct logical issue in check_timer_func. 
+ *  2007-12-17  Motorola	Add support for CONFIG_MOT_FEAT_LTT_LITE
+ *  2008-01-07  Motorola	Move check_timer_func definition to ARM arch folder, 
+ *                              add __LINUX_ARM_ARCH__ when calling check_timer_func.
  */
 
 #include <linux/kernel_stat.h>
@@ -106,7 +109,9 @@ static void internal_add_timer(tvec_base_t *base, struct timer_list *timer)
 	unsigned long idx = expires - base->timer_jiffies;
 	struct list_head *vec;
 
+#ifdef __LINUX_ARM_ARCH__
 	check_timer_func(timer);
+#endif
 
 	if (idx < TVR_SIZE) {
 		int i = expires & TVR_MASK;
@@ -199,6 +204,9 @@ repeat:
 		ret = 1;
 	}
 	timer->expires = expires;
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+	ltt_lite_log_timer(timer, LTT_LITE_EVENT_ENTER);
+#endif
 	internal_add_timer(new_base, timer);
 
 	if (old_base && (new_base != old_base))
@@ -228,6 +236,9 @@ void add_timer_on(struct timer_list *timer, int cpu)
 	check_timer(timer);
 
 	spin_lock_irqsave(&base->lock, flags);
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+	ltt_lite_log_timer(timer, LTT_LITE_EVENT_ENTER);
+#endif
 	internal_add_timer(base, timer);
 	spin_unlock_irqrestore(&base->lock, flags);
 }
@@ -298,6 +309,9 @@ repeat:
 		spin_unlock_irqrestore(&base->lock, flags);
 		goto repeat;
 	}
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+	ltt_lite_log_timer(timer, LTT_LITE_EVENT_RETURN);
+#endif
 	list_del(&timer->entry);
 	/* Need to make sure that anybody who sees a NULL base also sees the list ops */
 	smp_wmb();
@@ -477,6 +491,9 @@ repeat:
 				u32 preempt_count = preempt_count();
 				fn(data);
 				if (preempt_count != preempt_count()) {
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+				ltt_lite_run_timer(LTT_LITE_RUN_TIMER, (unsigned long)fn, data);
+#endif
 					print_symbol("BUG: unbalanced timer-handler preempt count in %s!\n", (unsigned long) fn);
 					printk("entered with %08x, exited with %08x.\n", preempt_count, preempt_count());
 					preempt_count() = preempt_count;

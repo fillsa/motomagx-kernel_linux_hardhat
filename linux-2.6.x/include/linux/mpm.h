@@ -30,6 +30,7 @@
  * 02/06/2007  Motorola  Resolve race condition in DSM.
  * 04/04/2007  Motorola  Add test point definition for doze mode
  * 04/12/2007  Motorola  Check in idle for busy drivers/modules.
+ * 06/27/2007  Motorola  Add IOCTL to start,reset mpm statistic
  * 08/01/2007  Motorola  Add function declaration of mpm set awake state
  * 03/31/2008  Motorola  Upmerge in 6.3 Add function declaration of mpm_set_awake_state.
  * 10/25/2007  Motorola  Improved periodic job state collection for debug.
@@ -313,6 +314,9 @@ typedef unsigned long mpm_phoneattr_t;
  */
 #define MPM_STATS_IOC_GET_MPMSTATS       _IOR('B',  1, mpmstats_req_t)
 #define MPM_STATS_IOC_GET_MPMSTATS_SIZE  _IOR('B',  2, int)
+#define MPM_STATS_IOC_START_MPMSTATS  _IO('B',  3)
+#define MPM_STATS_IOC_STOP_MPMSTATS   _IO('B',  4)
+#define MPM_STATS_IOC_RESET_MPMSTATS  _IO('B',  5)
 
 #ifdef __KERNEL__
 

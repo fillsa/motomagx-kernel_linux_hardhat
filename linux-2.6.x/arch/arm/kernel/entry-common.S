@@ -2,11 +2,21 @@
  *  linux/arch/arm/kernel/entry-common.S
  *
  *  Copyright (C) 2000 Russell King
+ *  Copyright (C) 2007 Motorola, Inc. 
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 15-Feb-2007  Motorola        Initial Version
+ * 18-Dec-2007  Motorola        Add support for CONFIG_OABI_COMPAT
+ * 18-Dec-2007  Motorola        Add CONFIG_MOT_FEAT_LTT_LITE support
+ *
+ */
+
 #include <linux/config.h>
 
 #include <asm/thread_info.h>
@@ -30,8 +40,15 @@
  * stack.
  */
 ret_fast_syscall:
-#if (CONFIG_LTT)
-	mov     r7, r0                          @ save returned r0
+#if (CONFIG_LTT) || defined(CONFIG_MOT_FEAT_LTT_LITE)
+/*
+ * The syscall number is stored in r7.
+ * We add it as an additional parameter for LTT-LITE.
+ * The LTT function will ignore it.
+ */
+	mov     r1, r0                          @ save returned r0
+	mov	r0, r7
+	mov	r7, r1                        @ save returned r0
 	bl      trace_real_syscall_exit
 	mov     r0, r7
 #endif
@@ -174,12 +191,16 @@ ENTRY(vector_swi)
 #endif
         enable_irq ip
 
-#if (CONFIG_LTT)
+#if (CONFIG_LTT) || defined(CONFIG_MOT_FEAT_LTT_LITE)
 	/* zzz note that validity of scno is not yet checked.
 	 * zzz The visualizer checks it.
 	 */
 	add     r1, sp, #S_R0                   @ pointer to regs
+#if defined(CONFIG_OABI_COMPAT)
+	mov	r0, r10
+#else
 	mov     r0, scno                        @ syscall number
+#endif
 	bl      trace_real_syscall_entry
 	add     r1, sp, #S_R0                   @ pointer to regs
 	ldmia   r1, {r0 - r3}                   @ have to reload r0 - r3

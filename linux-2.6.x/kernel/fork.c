@@ -9,6 +9,7 @@
  *				APLogger suppor
  *
  * 02/2007      Motorola        Removed DRM MAC security support
+ * 12/2007	Motorola	Add support for CONFIG_MOT_FEAT_LTT_LITE
  *
  */
 
@@ -1046,6 +1047,13 @@ static task_t *copy_process(unsigned long clone_flags,
 		p->real_parent = current;
 	p->parent = p->real_parent;
 
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+	/*
+	 * Trace here to reduce probability of child process starting 
+	 * to trace before its creation was reported
+	 */
+	ltt_lite_ev_process(LTT_LITE_EV_PROCESS_FORK, p);
+#endif
 	if (clone_flags & CLONE_THREAD) {
 		spin_lock(&current->sighand->siglock);
 		/*

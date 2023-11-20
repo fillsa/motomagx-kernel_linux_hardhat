@@ -30,7 +30,12 @@
  * 23-Feb-2007  Motorola        Export DAI functions.
  * 13-Feb-2007  Motorola        New GPIO IRQ manipulators.
  * 23-Mar-2007  Motorola        Add GPIO_SIGNAL_ANT_MMC_EN.
+ * 24-May-2007  Motorola        Add GPIO_SIGNAL_LGT_CAP_RESET.
+ * 09-Jul-2007  Motorola        Added gpio_free_irq_dev work around.
  * 19-Jul-2007  Motorola        Add dev_id to free_irq.
+ * 21-Sep-2007  Motorola        Added GPIO_SIGNAL_USB_HS_REF_CLK_EN 
+ *                              and GPIO_SIGNAL_MORPH_TKC_RESET
+ * 25-Jan-2008  Motorola        Added gpio_usb_hs_ref_clk_en_set_data
  * 13-Aug-2008  Motorola        GP_AP_C8 toggle workaround for 300uA BT power issue
  * 07-Nov-2008  Motorola        Configure GPIO20 to function mode 
  *                              as PMICHE is disabled.
@@ -437,6 +442,42 @@ struct gpio_signal_description gpio_signal_mapping[MAX_GPIO_SIGNAL] = {
      * Array index: 76  GPIO_SIGNAL_ANT_MMC_EN
      */
     { GPIO_INVALID_PORT,   0 },
+
+    /*
+     * Array index: 77  GPIO_SIGNAL_LGT_CAP_RESET
+     */
+    { GPIO_INVALID_PORT,   0 },
+    
+    /*
+     * Array index: 78  GPIO_SIGNAL_DM500_WAKE_B
+     */
+    { GPIO_INVALID_PORT,   0 },
+
+    /*
+     * Array index: 79  GPIO_SIGNAL_DM500_RESET_B
+     */
+    { GPIO_INVALID_PORT,   0 },
+
+    /*
+     * Array index: 80  GPIO_SIGNAL_DM500_INT_B
+     */
+    { GPIO_INVALID_PORT,   0 },
+
+    /*
+     * Array index: 81  GPIO_SIGNAL_DM500_VCC_EN
+     */
+    { GPIO_INVALID_PORT,   0 },
+
+    /*
+     * Array index: 82  GPIO_SIGNAL_MORPH_TKC_RESET
+     */
+    { GPIO_INVALID_PORT,   0 },
+
+    /*
+     * Array index: 83  GPIO_SIGNAL_USB_HS_REF_CLK_EN
+     */
+    { GPIO_INVALID_PORT,   0 },
+
 };
 
 
@@ -459,15 +500,15 @@ static const int __initdata hwcfg_gpio_group_sig_count[HWCFG_GPIO_GROUP_COUNT] =
      0, /* MISC */
      4, /* Bluetooth */
      6, /* Camera */
-    12, /* Display */
+    16, /* Display */
      4, /* FM */
      2, /* GPS */
      5, /* GPU */
      6, /* UserInput */
-     8, /* USB */
+     9, /* USB */
      5, /* WLAN */
      5, /* SDHC */
-     6, /* TNLC */
+     7, /* TNLC */
      3, /* Power */
      2, /* Vibrator */
      2, /* WDOG */
@@ -498,7 +539,7 @@ static const enum gpio_signal __initdata camera_hwcfg_gpio_group[6] = {
 };
 
 
-static const enum gpio_signal __initdata display_hwcfg_gpio_group[12] = {
+static const enum gpio_signal __initdata display_hwcfg_gpio_group[16] = {
     GPIO_SIGNAL_CLI_BKL,                 /* 0x00 */
     GPIO_SIGNAL_CLI_RST_B,               /* 0x01 */
     GPIO_SIGNAL_DISP_RST_B,              /* 0x02 */
@@ -511,6 +552,10 @@ static const enum gpio_signal __initdata display_hwcfg_gpio_group[12] = {
     GPIO_SIGNAL_SER_EN,                  /* 0x09 */
     GPIO_SIGNAL_EL_EN,                   /* 0x0A */
     GPIO_SIGNAL_APP_CLK_EN_B,            /* 0x0B */
+    GPIO_SIGNAL_DM500_WAKE_B,            /* 0x0C */
+    GPIO_SIGNAL_DM500_RESET_B,           /* 0x0D */
+    GPIO_SIGNAL_DM500_INT_B,             /* 0x0E */
+    GPIO_SIGNAL_DM500_VCC_EN,            /* 0x0F */
 };
 
 
@@ -537,17 +582,18 @@ static const enum gpio_signal __initdata gpu_hwcfg_gpio_group[5] = {
 };
 
 
-static const enum gpio_signal __initdata userinput_hwcfg_gpio_group[6] = {
+static const enum gpio_signal __initdata userinput_hwcfg_gpio_group[7] = {
     GPIO_SIGNAL_CAP_RESET,               /* 0x00 */
     GPIO_SIGNAL_FLIP_OPEN,               /* 0x01 */
     GPIO_SIGNAL_FLIP_DETECT,             /* 0x02 */
     GPIO_SIGNAL_SLIDER_OPEN,             /* 0x03 */
     GPIO_SIGNAL_KEYS_LOCKED,             /* 0x04 */
     GPIO_SIGNAL_TOUCH_INTB,              /* 0x05 */
+    GPIO_SIGNAL_LGT_CAP_RESET,           /* 0x06 */
 };
 
 
-static const enum gpio_signal __initdata usb_hwcfg_gpio_group[8] = {
+static const enum gpio_signal __initdata usb_hwcfg_gpio_group[9] = {
     GPIO_SIGNAL_USB_HS_DMA_REQ,          /* 0x00 */
     GPIO_SIGNAL_USB_HS_FLAGC,            /* 0x01 */
     GPIO_SIGNAL_USB_HS_INT,              /* 0x02 */
@@ -556,6 +602,7 @@ static const enum gpio_signal __initdata usb_hwcfg_gpio_group[8] = {
     GPIO_SIGNAL_USB_HS_WAKEUP,           /* 0x05 */
     GPIO_SIGNAL_USB_XCVR_EN,             /* 0x06 */
     GPIO_SIGNAL_ANT_MMC_EN,              /* 0x07 */
+    GPIO_SIGNAL_USB_HS_REF_CLK_EN,       /* 0x08 */
 };
 
 
@@ -577,13 +624,14 @@ static const enum gpio_signal __initdata sdhc_hwcfg_gpio_group[5] = {
 };
 
 
-static const enum gpio_signal __initdata tnlc_hwcfg_gpio_group[6] = {
+static const enum gpio_signal __initdata tnlc_hwcfg_gpio_group[7] = {
     GPIO_SIGNAL_TNLC_KCHG,               /* 0x00 */
     GPIO_SIGNAL_TNLC_KCHG_INT,           /* 0x01 */
     GPIO_SIGNAL_TNLC_RCHG,               /* 0x02 */
     GPIO_SIGNAL_TNLC_RESET,              /* 0x03 */
     GPIO_SIGNAL_FSS_HYST,                /* 0x04 */
     GPIO_SIGNAL_UI_IC_DBG,               /* 0x05 */
+    GPIO_SIGNAL_MORPH_TKC_RESET,         /* 0x06 */
 };
 
 
@@ -1427,6 +1475,7 @@ EXPORT_SYMBOL(sdhc_find_card);
 EXPORT_SYMBOL(gpio_usb_hs_reset_set_data);
 EXPORT_SYMBOL(gpio_usb_hs_wakeup_set_data);
 EXPORT_SYMBOL(gpio_usb_hs_switch_set_data);
+EXPORT_SYMBOL(gpio_usb_hs_ref_clk_en_set_data);
 EXPORT_SYMBOL(gpio_usb_hs_flagc_request_irq);
 EXPORT_SYMBOL(gpio_usb_hs_flagc_free_irq);
 EXPORT_SYMBOL(gpio_usb_hs_flagc_clear_int);

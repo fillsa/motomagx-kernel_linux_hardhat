@@ -10,3 +10,7 @@ spimod-objs += mc13783_spi_inter.o
 endif
 
 obj-$(CONFIG_MOT_FEAT_INVERTED_SPI_DISPLAY) += display_spi_inter.o
+
+ifeq ($(CONFIG_MOT_FEAT_SPI_DM500),y)
+obj-y += dm500.o
+endif

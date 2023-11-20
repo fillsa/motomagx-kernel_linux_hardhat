@@ -12,6 +12,7 @@
  * 02/2007  Motorola   Incorporated patch from 2.6.13-rc1 to move
  *                     sigreturn code to exception vector page
  * 02/2007  Motorola   Moved sys_restart to exception vector page
+ * 12/2007  Motorola   Add CONFIG_MOT_FEAT_LTT_LITE support
  *
  */
 #include <linux/config.h>
@@ -20,6 +21,7 @@
 #include <linux/ptrace.h>
 #include <linux/personality.h>
 #include <linux/suspend.h>
+#include <linux/ltt-events.h>
 
 #include <asm/cacheflush.h>
 #include <asm/ucontext.h>
@@ -757,6 +759,10 @@ static int do_signal(sigset_t *oldset, struct pt_regs *regs, int syscall)
 
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 	if (signr > 0) {
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+		ltt_lite_ev_handle_sig((unsigned short)current->pid, (unsigned short)signr,
+			(unsigned long)ka.sa.sa_handler);
+#endif
 		handle_signal(signr, &ka, &info, oldset, regs, syscall);
 		if (current->ptrace & PT_SINGLESTEP)
 			ptrace_set_bpt(current);

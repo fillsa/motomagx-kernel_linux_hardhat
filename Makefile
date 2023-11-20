@@ -56,8 +56,11 @@
 # 28-Jun-2007  Motorola        Removed some SiERRA variables
 # 03-Aug-2007  Motorola	       Enable ptrace
 # 04-Sep-2007  Motorola        Export ssi and dam header files
+# 24-Oct-2007  Motorola        Add support for FEAT_MTD_SHA 
 # 14-Nov-2007  Motorola        Export mpm.h for the previous incorrect merge.
 # 23-Nov-2007  Motorola        Add BT LED debug option processing
+# 04-Dec-2007  Motorola        Remove WLAN driver files.
+# 15-Feb-2008  Motorola        Make if(n)eq compliant for both make and clearmake
 # 30-Jun-2008  Motorola        Export inotify.h
 # 29-Jan-2008  Motorola        Added header file morphing_mode.h to API_INCS
 # 23-Apr-2008  Motorola        Add FEAT_EPSON_LTPS_DISPLAY check
@@ -485,6 +488,14 @@ ifneq ($(FEAT_32_BIT_DISPLAY),0)
     ${LJAPDEFCONFIGSRC}/feature/display_32bit.config
 endif
 
+# Enable MTD SHA functionality
+ifneq ($(FEAT_MTD_SHA),0)
+    PRODUCT_SPECIFIC_DEFCONFIGS += \
+	${LJAPDEFCONFIGSRC}/feature/mtd_sha.config \
+	${LJAPDEFCONFIGSRC}/feature/mtd_sha.${PRODUCT_FAMILY}_config \
+	${LJAPDEFCONFIGSRC}/feature/mtd_sha.${PRODUCT}_config
+endif
+
 # filter out any non-existent files
 PRODUCT_SPECIFIC_DEFCONFIGS := \
     $(strip $(foreach FILE, $(PRODUCT_SPECIFIC_DEFCONFIGS), \
@@ -577,6 +588,15 @@ ifneq ($(FEAT_VIRTUAL_KEYMAP),0)
 else
 	@echo "" > $(LINUXBUILD)/drivers/sierraOmegaWheelKconfig
 endif
+
+else
+# rules for PRODUCT_CONF=x86
+
+.PHONY: api_build impl
+
+api_build: $(PROPFILES)
+
+impl:
 
 endif
 

@@ -37,6 +37,7 @@
 #include <linux/time.h>
 
 
+/* Following enum values has to be in synch with values in power_ic.h file */
 typedef enum
 {
     KERNEL_BACKUP_MEMORY_ID_FLASH_MODE,

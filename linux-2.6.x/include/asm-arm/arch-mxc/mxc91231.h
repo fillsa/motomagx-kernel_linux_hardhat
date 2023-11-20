@@ -25,6 +25,7 @@
  * 01/2007  Motorola  Added FIQ_START for watchdog debug support.
  * 04/2007  Motorola  Added the definition for 32KHz clock source.
  * 10/2007  Motorola  FIQ related added.
+ * 01/2008  Motorola  Added Antioch support
  * 03/2008  Motorola  GPIO_BP_A_PORT added.
  * 07/2008  Motorola  Removed GPIO_BP_A_PORT.
  */
@@ -263,6 +264,12 @@
 #define     CS4_SIZE                SZ_16M
 #endif /* defined(CONFIG_MACH_MXC27530EVB) */
 
+#ifdef CONFIG_MOT_FEAT_ANTIOCH
+#define     CS5_BASE_ADDR           0xB6000000
+#define     CS5_BASE_ADDR_VIRT      0xEC000000
+#define     CS5_SIZE                SZ_16M
+#endif
+
 /*!
  * This macro defines the physical to virtual address mapping for all the
  * peripheral modules. It is used by passing in the physical address as x
@@ -293,6 +300,18 @@
         ((x >= ROMP_BASE_ADDR) && (x < (ROMP_BASE_ADDR + ROMP_SIZE))) ? ROMP_IO_ADDRESS(x):\
         ((x >= AVIC_BASE_ADDR) && (x < (AVIC_BASE_ADDR + AVIC_SIZE))) ? AVIC_IO_ADDRESS(x):\
         ((x >= CS4_BASE_ADDR) && (x < (CS4_BASE_ADDR + CS4_SIZE))) ? CS4_IO_ADDRESS(x):\
+        ((x >= X_MEMC_BASE_ADDR) && (x < (X_MEMC_BASE_ADDR + X_MEMC_SIZE))) ? X_MEMC_IO_ADDRESS(x):\
+        0xDEADBEEF)
+#elif defined(CONFIG_MOT_FEAT_ANTIOCH)
+#define IO_ADDRESS(x)   \
+        (((x >= L2CC_BASE_ADDR) && (x < (L2CC_BASE_ADDR + L2CC_SIZE))) ? L2CC_IO_ADDRESS(x):\
+        ((x >= AIPS1_BASE_ADDR) && (x < (AIPS1_BASE_ADDR + AIPS1_SIZE))) ? AIPS1_IO_ADDRESS(x):\
+        ((x >= SPBA0_BASE_ADDR) && (x < (SPBA0_BASE_ADDR + SPBA0_SIZE))) ? SPBA0_IO_ADDRESS(x):\
+        ((x >= SPBA1_BASE_ADDR) && (x < (SPBA1_BASE_ADDR + SPBA1_SIZE))) ? SPBA1_IO_ADDRESS(x):\
+        ((x >= AIPS2_BASE_ADDR) && (x < (AIPS2_BASE_ADDR + AIPS2_SIZE))) ? AIPS2_IO_ADDRESS(x):\
+        ((x >= ROMP_BASE_ADDR) && (x < (ROMP_BASE_ADDR + ROMP_SIZE))) ? ROMP_IO_ADDRESS(x):\
+        ((x >= AVIC_BASE_ADDR) && (x < (AVIC_BASE_ADDR + AVIC_SIZE))) ? AVIC_IO_ADDRESS(x):\
+        ((x >= CS5_BASE_ADDR) && (x < (CS5_BASE_ADDR + CS5_SIZE))) ? CS5_IO_ADDRESS(x):\
         ((x >= X_MEMC_BASE_ADDR) && (x < (X_MEMC_BASE_ADDR + X_MEMC_SIZE))) ? X_MEMC_IO_ADDRESS(x):\
         0xDEADBEEF)
 #else
@@ -332,6 +351,11 @@
 
 #define AVIC_IO_ADDRESS(x)  \
         (((x) - AVIC_BASE_ADDR) + AVIC_BASE_ADDR_VIRT)
+
+#ifdef CONFIG_MOT_FEAT_ANTIOCH
+#define CS5_IO_ADDRESS(x)   \
+        (((x) - CS5_BASE_ADDR) + CS5_BASE_ADDR_VIRT)
+#endif
 
 #if defined(CONFIG_MACH_MXC27530EVB) || defined(CONFIG_MACH_SCMA11REF)
 #define CS4_IO_ADDRESS(x)  \
@@ -489,6 +513,27 @@
 #define CSCRU                   0x00
 #define CSCRL                   0x04
 #define CSCRA                   0x08
+
+#ifdef CONFIG_MOT_FEAT_ANTIOCH
+#define WEIM_CTRL_CS5       (WEIM_BASE_ADDR + 0x50)
+#define WEIM_CONFIG_REG     (WEIM_BASE_ADDR + 0x60)
+
+/* Defines for CSCRU */
+#define WEIM_EDC_SHIFT      0
+#define WEIM_WSC_SHIFT      8
+
+
+/* Defines for CSCRL */
+#define WEIM_CSEN_SHIFT     0
+#define WEIM_DSZ_SHIFT      8
+#define WEIM_EBWN_SHIFT     16
+#define WEIM_EBWA_SHIFT     20
+
+/* Defines for CSCRA */
+#define WEIM_DWW_SHIFT      6
+#define WEIM_EBRN_SHIFT     24
+#define WEIM_EBRA_SHIFT     28
+#endif
 
 #define PROD_SIGNATURE          0x8	/* For MXC91231 */
 #define CHIP_REV_1_0            0x10

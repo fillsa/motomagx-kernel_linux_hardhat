@@ -30,6 +30,7 @@
  * 09/05/2007   Motorola  Gate off I2C clock at boot
  * 10/12/2007   Motorola  Gate off sahara clock at boot
  * 10/17/2007   Motorola  Change clock initialization
+ * 10/24/2007	Motorola  Keep CSPI clock on at boot
  * 10/31/2007   Motorola  Enable SDHC clock
  */
 
@@ -132,7 +133,7 @@ static int __init post_cpu_init(void)
         /* Initialize clocks that drivers aren't handling yet */
         /* MCGR0 */
         mxc_clks_disable(I2C_CLK);
-        mxc_clks_disable(CSPI1_CLK);
+//        mxc_clks_disable(CSPI1_CLK); // * 10/24/2007	Motorola  Keep CSPI clock on at boot
         mxc_clks_enable(FIRI_BAUD);
         mxc_clks_disable(EPIT2_CLK);
         mxc_clks_enable(EDIO_CLK);
@@ -147,7 +148,7 @@ static int __init post_cpu_init(void)
         mxc_clks_enable(SIM2_CLK);
         mxc_clks_enable(GEM_CLK);
         mxc_clks_enable(USB_CLK);
-        mxc_clks_disable(CSPI2_CLK);
+//        mxc_clks_disable(CSPI2_CLK); // * 10/24/2007	Motorola  Keep CSPI clock on at boot
         mxc_clks_enable(SDHC2_CLK);
         mxc_clks_enable(SDHC1_CLK);
         mxc_clks_disable(SSI2_BAUD);

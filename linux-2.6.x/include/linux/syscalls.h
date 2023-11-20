@@ -3,9 +3,16 @@
  *
  * Copyright (c) 2004 Randy Dunlap
  * Copyright (c) 2004 Open Source Development Labs
+ * Copyright (C) 2008 Motorola, Inc.
  *
  * This file is released under the GPLv2.
  * See the file COPYING for more details.
+ * 
+ * Revision History:
+ *                   Modification
+ * Author            Date          Description of Changes
+ * ----------------  ----------    --------------------------
+ * Motorola          01/09/2008    Add support for LTT-lite syscall
  */
 
 #ifndef _LINUX_SYSCALLS_H
@@ -536,4 +543,7 @@ asmlinkage long compat_sys_get_mempolicy(int __user *policy,
 #endif /* COMPAT */
 #endif /* NUMA */
 
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+asmlinkage long sys_lttlite(unsigned int event_id);
+#endif
 #endif

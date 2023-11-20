@@ -2,6 +2,10 @@
  *	linux/kernel/softirq.c
  *
  *	Copyright (C) 1992 Linus Torvalds
+ *	Copyright (C) 2007 Motorola, Inc.
+ *
+ *  Date	Author		Comment
+ *  12/17/2007  Motorola	Add support for CONFIG_MOT_FEAT_LTT_LITE
  *
  * Rewritten. Old one was good in 2.2, but in 2.3 it was immoral. --ANK (990903)
  */
@@ -100,6 +104,10 @@ restart:
 				u32 preempt_count = preempt_count();
 				ltt_ev_soft_irq(LTT_EV_SOFT_IRQ_SOFT_IRQ, (h - softirq_vec));
 				h->action(h);
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+				ltt_lite_log_softirq(LTT_LITE_EV_SOFT_IRQ,
+					LTT_LITE_EVENT_RETURN, (h - softirq_vec));
+#endif
 				if (preempt_count != preempt_count()) {
 					print_symbol("softirq preempt bug: exited %s with wrong preemption count!\n", (unsigned long) h->action);
 					printk("entered with %08x, exited with %08x.\n", preempt_count, preempt_count());
@@ -324,6 +332,10 @@ static void tasklet_action(struct softirq_action *a)
 					BUG();
 				ltt_ev_soft_irq(LTT_EV_SOFT_IRQ_TASKLET_ACTION, (unsigned long) (t->func));
 				t->func(t->data);
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+				ltt_lite_log_softirq(LTT_LITE_EV_TASKLET,
+					LTT_LITE_EVENT_RETURN, (unsigned long) (t->func));
+#endif
 				tasklet_unlock(t);
 				continue;
 			}
@@ -358,6 +370,10 @@ static void tasklet_hi_action(struct softirq_action *a)
 					BUG();
 				ltt_ev_soft_irq(LTT_EV_SOFT_IRQ_TASKLET_HI_ACTION, (unsigned long) (t->func));
 				t->func(t->data);
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+				ltt_lite_log_softirq(LTT_LITE_EV_TASKLET_HI,
+					LTT_LITE_EVENT_RETURN, (unsigned long) (t->func));
+#endif
 				tasklet_unlock(t);
 				continue;
 			}

@@ -21,6 +21,9 @@
  * 
  * 1 NOR Flash with 2 partitions, 1 NAND with one
  * edb7312-nor:256k(ARMboot)ro,-(root);edb7312-nand:-(home)
+ *
+ * Changelog:
+ * 17 September 2007  Motorola  Added parsing of rosec for MTD_SHA feature
  */
 
 #include <linux/kernel.h>
@@ -141,6 +144,20 @@ static struct mtd_partition * newpart(char *s,
 		mask_flags |= MTD_WRITEABLE;
 		s += 2;
         }
+#ifdef CONFIG_MOT_FEAT_MTD_SHA
+	/* Since mask_flags defines what functionality is disabled. Disable
+	 * MTD SHA feature by default. Only enable if we find the option in the kernel
+	 * command line
+	 */
+	mask_flags |= MTD_SHA_ENABLED;
+	/* Check for secure flag */
+	if (strncmp(s,"sec", 3) == 0)
+	{
+		/* Mask out the flag so that the feature is enabled */
+		mask_flags &= ~MTD_SHA_ENABLED;
+		s += 3;
+	}
+#endif /* ifdef CONFIG_MOT_FEAT_MTD_SHA */
 
 	/* test if more partitions are following */
 	if (*s == ',')

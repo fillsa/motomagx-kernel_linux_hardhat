@@ -1,7 +1,6 @@
 /*
  *  linux/arch/arm/kernel/time.c
  *
- *  Copyright (C) 2007 Motorola, Inc.
  *  Copyright (C) 1991, 1992, 1995  Linus Torvalds
  *  Modifications for ARM (C) 1994-2001 Russell King
  *
@@ -16,10 +15,15 @@
  *              fixed set_rtc_mmss, fixed time.year for >= 2000, new mktime
  *  1998-12-20  Updated NTP code according to technical memorandum Jan '96
  *              "A Kernel Model for Precision Timekeeping" by Dave Mills
+ *  Copyright (C) 2007 Motorola, Inc.
+ *  Copyright (C) 2008 Motorola, Inc.
+ *
+ *  Date        Author          Comment
  *  2007-10-18  Motorola
  *              Add a hook to re-align rtc_fuzz requests to xtime.
  *  2007-11-15  Motorola
  *              Upmrege from 6.1 ( Add a hook to re-align rtc_fuzz requests to xtime). 
+ *  2008-01-08  Motorola        Add check_timer_func for timer function addr check.
 */
 #include <linux/config.h>
 #include <linux/module.h>
@@ -439,3 +443,11 @@ void __init time_init(void)
 	system_timer->init();
 }
 
+extern void _text, _etext;
+
+inline void check_timer_func(struct timer_list *timer)
+{
+	if (!((TASK_SIZE < (unsigned long)timer->function < PAGE_OFFSET - 1) || ((&_text) < timer->function < (&_etext))))
+		BUG();
+}
+EXPORT_SYMBOL(check_timer_func);

@@ -29,6 +29,7 @@
  * 01/17/2008   Motorola  Changed the watchdog kick off time to 1s.
  * 02/29/2008   Motorola  Changed wd1 timeout to 32 seconds.
  * 03/11/2008   Motorola  Set WDOG2 time out to (WDOG1_TIMEOUT - 2000)       
+ * 03/19/2008	Motorola  Fix one macro definition issue
  */
 
 #include <asm/hardware.h>
@@ -149,6 +150,8 @@
 #endif
 
 #if defined(CONFIG_MOT_FEAT_WDOG_CLEANUP) || defined (CONFIG_MOT_FEAT_DEBUG_WDOG)
+//#ifdef CONFIG_MACH_ELBA
+//#define WDOG1_TIMEOUT           10000   /* For I2C ESD recovery */
 #define WDOG1_TIMEOUT           32000	/* WDOG1 timeout in ms */
 #else
 #if 0				/* not enabled the two wdogs by default */
@@ -166,7 +169,7 @@
 #if (WDOG1_TIMEOUT < 1000)
 #error WDOG1_TIMEOUT must be greater than 1000!
 #endif
-#define WDOG2_TIMEOUT           (WDOG1_TIMEOUT - 2000)	/* WDOG2 timeout in ms */
+#define WDOG2_TIMEOUT           (WDOG1_TIMEOUT / 2)	/* WDOG2 timeout in ms */
 #if ((WDOG1_TIMEOUT/1000) < 20)
 #define WDOG_SERVICE_PERIOD     (WDOG1_TIMEOUT / 2)    /* time interval in ms to service WDOGs */
 #else

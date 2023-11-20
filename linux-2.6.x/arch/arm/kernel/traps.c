@@ -26,6 +26,7 @@
  * 02/19/2007   Motorola  Add panic PC output
  * 03/09/2007   Motorola  Fixed panic PC output
  * 12/03/2007   Motorola  Added DBG code
+ * 12/17/2007   Motorola  Add CONFIG_MOT_FEAT_LTT_LITE support
  * 01/11/2008   Motorola  Move mem print to panic()
  * 03/05/2008   Motorola  Added more useful information for APR.
  */
@@ -248,6 +249,27 @@ void show_stack(struct task_struct *tsk, unsigned long *sp)
 }
 
 DEFINE_RAW_SPINLOCK(die_lock);
+
+
+
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+asmlinkage void trace_real_syscall_entry(int scno)
+{
+	/* mark the ARM private syscalls */
+	if ((scno & 0x00ff0000) == __ARM_NR_BASE)
+		scno |= 0x00008000;
+	ltt_lite_log_syscall(LTT_LITE_EVENT_ENTER, scno);
+}
+
+asmlinkage void trace_real_syscall_exit(int scno)
+{
+	/* mark the ARM private syscalls */
+	if ((scno & 0x00ff0000) == __ARM_NR_BASE)
+		scno |= 0x00008000;
+	ltt_lite_log_syscall(LTT_LITE_EVENT_RETURN, scno);
+}
+
+#endif /* CONFIG_MOT_FEAT_LTT_LITE */
 
 #if (CONFIG_LTT)
 asmlinkage void trace_real_syscall_entry(int scno,struct pt_regs * regs)

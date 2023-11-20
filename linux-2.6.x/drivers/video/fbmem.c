@@ -879,10 +879,14 @@ fb_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 					   FB_EVENT_SET_CONSOLE_MAP,
 					   &event);
 	case FBIOBLANK:
+#ifndef CONFIG_MOT_FEAT_GPIO_API_GPU
 		acquire_console_sem();
 		i = fb_blank(info, arg);
 		release_console_sem();
 		return i;
+#else
+                return -EINVAL;
+#endif		
 #if defined(CONFIG_MOT_FEAT_FB_PANIC_TEXT)
 	case FBIOPANICTEXT:
 	{

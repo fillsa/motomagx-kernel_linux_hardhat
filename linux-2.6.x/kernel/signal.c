@@ -2,12 +2,16 @@
  *  linux/kernel/signal.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *  Copyright (C) 2007  Motorola, Inc.
  *
  *  1997-11-02  Modified for POSIX.1b signals by Richard Henderson
  *
  *  2003-06-02  Jim Houston - Concurrent Computer Corp.
  *		Changes to use preallocated sigqueue structures
  *		to allow signals to be sent reliably.
+ *
+ *  Date	Author		Comments
+ *  2007-12-17  Motorola	Add CONFIG_MOT_FEAT_LTT_LITE support
  */
 
 #include <linux/config.h>
@@ -759,6 +763,10 @@ static int send_signal(int sig, struct siginfo *info, struct task_struct *t,
 	struct sigqueue * q = NULL;
 	int ret = 0;
 
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+	ltt_lite_ev_sig(((unsigned long)info > 2) ? ((unsigned short)current->pid)
+		: 0, (unsigned short)t->pid, (unsigned short)sig);
+#endif
 	/*
 	 * fast-pathed signals for kernel-internal things like SIGSTOP
 	 * or SIGKILL.

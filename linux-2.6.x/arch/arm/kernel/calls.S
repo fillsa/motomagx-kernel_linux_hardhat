@@ -2,10 +2,16 @@
  *  linux/arch/arm/kernel/calls.S
  *
  *  Copyright (C) 1995-2005 Russell King
+ *  Copyright (C) 2008 Motorola Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ *-------------------------------- REVISIONS ----------------------------------
+ * Date       Author               Comments
+ * ---------  -------------------  ---------------------------------------------
+ * 09/01/2008   Motorola Inc.        Add support for LTT-Lite syscall
  */
 
 100:
@@ -331,6 +337,11 @@
 		.long	sys_mbind
 /* 320 */	.long	sys_get_mempolicy
 		.long	sys_set_mempolicy
+#ifdef CONFIG_MOT_FEAT_LTT_LITE
+		.long   sys_lttlite
+#else
+		.long   sys_ni_syscall
+#endif
 
 		.rept	NR_syscalls - (. - 100b) / 4
 			.long	sys_ni_syscall

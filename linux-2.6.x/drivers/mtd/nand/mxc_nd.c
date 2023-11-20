@@ -53,6 +53,7 @@
  *                       Add busy flag for suspend rejection and mpm advise interface.
  * 02-29-2008  Motorola  Remove mpm_handle_ioi.
  *                       Add mpm advice mechanism for dynamic PM.
+* 04-02-2008  Motorola  Update clock setting for Hynix memory
  * 11-13-2008  Motorola  update NFC_CLK divisors to be 4 for Hynix part.
  */
 
@@ -1795,6 +1796,7 @@ static int mxcnd_suspend(struct device *dev, u32 state, u32 level)
 
 	switch (level) {
 	case SUSPEND_DISABLE:
+		/* Do nothing */
 		if (nfc_active == 1) {
 			DEBUG(MTD_DEBUG_LEVEL0, "%s, %d: NFC is busy. sending -EBUSY\n",
 			      __FUNCTION__, __LINE__);
