@@ -1,7 +1,7 @@
 /******************************************************************************
  *
  * Copyright 2005 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright 2007-2008 Motorola, Inc.
+ * Copyright (C) 2007-2008 Motorola, Inc.
  *
  *
  * The code contained herein is licensed under the GNU General Public
@@ -18,6 +18,8 @@
  * 01/24/2007    Motorola       Correct handling of Endian bit in command field.
  * 08/01/2008    Motorola       Add protection for channel 0 to fix dropped WiFi call issue.
  * 08/11/2008    Motorola       Protect variable ipai_SDMAintr with spin lock to fix MMC log stop issue.
+ * 09/16/2008    Motorola       Add protection for channel 0 to fix dropped WiFi call issue.
+ * 09/16/2008    Motorola       Protect variable ipai_SDMAintr with spin lock to fix MMC log stop issue.
  ******************************************************************************
  *
  * File: iapiHigh.c
@@ -56,7 +58,7 @@
 /* ****************************************************************************
  * External Reference Section (for compatibility with already developed code)
  *****************************************************************************/
-#ifdef CONFIG_MXC_IPC_V2 || defined(CONFIG_MOT_WFN487)
+#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487)
 static void iapi_read_ipcv2_callback(struct iapi_channelDescriptor* cd_p, void* data);
 #endif
 
@@ -64,7 +66,7 @@ static void iapi_read_ipcv2_callback(struct iapi_channelDescriptor* cd_p, void* 
 /* ****************************************************************************
  * Global Variable Section
  *****************************************************************************/
-#ifdef CONFIG_MXC_IPC_V2 || defined(CONFIG_MOT_WFN487)
+#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487)
 #define         MAX_CHANNEL         32
 
 static dataNodeDescriptor*          dnd_read_control_struct[MAX_CHANNEL];
@@ -1079,7 +1081,7 @@ iapi_Write (channelDescriptor * cd_p, void * buf, unsigned short nbyte)
   return writtenBytes;
 }
 
-#ifdef CONFIG_MOT_WFN487
+#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487)
 /* ***************************************************************************/
 /* This function is used to receive data from the SDMA.
  *

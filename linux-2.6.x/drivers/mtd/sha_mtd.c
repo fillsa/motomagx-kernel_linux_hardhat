@@ -31,7 +31,13 @@
  */
 
 #include <linux/types.h>
+#ifdef CONFIG_MOT_POWER_IC_ATLAS
+#include <linux/power_ic_kernel.h>
+#elif CONFIG_MOT_FEAT_POWER_IC_API
 #include <asm-arm/power-ic-api.h>
+#else
+#error POWER_IC_are you shure?
+#endif /* CONFIG_MOT_POWER_IC_ATLAS */
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/blktrans.h>
 #include <linux/mtd/mtd-sha.h>
@@ -74,21 +80,45 @@ void mtdblock_write_to_atlas_and_panic(struct mtd_info *mtd)
 {
 	printk("INFO :: mtdblock_write_to_atlas_and_panic called\n");
 	if(mtd == NULL) {
+#ifdef CONFIG_MOT_POWER_IC_ATLAS
+		power_ic_backup_memory_write(
+				POWER_IC_BACKUP_MEMORY_ID_ATLAS_BACKUP_ROOTFS_SEC_FAIL
+#elif CONFIG_MOT_FEAT_POWER_IC_API
 		kernel_power_ic_backup_memory_write(
-				KERNEL_BACKUP_MEMORY_ID_ROOTFS_SEC_FAIL, 1);
+				KERNEL_BACKUP_MEMORY_ID_ROOTFS_SEC_FAIL
+#endif
+									, 1);
 		panic("Panic: Generic mtdblock security module failure\n");
 	} else if((strncmp("root", mtd->name, 4)) == 0 ) {
+#ifdef CONFIG_MOT_POWER_IC_ATLAS
+		power_ic_backup_memory_write(
+				POWER_IC_BACKUP_MEMORY_ID_ATLAS_BACKUP_ROOTFS_SEC_FAIL
+#elif CONFIG_MOT_FEAT_POWER_IC_API
 		kernel_power_ic_backup_memory_write(
-				KERNEL_BACKUP_MEMORY_ID_ROOTFS_SEC_FAIL, 1);
+				KERNEL_BACKUP_MEMORY_ID_ROOTFS_SEC_FAIL
+#endif
+									, 1);
 		panic("Panic: Rootfs securiy verification failure\n");
 	} else if((strncmp("lang", mtd->name, 4)) == 0 ) {
+#ifdef CONFIG_MOT_POWER_IC_ATLAS
+		power_ic_backup_memory_write(
+				POWER_IC_BACKUP_MEMORY_ID_ATLAS_BACKUP_LANG_PACK_SEC_FAIL
+#elif CONFIG_MOT_FEAT_POWER_IC_API
 		kernel_power_ic_backup_memory_write(
-				KERNEL_BACKUP_MEMORY_ID_LANG_PACK_SEC_FAIL, 1);
+				KERNEL_BACKUP_MEMORY_ID_LANG_PACK_SEC_FAIL
+#endif
+									, 1);
 		panic("Panic: lang pack securiy verification failure\n");
 	}
 
+#ifdef CONFIG_MOT_POWER_IC_ATLAS
+		power_ic_backup_memory_write(
+				POWER_IC_BACKUP_MEMORY_ID_ATLAS_BACKUP_ROOTFS_SEC_FAIL
+#elif CONFIG_MOT_FEAT_POWER_IC_API
 	kernel_power_ic_backup_memory_write(
-			KERNEL_BACKUP_MEMORY_ID_ROOTFS_SEC_FAIL, 1);
+			KERNEL_BACKUP_MEMORY_ID_ROOTFS_SEC_FAIL
+#endif
+									, 1);
 	panic("Panic: Unknown mtdblock security module failure\n");
 }
 

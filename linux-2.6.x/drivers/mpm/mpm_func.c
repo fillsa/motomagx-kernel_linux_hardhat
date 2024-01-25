@@ -127,6 +127,7 @@ mpm_callback_t mpm_resume_from_sleep = mpm_dummy_function;
  */
 mpm_test_callback_t mpm_report_test_point = mpm_test_dummy_function;
 
+// * 10/25/2007    Motorola       Improved periodic job state collection for debug.
 /* This function is used to collect periodic job state */
 mpm_pjs_callback_t mpm_collect_pj_stat = mpm_pj_dummy_function;
 

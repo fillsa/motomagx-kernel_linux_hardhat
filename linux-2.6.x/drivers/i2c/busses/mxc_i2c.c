@@ -38,6 +38,9 @@
  *  03/2008  Motorola  Remove mpm and clock gating for elba.		
  *  03/2008  Motorola  Remove mpm advise calls due to ESD issues
  *  04/2008  Motorola  Add failure handler for arbitration lost issue. 
+ *  07/2008  Motorola  Replace KERN_DEBUG with KERN_ERR in printk so that we can 
+ *                     all I2C errors in AP log.
+ *  09/2008  Motorola  Add a new interface mxc_cam_i2c_transfer().
  */
 /*
  * Include Files
@@ -190,7 +193,7 @@ static void mxc_i2c_stop(mxc_i2c_device * dev)
 		udelay(1);
 	}
 	if (count == 0) {
-		printk(KERN_DEBUG "I2C device timeout waiting for stop\n");
+		printk(KERN_ERR "I2C device timeout waiting for stop\n");
 	}
 #endif
 }
@@ -254,7 +257,7 @@ static int mxc_i2c_wait_for_tc(mxc_i2c_device * dev, int trans_flag)
 	}
 	if (retry <= 0) {
 		/* Unable to send data */
-		printk(KERN_DEBUG "Data not transmitted\n");
+		printk(KERN_ERR "Data not transmitted\n");
 		return -EINTLOSTT;
 #ifdef CONFIG_MOT_WFN465
 	 } else if (arbitration_lost) {
@@ -263,7 +266,7 @@ static int mxc_i2c_wait_for_tc(mxc_i2c_device * dev, int trans_flag)
                 return -EARBLOSTT;
 	} else if (check_ack && !tx_success) {
 		/* An ACK was not received for transmitted byte */
-		printk(KERN_DEBUG "ACK not received \n");
+		printk(KERN_ERR "ACK not received \n");
 		return -EACKLOSTT;
 	}
 #else
@@ -274,7 +277,7 @@ static int mxc_i2c_wait_for_tc(mxc_i2c_device * dev, int trans_flag)
 	} else if (!(trans_flag & I2C_M_RD)) {
 		if (!tx_success) {
 			/* An ACK was not received for transmitted byte */
-			printk(KERN_DEBUG "ACK not received \n");
+			printk(KERN_ERR "ACK not received \n");
 			return -EACKLOSTT;
 		}
 	}
@@ -290,7 +293,7 @@ static int mxc_i2c_wait_for_tc(mxc_i2c_device * dev, int trans_flag)
  * @param   *msg  pointer to a message structure that contains the slave
  *                address
  */
-//static void mxc_i2c_start(mxc_i2c_device * dev, struct i2c_msg *msg)
+// static void mxc_i2c_start(mxc_i2c_device * dev, struct i2c_msg *msg)
 static int mxc_i2c_start(mxc_i2c_device * dev, struct i2c_msg *msg)
 {
 	volatile unsigned int cr, sr;
@@ -320,7 +323,7 @@ static int mxc_i2c_start(mxc_i2c_device * dev, struct i2c_msg *msg)
 		sr = readw(dev->membase + MXC_I2SR);
 	}
 	if (retry <= 0) {
-		printk(KERN_DEBUG "Could not grab Bus ownership,addr:0x%x\n",msg->addr);
+		printk(KERN_ERR "Could not grab Bus ownership,addr:0x%x\n",msg->addr);
 		if(arbitration_lost) {
 			arbitration_lost = false;
 			return -EARBLOSTT;
@@ -416,7 +419,7 @@ static int mxc_i2c_readbytes(mxc_i2c_device * dev, struct i2c_msg *msg,
 		if (rett = mxc_i2c_wait_for_tc(dev, msg->flags)) {
 #endif
 
-#ifdef MENSHE_71_14_1AR || (! defined(CONFIG_MACH_ELBA) && ! defined(CONFIG_MACH_PIANOSA) && ! defined(CONFIG_MACH_KEYWEST))
+#ifdef MENSHE_71_14_1AR || (! defined(CONFIG_MACH_ELBA) && ! defined(CONFIG_MACH_PIANOSA) && ! defined(CONFIG_MACH_KEYWEST)  && ! defined(CONFIG_MACH_PEARL) )
 			mxc_i2c_stop(dev);
 			return -1;
 #else
@@ -477,7 +480,7 @@ static int mxc_i2c_writebytes(mxc_i2c_device * dev, struct i2c_msg *msg,
 #else
 		if (rett = mxc_i2c_wait_for_tc(dev, msg->flags)) {
 #endif
-#ifdef MENSHE_71_14_1AR || (! defined(CONFIG_MACH_ELBA) && ! defined(CONFIG_MACH_PIANOSA) && ! defined(CONFIG_MACH_KEYWEST))
+#ifdef MENSHE_71_14_1AR || (! defined(CONFIG_MACH_ELBA) && ! defined(CONFIG_MACH_PIANOSA) && ! defined(CONFIG_MACH_KEYWEST) && ! defined(CONFIG_MACH_PEARL) )
 			mxc_i2c_stop(dev);
 			return -1;
 #else
@@ -656,7 +659,7 @@ static int mxc_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 #else
 		mxc_i2c_module_dis(dev);
 #endif
-		printk(KERN_DEBUG "Bus busy\n");
+		printk(KERN_ERR "Bus busy\n");
 		return -EBUSBUSYT;
 	}
 	//gpio_i2c_active(dev->adap.id);
@@ -825,7 +828,7 @@ static irqreturn_t mxc_i2c_handler(int irq, void *dev_id, struct pt_regs *regs)
 		/*In single master mode,arbitration lost is caused by one of i2c device malfunction or SCL and SDA are in wrong condition,need to wake up work queue,and return an error*/
 		transfer_done = true;
 		arbitration_lost = true;
-		printk(KERN_DEBUG "Bus Arbitration lost\n");
+		printk(KERN_ERR "Bus Arbitration lost\n");
                 wake_up_interruptible(&dev->wq);
 	} else {
 		/* Interrupt due byte transfer completion */
@@ -1138,6 +1141,65 @@ static void __exit mxc_i2c_exit(void)
 #endif
 	}
 }
+
+#if defined(CONFIG_MOT_FEAT_RAW_I2C_API)
+/*!
+ * This function is called by mxc_i2c_raw_xfer() which is only used camera driver.
+ * The camera driver might use higher I2c clock than other devices due to 
+ * performance reuqirement. It is called when an camera driver wishes to transfer 
+ * data to camera device.
+ *
+ * @param   adap   adapter structure for the MXC i2c device
+ * @param   msgs[] array of messages to be transferred to the device
+ * @param   num    number of messages to be transferred to the device
+ * @param   clk    I2C clock rate in kHz
+ *
+ * @return  The function returns the number of messages transferred,
+ *          \b -EREMOTEIO on I2C failure and a 0 if the num argument is
+ *          less than 0.
+ */
+int mxc_cam_i2c_transfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
+ 			int num, int clk)
+{
+	mxc_i2c_device *dev = (mxc_i2c_device *) (i2c_get_adapdata(adap));
+	int ret = 0;
+	unsigned int orig_clkdiv = 0x0c;
+
+	down(&adap->bus_lock);
+	if (clk) {
+		orig_clkdiv = dev->clkdiv;
+
+		switch (clk) {
+		case MXC_I2C_CLK_400K:
+			dev->clkdiv = 0x01;
+			break;
+		case MXC_I2C_CLK_300K:
+			dev->clkdiv = 0x27;
+			break;
+		case MXC_I2C_CLK_200K:
+			dev->clkdiv = 0x2A;
+			break;
+		case MXC_I2C_CLK_180K:
+			dev->clkdiv = 0x07;
+			break;
+		case MXC_I2C_CLK_90K:
+			dev->clkdiv = 0x0c;
+			break;
+		default:
+			dev->clkdiv = 0x0c;
+			break;
+		}
+	}
+
+	ret = mxc_i2c_xfer(adap, msgs, num);
+	if (clk) {
+		dev->clkdiv = orig_clkdiv;
+	}
+	up(&adap->bus_lock);
+
+	return ret;
+}
+#endif
 
 subsys_initcall(mxc_i2c_init);
 module_exit(mxc_i2c_exit);

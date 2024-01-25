@@ -31,6 +31,7 @@
  * DATE          AUTHOR         COMMMENT
  * ----          ------         --------
  * 08/01/2008    Motorola       Add protection for channel 0 to fix dropped WiFi call issue.
+ * 09/16/2008    Motorola       in LJ7.4 Add protection for channel 0 to fix dropped WiFi call issue.
  * 
  *
  *****************************************************************************/

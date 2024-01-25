@@ -11,6 +11,7 @@
  *
  * Date		Author		Comment
  * 05/2008	Motorola	Add error code for different i2c failure case. 
+ * 28/09/2008  Motorola          Added mxc_i2c_cam_write and mxc_i2c_cam_read API
  */
 
 
@@ -153,6 +154,46 @@ int mxc_i2c_raw_read(int bus_id, unsigned int addr, int len, char *buf);
  *          a negative number on failure
  */
 int mxc_i2c_raw_write(int bus_id, unsigned int addr, int len, char *buf);
+
+
+enum {
+    MXC_I2C_CLK_400K=400,
+    MXC_I2C_CLK_300K=300,
+    MXC_I2C_CLK_200K=200,
+    MXC_I2C_CLK_180K=180,
+    MXC_I2C_CLK_90K=90,
+};    
+/*!
+ * Function used to read the register of the i2c slave device with specified clock.
+ * This function is a kernel level API that can be called by camera misc device drivers.
+ *
+ * @param   bus_id       the MXC I2C bus that the slave device is connected to
+ *                       (0 based)
+ * @param   addr         slave address of the device we wish to read data from
+ * @param   len         number of bytes in the register address
+ * @param   *buf         data buffer 
+ * @param   clk          I2C clck rate
+ *
+ * @return  Function returns the number of messages transferred to/from the device or 
+ *          a negative number on failure
+ */
+int mxc_i2c_cam_read(int bus_id, unsigned int addr, int len, char *buf, int clk);
+
+/*!
+ * Function used to write to the register of the i2c slave device with specified clock. 
+ * This function is a kernel level API that can be called by camera misc device drivers.
+ *
+ * @param   bus_id       the MXC I2C bus that the slave device is connected to
+ *                       (0 based)
+ * @param   addr         slave address of the device we wish to write data to
+ * @param   len         number of bytes in the register address
+ * @param   *buf         data buffer 
+ * @param   clk          I2C clck rate
+ *
+ * @return  Function returns the number of messages transferred to/from the device or 
+ *          a negative number on failure
+ */
+int mxc_i2c_cam_write(int bus_id, unsigned int addr, int len, char *buf, int clk);
 #endif
 
 #endif				/* MXC_I2C_H */

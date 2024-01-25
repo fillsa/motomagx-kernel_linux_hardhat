@@ -10,7 +10,7 @@
  *	Additional technical information is available on
  *	http://www.linux-mtd.infradead.org/tech/nand.html
  *	
- *  Copyright (C) 2005-2007 Motorola, Inc.
+ *  Copyright (C) 2005-2008 Motorola, Inc.
  *  Copyright (C) 2000 Steven J. Hill (sjhill@realitydiluted.com)
  * 		  2002 Thomas Gleixner (tglx@linutronix.de)
  *
@@ -88,6 +88,8 @@
  * 06-15-2007   Motorola: update read disturb max value for threshold from 2^8 to 2^16.
  *
  * 08-23-2007   Motorola: remove WFN455
+ *
+ * 11-25-2008   Motorola: Track painc by nand_do_read_ecc
  *
  * Credits:
  *	David Woodhouse for adding multichip support  
@@ -1655,6 +1657,21 @@ int nand_do_read_ecc (struct mtd_info *mtd, loff_t from, size_t len,
 		}
 			
 		case NAND_ECC_SOFT:	/* Software ECC 3/256: Read in a page + oob data */
+			if (((unsigned long)data_poi) < (unsigned long)0xc0000000) {
+				unsigned long len = sizeof(struct nand_chip);
+				unsigned long *tmp = (unsigned long*)this;
+				int i=0, j=0;
+				printk("001nand_chip addr: 0x%0.8x, data_buf: 0x%0.8x, align: %d\n",
+					this, this->data_buf, aligned);
+				for(i=0;4*j+32*i<len;i++) {
+					for (j=0; j<8; j++)
+						printk("%0.8x  ", tmp[8*i+j]);
+					printk("\n");
+				}
+				if (flags & NAND_GET_DEVICE)
+					nand_release_device(mtd);
+				BUG();
+			}
 			this->read_buf(mtd, data_poi, end);
 			for (i = 0, datidx = 0; eccsteps; eccsteps--, i+=3, datidx += ecc) 
 				this->calculate_ecc(mtd, &data_poi[datidx], &ecc_calc[i]);

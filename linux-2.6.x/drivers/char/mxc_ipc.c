@@ -19,6 +19,7 @@
  * 01/05/2007    Motorola       Add datalog improvement
  * 01/16/2007    Motorola       No longer panic if BP doesn't respond to MU write
  * 01/25/2007    Motorola       Fix bug: mpm reads pointers when SDMA is closed
+ * 01/25/2007    Motorola       Pull in Freescale IPC driver updates
  * 02/13/2007    Motorola       Set pointers to NULL when closing mxc_ipc
  * 03/06/2007    Motorola       Apply FSL IPC changes for WFN487
  * 04/04/2007    Motorola       Check return values in
@@ -32,7 +33,7 @@
  * 02/15/2008    Motorola       Fixed SDMA and mu channel panic issue
  * 03/17/2008    Motorola       Fix panic issue when multi-open a MU channel
  * 02/21/2008    Motorola       Enlarge AP SDMA rx buffer
- * 01/25/2007    Motorola       Pull in Freescale IPC driver updates
+ * 05/28/2008    Motorola       Change DEBUG function printk to DEBUG macro DPRINTK
  */
 
 /*!
@@ -534,7 +535,7 @@ void mxc_sdma_debug_register_dump(struct sdma_debug_registers *sdma_regs, int ty
     sdma_regs->apr_data[9]=sdma_regs->sdma_context[29][0];  /* Channel 29 Context */
   }
 }
-#endif
+#endif // end CONFIG_MOT_FEAT_SDMA_DEBUG
 
 #if defined(CONFIG_MOT_FEAT_PM) || defined(CONFIG_MOT_FEAT_SDMA_DEBUG)
 static int mxc_ipc_ioctl(struct inode *inode, struct file *file,
@@ -564,7 +565,7 @@ static int mxc_ipc_ioctl(struct inode *inode, struct file *file,
   
   }
 }
-#endif
+#endif // end defined(CONFIG_MOT_FEAT_PM) || defined(CONFIG_MOT_FEAT_SDMA_DEBUG)
 
 /*!
  * Locks the virtual channel located on the index channel.
@@ -879,6 +880,7 @@ static void mu_write_tasklet_kernel(int chnum)
 #endif
 	}
 
+	/* Enable interrupts if there is data pending to be transmitted */
 	if ((error == 0) && (mu->bytes_written < priv->write_count)) {
 		mxc_mu_intenable(mu->index, TX);
 	} else {
@@ -1474,13 +1476,13 @@ static int mu_start_mcu_transfer(struct ipc_priv_data *priv,
  *
  * @return              Zero
  */
+// 04/04/2007    Motorola       Check return values in mu_start_mcu_transfer_kernel
 static int mu_start_mcu_transfer_kernel(struct mu_channel *mu)
 {
-#ifdef CONFIG_MOT_FEAT_PM
-	int retval;
-#endif
 	DPRINTK("writing bytes to DSP (Digital Signal Processor)\n");
 #ifdef CONFIG_MOT_FEAT_PM
+	int retval;
+
 	retval = mxc_mu_bind(mu->index, &mu_write_tasklet_kernel, TX);
 
         if(retval < 0) {
@@ -1558,7 +1560,7 @@ static void sdma_kernel_writecb(void *args)
 }
 
 //#if !defined(__KERNEL__) || defined(CONFIG_MOT_WFN487)
-#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487)
+#if defined(CONFIG_MXC_IPC_V2)
 /*!
  * This function is called by the SDMA's ISR whenever a MCU->DSP
  * transfer has finished. This callback is used whenever a
@@ -1584,7 +1586,7 @@ static void sdma_kernel_writecb_ipcv2(void *args)
 	tasklet_schedule(&sdma->write_tasklet);
 	pr_debug("Called SDMA write callback\n");
 }
-#endif
+#endif /* CONFIG_MXC_IPC_V2 */
 
 /*!
  * This function starts a MCU->DSP transfer requested by a kernel module.
@@ -1738,8 +1740,7 @@ static void sdma_kernel_readcb(void *args)
 	DPRINTK("Called SDMA read callback %d\n", priv->read_count);
 }
 
-//#if !defined(__KERNEL__) || defined(CONFIG_MOT_WFN487)
-#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487)
+#if defined(CONFIG_MXC_IPC_V2)
 /*!
  * This function is called by the SDMA ISR whenever a DSP->MCU
  * transfer has finished. This callback is used whenever a
@@ -2251,11 +2252,11 @@ HW_CTRL_IPC_CHANNEL_T *hw_ctrl_ipc_open(const HW_CTRL_IPC_OPEN_T * config)
 
 	v = &virtual_channels[channel_nb];
 	atomic_set(&v->state, CHANNEL_OPEN);
-#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487) //  11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
+#if defined(CONFIG_MXC_IPC_V2)  //  11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
          /*! set state to open for read-while-write IPcv2 functionality */
 	atomic_set(&v->read_state_ipcv2, CHANNEL_OPEN);
 	atomic_set(&v->write_state_ipcv2, CHANNEL_OPEN);
-#endif
+#endif /* CONFIG_MXC_IPC_V2 */
 
 	channel = &channel_handlers[channel_nb];
 
@@ -2313,10 +2314,10 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_close(HW_CTRL_IPC_CHANNEL_T * channel)
 	channel_nb = channel->channel_nb;
 	v = &virtual_channels[channel_nb];
 	if (atomic_read(&v->state) == CHANNEL_CLOSED
-#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487) //  11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
+#if defined(CONFIG_MXC_IPC_V2) //  11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
 	     || atomic_read(&v->read_state_ipcv2) == CHANNEL_CLOSED ||
 	    atomic_read(&v->write_state_ipcv2) == CHANNEL_CLOSED
-#endif
+#endif /* CONFIG_MXC_IPC_V2 */
 	) {
 		return HW_CTRL_IPC_STATUS_OK;
 	}
@@ -2347,10 +2348,10 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_close(HW_CTRL_IPC_CHANNEL_T * channel)
 	kfree(priv);
 	unlock_virtual_channel(channel_nb);
 	atomic_set(&v->state, CHANNEL_CLOSED);
-#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487) //  11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
+#if defined(CONFIG_MXC_IPC_V2) //  11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
         atomic_set(&v->read_state_ipcv2, CHANNEL_CLOSED);
 	atomic_set(&v->write_state_ipcv2, CHANNEL_CLOSED);
-#endif
+#endif /* CONFIG_MXC_IPC_V2 */
 
 	DPRINTK("Virtual channel %d closed\n", channel_nb);
 
@@ -2600,8 +2601,7 @@ HW_CTRL_IPC_STATUS_T hw_ctrl_ipc_write_ex(HW_CTRL_IPC_CHANNEL_T * channel,
 	return (status == 0) ? HW_CTRL_IPC_STATUS_OK : HW_CTRL_IPC_STATUS_ERROR;
 }
 
-//#if !defined(__KERNEL__) || defined(CONFIG_MOT_WFN487)
-#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487) //  11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
+#if defined(CONFIG_MXC_IPC_V2) //  11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
 /*!
  * Used to set various channel parameters
  *
@@ -3041,7 +3041,8 @@ static ssize_t mxc_ipc_write(struct file *file, const char *buf,
  *                 SDMA buffers
  * @param  priv    private data. Useful to synchronize and to keep track of
  *                 the transfer
- * @return returns the amount of data available in the read buffer
+ * @return returns 0 if no data available or a positive(amount) value when data is 
+ * available in the read buffer
  *
  * Note: this code is safe to call from interrupt context.  Calling from multiple
  * interruptible task contexts could lead to race conditions when the device is
@@ -3408,11 +3409,11 @@ EXPORT_SYMBOL(hw_ctrl_ipc_write_ex);
 #ifdef CONFIG_MOT_FEAT_PM
 EXPORT_SYMBOL(mxc_ipc_datalog_transfer_ongoing);
 #endif
-#if defined(CONFIG_MXC_IPC_V2) || defined(CONFIG_MOT_WFN487) //  11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
+#if defined(CONFIG_MXC_IPC_V2) //  11/28/2006   Motorola  Added FSL IPCv2 changes for WFN487
 EXPORT_SYMBOL(hw_ctrl_ipc_write_ex2);
 EXPORT_SYMBOL(hw_ctrl_ipc_read_ex2);
 EXPORT_SYMBOL(hw_ctrl_ipc_ioctl);
-#endif
+#endif /* CONFIG_MXC_IPC_V2 */
 #else /* if defined(CONFIG_MOT_WFN444) && defined(CONFIG_MOT_WFN487) */
 #error UNSUPPORTED IPC CONFIGURATION
 #endif /* if defined(CONFIG_MOT_WFN444) && defined(CONFIG_MOT_WFN487) */

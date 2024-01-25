@@ -13,7 +13,7 @@ config MACH_I30030EVB
 	  configurations for the board and its peripherals.
 
 config MACH_I30030ADS
-	bool "Support i.300-30 ADS platforms"
+	bool "Support i.300-30 ADS (Application Development System) platforms"
 	help
 	  Include support for i.300-30 ADS platform. This includes
           specific configurations for the board and its peripherals.
@@ -21,7 +21,7 @@ config MACH_I30030ADS
 endchoice
 
 choice
-	prompt "i.300-30 ADS Options"
+	prompt "i.300-30 ADS (Application Development System) Options"
 	default MACH_I30030EVB_VER52A
         depends on MACH_I30030ADS
 
@@ -53,15 +53,15 @@ config MACH_MXC30030EVB
 
 
 config MACH_MXC30030ADS
-	bool "Support MXC300-30 ADS platforms"
+	bool "Support MXC300-30 ADS (Application Development System) platforms"
 	help
-	  Include support for MXC300-30 ADS platform. This includes specific
+	  Include support for MXC300-30 ADS (Application Development System) platform. This includes specific
 	  configurations for the board and its peripherals.
 
 config MACH_ARGONLVPHONE
         bool "Support Motorola ArgonLV-based Phones"
         default n
-#in 7.1	depends on MOT_FEAT_POWER_IC_API
+#in 7.1-7.4	depends on MOT_FEAT_POWER_IC_API
         help
           Include support for Motorola products based on the ArgonLV SOC.
 

@@ -32,6 +32,8 @@
  * 03/2008  Motorola  remove calls to power_ic lighting
  * 03/2008  Motorola  Remove ipu interface call and gpio configuration
  * 04/2008  Motorola  Modified comments.
+ * 05/2008  Motorola  Undo the change performed at 03/2008.
+ * 09/2008  Motorola  Fix the logic for cleaing screen.
  */
 
 /*!
@@ -86,6 +88,7 @@
  * Macro to disable ipu interface call
  */
 ///////enabled in  MAGX_N_06.19.60I  #define MXCFB_MEDL_INITDISP
+#undef MXCFB_MEDL_INITDISP
 
 /*
  * Driver name
@@ -1751,7 +1754,7 @@ static int mxcfb_resume(struct device *dev, u32 level)
 	struct mxcfb_info *mxc_fbi_ovl =
 	    (struct mxcfb_info *)drv_data->fbi_ovl->par;
 #endif
-#if MAGX_N_06_19_60I
+#if defined(MAGX_N_06_19_60I) || defined(CONFIG_MACH_PEARL)
 	/* The suspend/resume in fb0 has issue with Kassos display, bybass them until LM/MDEL change released.*/
 	return 0;
 #endif

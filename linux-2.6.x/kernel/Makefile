@@ -44,7 +44,7 @@ obj-$(CONFIG_KPROBES) += kprobes.o
 obj-$(CONFIG_KGDB) += kgdb.o
 obj-$(CONFIG_SYSFS) += ksysfs.o
 obj-$(CONFIG_GENERIC_HARDIRQS) += irq/
-# For log the schedule events # For debug the GNPO Label with panic issue
+# For log the schedule events  for WD2 timeout issue # For debug the GNPO Label with panic issue
 obj-$(CONFIG_MOT_FEAT_LOG_SCHEDULE_EVENTS) += mem-log.o #old obj-$(CONFIG_DEBUG_GNPO) += mem-log.o
 
 ifneq ($(CONFIG_IA64),y)

@@ -28,6 +28,7 @@
  * ----          ------         --------
  *
  * 08/11/2008    Motorola       Protect variable ipai_SDMAintr with spin lock to fix MMC log stop issue.
+ * 09/16/2008    Motorola       in LJ7.4 Protect variable ipai_SDMAintr with spin lock to fix MMC log stop issue.
  * ***************************************************************************/
 
 #ifndef _iapiOS_h

@@ -16,6 +16,9 @@
  * 11-15-2007   Motorola    Upmerge from 6.1 (Added conditional sync dirt mark for loop device)
  * 12-20-2007   Motorola	Added simple auto  repair FAT
  * 01-25-2008   Motorola	Remove the FS changes about repair FAT	   
+ * 04-18-2008   Motorola	Upmerge from 6.3 to 7.4 (repairfat and fat sync)
+ * 07-04-2008	Motorola	Remove changes for "simple auto repair FAT" in LJ7.4
+ * 08-12-2008   Motorola        Add simple repair FAT
  */
 
 
@@ -28,6 +31,8 @@
 #ifdef CONFIG_MOT_FEAT_FAT_SYNC
 #include <linux/loop.h>
 #endif
+#include <asm-arm/atomic.h>
+#include <linux/proc_fs.h>
 
 
 
@@ -62,6 +67,15 @@ void fat_fs_panic(struct super_block *s, const char *fmt, ...)
 	vsnprintf (panic_msg, sizeof(panic_msg), fmt, args);
 	va_end (args);
 
+/*
+ * It is the Not nessary,  and it just want to make sure 
+ * all the data write to disk is right. In fact the other
+ * files whose fat chain has some releationship with the 
+ * chain of this inode is very small. 
+ * 
+ * M$ Windows do it as the following:
+ *	return -EIO for the wrong files, other files are no effect.
+ */
 	not_ro = !(s->s_flags & MS_RDONLY);
 	if (not_ro)
 		s->s_flags |= MS_RDONLY;
@@ -75,7 +89,8 @@ void fat_fs_panic(struct super_block *s, const char *fmt, ...)
 		printk(KERN_INFO "FAT: mxclay call back\n");
 		repairfat_callback(s);
 	}
-#if defined(MAGX_N_06_19_60I)
+//08-12-2008   Motorola        Add simple repair FAT
+#if defined(MAGX_N_06_19_60I) || defined(CONFIG_MACH_PEARL)
 	wakeup_repairfat(s);
 #endif
 }
@@ -386,6 +401,7 @@ next:
 
 #if defined(MAGX_N_06_19_60I)
 
+#define BDEVNAME_SIZE    32      /* Largest string for a blockdev identifier */
 static char device_name[BDEVNAME_SIZE];
 static volatile int panic_script_running=0;
 spinlock_t panic_script_lock=SPIN_LOCK_UNLOCKED;
@@ -433,7 +449,6 @@ static void call_repairfat(char *dev_name)
 	spin_unlock(&panic_script_lock);
 	kfree(envp);
 }
-
 static void wakeup_repairfat(struct super_block *sb)
 {
 	int part = 0;
@@ -451,5 +466,146 @@ static void wakeup_repairfat(struct super_block *sb)
 		call_repairfat(device_name);	
 		/*complete(&fatpanic_completion);*/
 	}
+
+//08-12-2008   Motorola        Add simple repair FAT
+#else //  #if defined(MAGX_N_06_19_60I)
+static atomic_t script_running = ATOMIC_INIT(-1);
+/* This variable is used to confirm that the repair script has been finished */
+static int fat_repairing = 0;
+
+static void wakeup_repairfat(struct super_block *sb)
+{
+        int ret, part = 0;
+	char device_name[BDEVNAME_SIZE];
+        struct block_device *panic_bdev = sb->s_bdev;
+	char *argv[3];
+	char *envp[] = { "HOME=/",
+			 "PATH=/sbin:/bin:/usr/sbin:/usr/bin",
+			 NULL };
+
+	/* avoid too many invoked */
+	if (!atomic_inc_and_test(&script_running)) {
+		atomic_dec(&script_running);
+		return;
+	}
+
+	/* the variable will be cleared in repair script by ioctl */
+	if(fat_repairing)
+		goto repair_back;
+
+        printk("%s: will repairfat \n", __FUNCTION__);
+	if(panic_bdev && panic_bdev->bd_disk) {
+		printk("wmnbmh:repairfat %s\n", panic_bdev->bd_disk->devfs_name);
+
+		if(!(strncmp("cyan", panic_bdev->bd_disk->devfs_name, 4))) {
+			part = MINOR(panic_bdev->bd_dev) - panic_bdev->bd_disk->first_minor;
+	                snprintf(device_name, BDEVNAME_SIZE, "/dev/%s/part%d",
+        	               	        panic_bdev->bd_disk->devfs_name, part);
+		}
+		else if(!(strncmp("loop", panic_bdev->bd_disk->devfs_name, 4))) {
+			snprintf(device_name, BDEVNAME_SIZE, "/dev/%s",
+	                       	        panic_bdev->bd_disk->devfs_name);
+		}
+		else {
+			printk("Couldn't repair this device %s\n", panic_bdev->bd_disk->devfs_name);
+			goto repair_back;
+		}
+                printk("wmnbmh:repairfat device= %s\n", device_name);
+
+		argv[0] = "/etc/repairfat.sh";
+		argv[1] = device_name;
+		argv[2] = NULL;
+
+		printk("mxclay: begin to call usermodehelper %s %s \n", argv[0], argv[1]);
+		fat_repairing = 1;
+        	ret = call_usermodehelper(argv[0], argv, envp, 0 );
+	        printk( "%s: call repairfat.sh returned %d \n", __FUNCTION__,  ret);
+        }
+
+repair_back:
+	atomic_dec(&script_running);
 }
-#endif
+
+static int repairfat_proc_read(struct file *file, char *buf, int count, int * pos)
+{
+        int len = 0;
+        int index;
+        char page[128];
+
+        len = 0;
+        index = (*pos)++;
+
+        switch(index) {
+        case 0:
+                len += sprintf ((char *) page + len, "repairfat \n");
+                break;
+        case 1:
+                len += sprintf ((char *) page + len, " 1 enable fat panic repair, 0 disable \n");
+        }
+
+        if ((len > 0) && copy_to_user (buf, (char *) page, len)) {
+                len = -EFAULT;
+        }
+        return len;
+}
+
+static int repairfat_proc_write (struct file *file, char *buf, int count, int * pos)
+{
+        char c;
+        printk("%s %c %c ",__FUNCTION__, buf[0],buf[1]);
+
+        c = buf[0];
+        switch(c) {
+        case '0':
+		fat_repairing = 1;
+                break;
+        case '1':
+		fat_repairing = 0;
+                break;
+        default:
+                printk("%s get wrong cmd:%c\n",__FUNCTION__, c);
+        }
+
+        return count;
+}
+
+/*
+   To confirm only one repair script in running after fat panic.
+   After exec repair application, the script will send "1" by ioctl funtion.
+   We use proc technology to communicate between kernel and user space.
+ */
+static struct file_operations repairfat_proc_fops =
+{
+    .read    = repairfat_proc_read,
+    .write   = repairfat_proc_write,
+};
+#define PROC_FAT_DIR_NAME             "fat_repair"
+static struct proc_dir_entry *proc_repairfat_dir, *proc_repairfat_file;
+
+int __init fat_misc_init(void)
+{
+	/* create directory */
+	proc_repairfat_dir = proc_mkdir(PROC_FAT_DIR_NAME, NULL);
+	if(proc_repairfat_dir == NULL) {
+		printk("%s:couldn't mkdir:%s\n", __FUNCTION__, PROC_FAT_DIR_NAME);
+		return -ENOMEM;
+	}
+	proc_repairfat_file = create_proc_entry("repairfat", 0644, proc_repairfat_dir);
+	if(proc_repairfat_file == NULL) {
+		printk("%s:couldn't make file:repairfat\n", __FUNCTION__);
+		remove_proc_entry(PROC_FAT_DIR_NAME, NULL);
+		return -ENOMEM;
+	}
+	proc_repairfat_file->proc_fops = (struct file_operations *)&repairfat_proc_fops;
+
+	return 0;
+}
+
+void __exit fat_misc_destroy(void)
+{
+	remove_proc_entry("repairfat",proc_repairfat_dir);
+	remove_proc_entry(PROC_FAT_DIR_NAME, NULL);
+}
+
+#endif //  #if defined(MAGX_N_06_19_60I) #if defined(CONFIG_MACH_PEARL)
+

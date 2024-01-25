@@ -56,7 +56,7 @@ decl_subsys(mpm, NULL, NULL);
 
 #ifdef CONFIG_MOT_FEAT_PM_STATS
 static int start_op_stat = 0;
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 static int start_pj_stat = 0;
 #endif
 #endif
@@ -153,7 +153,7 @@ static ssize_t state_availop_store(struct subsystem *subsys, const char *buf,
 
 mpm_subsys_attr(state_availop,availop, 0444);
 
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 static ssize_t state_registered_show(struct subsystem *subsys, char *buf)
 {
     ssize_t len = 0;
@@ -213,7 +213,7 @@ static ssize_t control_ctl_show(struct subsystem *subsys, char *buf)
     if(start_op_stat) {
         dvfs_stats = "on";
     }
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
     char* pjs_stats = "off";
     if(start_pj_stat) {
         pjs_stats = "on";
@@ -223,7 +223,7 @@ static ssize_t control_ctl_show(struct subsystem *subsys, char *buf)
         lpm_stats = "on";
     }
 
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
     len = sprintf(buf, "dvfs: %s\npjs: %s\nlpm: %s\n", dvfs_stats, pjs_stats, lpm_stats);
 #else
     sprintf(buf, "dvfs: %s\nlpm: %s\n", dvfs_stats, lpm_stats);
@@ -254,7 +254,7 @@ static ssize_t control_ctl_store(struct subsystem *subsys,
             mpm_start_opstat( );
         }
     }
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
     else if(strnicmp(buf, "pjs", len) == 0) {
         if(strnicmp(buf+len, " on", 3) == 0) {
             MPM_DPRINTK("Enabling pjs stats\n");
@@ -296,11 +296,11 @@ static ssize_t control_ctl_store(struct subsystem *subsys,
         if(strnicmp(buf+len, " on", 3) == 0) {
             MPM_DPRINTK("Enabling all stats\n");
             start_op_stat = 1;
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
             start_pj_stat = 1;
 #endif
             mpm_start_opstat( );
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
             mpm_start_pjstat(1);
 #endif
             mpm_lpm_stat_ctl(1);
@@ -308,11 +308,11 @@ static ssize_t control_ctl_store(struct subsystem *subsys,
         else if(strnicmp(buf+len, " off", 4) == 0) {
             MPM_DPRINTK("Disabling all stats\n");
             start_op_stat = 0;
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
             start_pj_stat = 0;
 #endif
             mpm_stop_opstat( );
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
             mpm_stop_pjstat( );
 #endif
             mpm_lpm_stat_ctl(0);
@@ -321,7 +321,7 @@ static ssize_t control_ctl_store(struct subsystem *subsys,
             MPM_DPRINTK("Resetting all stats\n");
             mpm_stop_opstat( );
             mpm_start_opstat( );
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
             mpm_stop_pjstat( );
             mpm_start_pjstat(start_pj_stat);
 #endif
@@ -362,7 +362,7 @@ static ssize_t state_dvfs_store(struct subsystem *subsys,
 mpm_subsys_attr(state_dvfs,dvfs, 0444);
 
 
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 /*
 * pjs - To print periodic job information.
 */
@@ -641,7 +641,7 @@ static ssize_t state_help_show(struct subsystem *subsys, char *buf)
     ssize_t len = 0;
 
     sprintf
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
         (buf,"\nUSAGE:\n\n"                                             \
          "cat /sys/mpm/availop\n"                                       \
          "    Display the list of available operating point frequencies.\n\n" \
@@ -951,7 +951,7 @@ mpm_subsys_attr(state_lpm, lpm, 0444);
 static struct attribute * mpm_attr_array[] = {
         &state_op_attr.attr,
         &state_availop_attr.attr,
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
         &state_registered_attr.attr,
 #endif
         &state_mode_attr.attr,
@@ -961,7 +961,7 @@ static struct attribute * mpm_attr_array[] = {
         &state_lpm_attr.attr,
         &control_ctl_attr.attr,
         &state_dvfs_attr.attr,
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
         &state_pjs_attr.attr,
 #endif
 #endif        

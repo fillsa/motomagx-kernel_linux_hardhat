@@ -1,7 +1,8 @@
 /*
  *  linux/kernel/vst.c
  *
-*
+ * Copyright (C) 2008 Motorola, Inc.
+ *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
  * Free Software Foundation; either version 2, or (at your option) any
@@ -19,6 +20,13 @@
  *                  Copyright 2004 Sony Corporation.
  *                  Copyright 2004 Matsushita Electric Industrial Co., Ltd.
  */
+
+/* ChangeLog:
+ * (mm-dd-yyyy)  Author    Comment
+ *  07-08-2008   Motorola  enable VST feature.
+ */
+
+
 #include <linux/config.h>
 #include <linux/kernel_stat.h>
 #include <linux/vst.h>
@@ -57,7 +65,11 @@ int vst_jiffie_clock_disabled;
 static int vst_enable_max = 1;
 unsigned long vst_next_timer = 0;
 unsigned long vst_start, vst_stop;
+#ifdef CONFIG_ARCH_MXC91231
+unsigned long vst_threshold = 1;
+#else
 unsigned long vst_threshold = 1*HZ;
+#endif
 static unsigned long vst_threshold_min = 1;
 atomic_t vst_no_timers = ATOMIC_INIT(0);
 atomic_t vst_short_timers = ATOMIC_INIT(0);
@@ -129,7 +141,6 @@ extern int proc_vst_doaddvec(ctl_table *table, int write, struct file *filp,
  * Returns 0 on success.
  */
 #define MAX_NON_OVERFLOW_SIZE	42949670
-
 static int vst_ms_to_jiffies(ctl_table *table, int write,
     struct file *filp, void *buffer, size_t *lenp, loff_t *ppos)
 {
@@ -915,3 +926,10 @@ int do_vst_setup(void)
 
 }
 #endif /* defined(CONFIG_IDLE) || defined(CONFIG_VST) */
+
+void enable_vst(void)
+{
+    vst_enable=1;
+}
+
+EXPORT_SYMBOL(enable_vst);

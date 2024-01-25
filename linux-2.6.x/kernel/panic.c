@@ -21,6 +21,10 @@
  * 03/2008      Motorola        Deleted APR PC.
  * 04/2008	Motorola	Reset charge current when panic
  * 06/2008	Motorola	Enable full backtrace on security phones.
+ * 08/2008      Motorola        Add CONFIG_MOT_FEAT_LOG_SCHEDULE_EVENTS 
+ *                              for WD2 timeout issue
+ * 09/2008      Motorola        Add log to track kpanic
+ * 11/2008      Motorola        Flash BT light on kernel panic
  */
 
 /*
@@ -109,6 +113,9 @@ static long no_blink(long time)
 	return 0;
 }
 
+int spi_read_reg(int num_reg, unsigned int *reg_value);
+int spi_write_reg(int num_reg, unsigned int *reg_value);
+
 /* Returns how long it waited in ms */
 long (*panic_blink)(long time);
 EXPORT_SYMBOL(panic_blink);
@@ -153,7 +160,8 @@ EXPORT_SYMBOL(set_fb_panic_text);
  
 NORET_TYPE void panic(const char * fmt, ...)
 {
-	long i;
+	long i, j;
+	unsigned int reg_value;
 	static char buf[1024];
 	static char *wdog = "Watchdog";
 	va_list args;
@@ -370,6 +378,31 @@ NORET_TYPE void panic(const char * fmt, ...)
 		if (i==0) preempt_disable();
 		/* tickle the watchdog timer */
 		kick_wd();
+		j = i/1000;
+		if (i == j*1000) {
+			if (j%2 == 0) {
+				spi_read_reg(54, &reg_value);
+				reg_value |= 0x1F0000;
+				spi_write_reg(54, &reg_value);
+				spi_read_reg(51, &reg_value);
+				reg_value |= 1;
+				spi_write_reg(51, &reg_value);
+				spi_read_reg(32, &reg_value);
+				reg_value |= 0x1000;
+				spi_write_reg(32, &reg_value);
+
+			} else {
+				spi_read_reg(54, &reg_value);
+				reg_value &= ~0x1F0000;
+				spi_write_reg(54, &reg_value);
+				spi_read_reg(51, &reg_value);
+				reg_value &= ~1;
+				spi_write_reg(51, &reg_value);
+				spi_read_reg(32, &reg_value);
+				reg_value &= ~0x1000;
+				spi_write_reg(32, &reg_value);
+			}
+		}
 #endif /* CONFIG_MOT_FEAT_KPANIC */
 		i += panic_blink(i);
 		mdelay(1);

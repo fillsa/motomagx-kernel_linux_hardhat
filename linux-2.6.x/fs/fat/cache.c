@@ -13,6 +13,7 @@
 /* ChangeLog:
  * (mm-dd-yyyy)  Author    Comment
  * 11-03-2007    Motorola  Added simple auto repair FAT.
+ * 07-04-2007	 Motorola  Remove changes for "simple auto repair FAT" in LJ7.4
  * 01-25-2008    Motorola  Remove auto repair FAT and Fix issue in App.
  * 
  */ 

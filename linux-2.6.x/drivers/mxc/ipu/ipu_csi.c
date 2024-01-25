@@ -26,6 +26,7 @@ Motorola            11/16/2005     Momentarily disable both CSI
                                    and IC when reconfiguring CSI
                                    parameters.
 Motorola            06/09/2006     Upmerge to MV 05/12/2006
+Motorola            05/16/2008     delete  printk for CSI Reg  
 Motorola            09/04/2008     Export CSI position and size functions
 */
 
@@ -121,8 +122,8 @@ ipu_csi_init_interface(uint16_t width, uint16_t height, uint32_t pixel_fmt,
 		__raw_writel(0xFF0000, CSI_CCIR_CODE_3);
 	}
 
-	printk("CSI_SENS_CONF = 0x%08X\n", __raw_readl(CSI_SENS_CONF));
-	printk("CSI_ACT_FRM_SIZE = 0x%08X\n", __raw_readl(CSI_ACT_FRM_SIZE));
+	printk("CSI_SENS_CONF = 0x%08X\n", __raw_readl(CSI_SENS_CONF)); // 05/16/2008     delete  printk for CSI Reg 
+	printk("CSI_ACT_FRM_SIZE = 0x%08X\n", __raw_readl(CSI_ACT_FRM_SIZE)); // 05/16/2008     delete  printk for CSI Reg 
 
 	FUNC_END;
 	return 0;

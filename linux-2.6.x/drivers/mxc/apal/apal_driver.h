@@ -33,6 +33,7 @@
  * 01/18/2008   Motorola  Add FM radio state flag for DSM purposes
  * 02/02/2008   Motorola  OSS source compliant 
  * 02/28/2008   Motorola  Supporting FM radio
+ * 03/26/2008   Motorola  Add FM radio digital BT mono and stereo support
  */
 
 /*!
@@ -255,7 +256,10 @@ typedef enum
     APAL_AUDIO_ROUTE_PHONE           = 1,
     APAL_AUDIO_ROUTE_CODEC_AP        = 2,
     APAL_AUDIO_ROUTE_STDAC           = 3,
-    APAL_AUDIO_ROUTE_FMRADIO         = 4,
+    APAL_AUDIO_ROUTE_FMRADIO_ANALOG             = 4,
+    APAL_AUDIO_ROUTE_FMRADIO_DIGITAL_MONO       = 5,
+    APAL_AUDIO_ROUTE_FMRADIO_DIGITAL_STEREO     = 6,
+    APAL_AUDIO_ROUTE_FMRADIO_RECORD             = 7,
 }APAL_AUDIO_ROUTE_ENUM_T;
 
 /*==================================================================================================

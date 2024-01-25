@@ -1,7 +1,7 @@
 /*
  *  rtc_sw.c - EZX RTC Stopwatch
  *
- *  Copyright (C) 2006-2008 Motorola, Inc.
+ *  Copyright (C) 2006-2008,2009 Motorola, Inc.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -61,6 +61,7 @@
  * 11/15/2007    Motorola       Upmerge from 6.1.(re-align to xtime when xtime changed somewhere.)
  * 12/3/2007     Motorola       Added API to get closest RTC timeout
  * 12/17/2008    Motorola       Calculate the time drift and make the time accurate.
+ * 01/04/2009    Motorola       Calculate the time drift and make the time accurate in LJ7.4.
  */
 
 
@@ -731,7 +732,7 @@ static unsigned long get_least_multiple(unsigned long first, unsigned long secon
 }
 
 /*
- * Grab the first fuzzy request we see. Assume we have the request lock.
+ * Grab the first fuzzy request in sw timer list.  Assume we have the request lock.
  */
 static inline struct rtc_sw_request *get_fuzz_req(void)
 {
@@ -848,6 +849,7 @@ void rtc_sw_fuzz_req_realign(void)
         unsigned long slice;
         unsigned long hundredths;
         unsigned long tmp;
+	unsigned long ticks;
         struct rtc_sw_request *req = NULL;
         struct rtc_sw_request *fuzz_list = NULL;
 
@@ -1427,6 +1429,7 @@ void rtc_sw_task_schedule(unsigned long offset, rtc_sw_task_t * task)
 }
 EXPORT_SYMBOL(rtc_sw_task_schedule);
 
+#if defined(CONFIG_MOT_FEAT_ENABLE_WD_IN_DSM)
 // * 12/3/2007     Motorola       Added API to get closest RTC timeout
 unsigned int rtc_sw_get_closest_timeout(void)
 {
@@ -1441,6 +1444,7 @@ unsigned int rtc_sw_get_closest_timeout(void)
     return ticks_to_ms(timeout);
 }
 EXPORT_SYMBOL(rtc_sw_get_closest_timeout);
+#endif
 
 static struct file_operations rtc_sw_fops = {
         .owner          = THIS_MODULE,

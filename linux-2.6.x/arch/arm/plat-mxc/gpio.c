@@ -1,6 +1,6 @@
 /*
  * Copyright 2005-2006 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright (c) 2007 Motorola, Inc.
+ * Copyright (c) 2007-2008 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,6 +22,10 @@
 /* Date         Author          Comment
  * ===========  ==============  ==============================================
  * 06-Jul-2007  Motorola        Added gpio_free_irq_dev work around.
+ * 24-Apr-2008  Motorola        Remove BUG() from mxc_gpio_irq_handler since the spurious gpio interrupt is not fatal.
+ * 29-May-2008  Motorola	Move set_irq_handler from gpio_set_irq_type into _set_gpio_edge_ctrl._
+ * 28-Sep-2008  Motorola	Force a panic when toggle lockkey quickly
+ * 10-Nov-2008  Motorola	Remove forcing panic feature
  */
 
 #include <linux/config.h>
@@ -188,6 +192,8 @@ int mxc_get_gpio_datain(iomux_pin_name_t pin)
 	return (__raw_readl(port->base + GPIO_DR) >> GPIO_TO_INDEX(gpio)) & 1;
 }
 
+#define PORT_SIG_TO_GPIO(p, s)		(p * 32 + s)
+
 /*
  * Set a GPIO pin's interrupt edge
  * @param port		pointer to a gpio_port
@@ -200,13 +206,23 @@ static void _set_gpio_edge_ctrl(struct gpio_port *port, u32 index,
 {
 	u32 reg = port->base;
 	u32 l, sig;
+	unsigned int irq;
+	u32 gpio = PORT_SIG_TO_GPIO(port->num, index);
+	irq = MXC_GPIO_TO_IRQ(gpio);
 
 	reg += (index <= 15) ? GPIO_ICR1 : GPIO_ICR2;
 	sig = (index <= 15) ? index : (index - 16);
 
 	l = __raw_readl(reg);
-	l = (l & (~(0x3 << (sig * 2)))) | (edge << (sig * 2));
+	l = (l & (~(0x3 << (sig * 2)))) | ((edge & 0x3) << (sig * 2));
 	__raw_writel(l, reg);
+
+	if (edge == GPIO_INT_LOW_LEV || edge == GPIO_INT_HIGH_LEV) {
+		port->irq_is_level_map |= (1 << index);
+		set_irq_handler(irq, do_level_IRQ);
+	} else {
+		set_irq_handler(irq, do_edge_IRQ);
+	}
 }
 
 /*
@@ -331,9 +347,10 @@ static void mxc_gpio_irq_handler(u32 irq, struct irqdesc *desc,
 	int_valid = __raw_readl(isr_reg) & imr_val;
 
 	if (unlikely(!int_valid)) {
-		printk(KERN_ERR "\nGPIO port: %d Spurious interrupt:0x%0x\n\n",
+		printk(KERN_INFO "\nGPIO port: %d Spurious interrupt:0x%0x\n\n",
 		       port->num, int_valid);
-		BUG();		/* oops */
+//		BUG();	/* oops */	 // 24-Apr-2008  Motorola        Remove BUG() from mxc_gpio_irq_handler since the spurious gpio inter
+		return; /* ignore this spurious interrupt */
 	}
 
 	gpio_irq = port->virtual_irq_start;
@@ -406,22 +423,18 @@ static int gpio_set_irq_type(u32 irq, u32 type)
 	case IRQT_RISING:
 		_set_gpio_edge_ctrl(port, GPIO_TO_INDEX(gpio),
 				    GPIO_INT_RISE_EDGE);
-		set_irq_handler(irq, do_edge_IRQ);
 		break;
 	case IRQT_FALLING:
 		_set_gpio_edge_ctrl(port, GPIO_TO_INDEX(gpio),
 				    GPIO_INT_FALL_EDGE);
-		set_irq_handler(irq, do_edge_IRQ);
 		break;
 	case IRQT_LOW:
 		_set_gpio_edge_ctrl(port, GPIO_TO_INDEX(gpio),
 				    GPIO_INT_LOW_LEV);
-		set_irq_handler(irq, do_level_IRQ);
 		break;
 	case IRQT_HIGH:
 		_set_gpio_edge_ctrl(port, GPIO_TO_INDEX(gpio),
 				    GPIO_INT_HIGH_LEV);
-		set_irq_handler(irq, do_level_IRQ);
 		break;
 	case IRQT_BOTHEDGE:
 	default:
@@ -492,7 +505,6 @@ int mxc_gpio_init(void)
  * FIXME: The following functions are for backward-compatible.
  * They will be removed at a future release.
  */
-#define PORT_SIG_TO_GPIO(p, s)		(p * 32 + s)
 
 /*!
  * This function configures the GPIO signal to be either input or output. For

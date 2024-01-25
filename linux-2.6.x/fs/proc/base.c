@@ -1,7 +1,7 @@
 /*
  *  linux/fs/proc/base.c
  *
- *  Copyright (C) 2006 Motorola Inc
+ *  Copyright (C) 2006,2008 Motorola Inc
  *  Copyright (C) 1991, 1992 Linus Torvalds
  *
  */
@@ -9,6 +9,7 @@
 /* ChangeLog:
  * (mm-dd-yyyy) Author    Comment
  * 06-15-2006   Motorola  Make /dev/mem a compile time configuration option
+ * 09-28-2008   Motorola  Export proc_pid_wchan
  */
 
 /*  proc base directory handling functions
@@ -426,7 +427,7 @@ static int proc_pid_auxv(struct task_struct *task, char *buffer)
  * Provides a wchan file via kallsyms in a proper one-value-per-file format.
  * Returns the resolved symbol.  If that fails, simply return the address.
  */
-static int proc_pid_wchan(struct task_struct *task, char *buffer)
+int proc_pid_wchan(struct task_struct *task, char *buffer)
 {
 	char *modname;
 	const char *sym_name;
@@ -440,6 +441,7 @@ static int proc_pid_wchan(struct task_struct *task, char *buffer)
 		return sprintf(buffer, "%s", sym_name);
 	return sprintf(buffer, "%lu", wchan);
 }
+EXPORT_SYMBOL(proc_pid_wchan);
 #endif /* CONFIG_KALLSYMS */
 
 #ifdef CONFIG_SCHEDSTATS
