@@ -3,7 +3,7 @@
  *
  * (C) 1997 Linus Torvalds
  *
- *  Copyright (C) 2006-2007 Motorola, Inc.
+ *  Copyright (C) 2006-2008 Motorola, Inc.
  *
  */
 
@@ -11,7 +11,8 @@
  * ===========  ==============  ==============================================
  * 31-Oct-2006  Motorola        Added inotify
  * 24-Nov-2007  Motorola        Fixed a bug [Linux calls read_inode() again 
- *                              before clear_inode() has finished though.]        
+ *                              before clear_inode() has finished though.]       
+ * 27-Sep-2008  Motorola        Add log to track kpanic 
  */
 
 #include <linux/config.h>
@@ -1329,6 +1330,12 @@ static void __wait_on_freeing_inode(struct inode *inode)
 	schedule();
 	finish_wait(wq, &wait.wait);
 	spin_lock(&inode_lock);
+
+#ifdef  DBG_TRACK_KPANIC
+	if ((unsigned long)(wq->task_list.next) < (unsigned long)wq && (unsigned long)(wq->task_list.next) > (unsigned long)(wq - 10)) {
+	  panic("__wait_on_freeing_inode: bit waitqueue head corrutped\n");
+	}
+#endif
 }
 
 void wake_up_inode(struct inode *inode)

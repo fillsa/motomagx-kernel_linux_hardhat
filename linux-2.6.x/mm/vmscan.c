@@ -918,7 +918,7 @@ int try_to_free_pages(struct zone **zones,
 		lru_pages += zone->nr_active + zone->nr_inactive;
 	}
 
-//////LJ7.1	for (i = 0; i < NR_SC; i++)
+//////LJ7.1-7.4	for (i = 0; i < NR_SC; i++)
 		for (priority = DEF_PRIORITY; priority >= 0; priority--) {
 			sc.nr_mapped = read_page_state(nr_mapped);
 			sc.nr_scanned = 0;

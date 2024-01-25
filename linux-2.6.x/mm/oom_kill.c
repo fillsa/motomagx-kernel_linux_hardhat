@@ -22,6 +22,7 @@
  * 09/05/2007    Motorola       Remove kernel panic in out_of _memory function.
  * 11/21/2007    Motorola       Remove OOM kernel panic.
  * 03/05/2008    Motorola       Enable APR.
+ * 11/12/2008    Motorola       Enable OOM panic in LJ7.4
  *
  */
 
@@ -591,7 +592,7 @@ static void show_mem_usage(void)
 	struct mm_struct *mm;
 #ifdef CONFIG_MOT_FEAT_PRINT_PC_ON_PANIC
 	unsigned long rss_apr = 0;
-	struct task_struct *task_apr;
+	struct task_struct *task_apr=NULL;
 #endif	
 
 	printk("pid:command:VM:RSS:DATA:STACK\n");
@@ -613,8 +614,9 @@ static void show_mem_usage(void)
 #endif
 		}
 	}
-#ifdef CONFIG_MOT_FEAT_PRINT_PC_ON_PANIC 
-	printk("[APR]PanicPC: OOM thread:%s,mem:%lu\n",task_apr->comm,rss_apr);
+#ifdef CONFIG_MOT_FEAT_PRINT_PC_ON_PANIC
+        if ( NULL != task_apr )
+	    printk("[APR]PanicPC: OOM thread:%s,mem:%lu\n",task_apr->comm,rss_apr);
 #endif
 }
 
@@ -637,10 +639,10 @@ void out_of_memory(int gfp_mask)
 	memset(buf, 0, sizeof(buf));
 
 	printk(KERN_ERR "Phone is in extremely low memory situation.\n");
-	printk(KERN_ERR "Dump some useful infomation:\n");
-
-	dump_stack();
 	show_mem_usage();
+
+	printk(KERN_ERR "Dump some useful infomation:\n");
+	dump_stack();
 
 #ifdef CONFIG_MOT_FEAT_KPANIC
 	kpanic_in_progress = 1; /* to make the meminfo_read_proc print out */

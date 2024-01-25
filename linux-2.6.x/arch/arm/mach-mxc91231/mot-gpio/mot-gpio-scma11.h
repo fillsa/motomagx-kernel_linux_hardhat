@@ -25,6 +25,7 @@
  * ===========  ==============  ==============================================
  * 19-Oct-2006  Motorola        Initial revision.
  * 02-Jan-2007  Motorola        Added support for Lido P2.
+ * 26-Feb-2007  Motorola        Update for HWCFG tree.
  * 28-May-2007  Motorola        Added external prototypes for xPIXL remapping
  * 30-May-2007  Motorola        Added support for xPIXL PWM backlight
  */

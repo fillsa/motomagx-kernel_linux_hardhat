@@ -25,6 +25,7 @@
  * 12/03/2007   Motorola  Initial version. 
  * 03/11/2008   Motorola  Initial version in LJ6.3
  * 01/20/2008   Motorola  Reduce the memory usage to support more events.
+*  08/01/2008   Motorola  Initial version in LJ7.4. 
  */
 
 /*
@@ -53,12 +54,13 @@ enum log_type {
     MEM_LOG_FOUND_IT
 };
 
-/* mem_log_event() used to record correspoding value depends on
- * different caller
+/* mem_log_event() used to record correspoding value depends on different caller
+   mem_log_event() used to record schedule events
  */
 extern void mem_log_event(void);
 
 /* mem_print_log() used to print out event log in die() in traps.c
+   mem_print_log() used to print out events log in panic in panic.c
  */
 extern void mem_print_log(void);
 

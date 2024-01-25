@@ -3,7 +3,7 @@
  *
  * Configure IOMUX mux control registers.
  *
- * Copyright 2006 Motorola, Inc.
+ * Copyright 2006-2007 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 /* Date         Author          Comment
  * ===========  ==============  ==============================================
  * 01-Nov-2006  Motorola        Initial revision.
+ * 19-Feb-2007  Motorola        Revised for HWCFG tree.
  */
 
 #include "mot-gpio-argonlv.h"

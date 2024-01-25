@@ -2,7 +2,7 @@
  *  linux/arch/arm/kernel/signal.c
  *
  *  Copyright (C) 1995-2002 Russell King
- *  Copyright 2007 Motorola, Inc.
+ *  Copyright (C) 2007 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as

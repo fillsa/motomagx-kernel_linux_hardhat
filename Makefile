@@ -64,9 +64,11 @@
 # 30-Jun-2008  Motorola        Export inotify.h
 # 29-Jan-2008  Motorola        Added header file morphing_mode.h to API_INCS
 # 23-Apr-2008  Motorola        Add FEAT_EPSON_LTPS_DISPLAY check
+# 04-Jun-2008  Motorola        Export dm500.h header file
+# 27-Jun-2008  Motorola	       Export inotify.h on LJ7.4
+# 30-Jue-2008  Motorola        Export inotify.h. 		
 # 29-Jul-2008  Motorola        Add FEAT_32_BIT_DISPLAY check
 # 01-Aug-2008  Motorola        Fix Wifi/Marvell Drivers compliance issues
-# 30-Jue-2008  Motorola        Export inotify.h. 		
 # 10-Oct-2008  Motorola        Export inotify.h
 # ###########################################################################
 
@@ -128,6 +130,7 @@ API_INCS = $(COMPTOP)/linux-2.6.x/include//linux/moto_accy.h \
 	$(COMPTOP)/linux-2.6.x/drivers/mxc/ssi/ssi_types.h \
 	$(COMPTOP)/linux-2.6.x/drivers/mxc/dam/dam.h \
 	$(COMPTOP)/linux-2.6.x/drivers/mxc/dam/dam_types.h \
+	$(COMPTOP)/linux-2.6.x/drivers/mxc/spi/dm500.h \
 	$(COMPTOP)/linux-2.6.x/include//linux/inotify.h
 
 # don't build kernel for x86
@@ -289,6 +292,11 @@ ifeq ($(DBG_DSM_INDICATOR),1)
         ${LJAPDEFCONFIGSRC}/feature/dsm.config \
         ${LJAPDEFCONFIGSRC}/feature/dsm.${PRODUCT_FAMILY}_config \
         ${LJAPDEFCONFIGSRC}/feature/dsm.${PRODUCT}_config
+endif
+
+ifeq ($(DBG_PM_LED),1)
+	PRODUCT_SPECIFIC_DEFCONFIGS += \
+	${LJAPDEFCONFIGSRC}/feature/pm_led.onyx_config
 endif
 
 ifeq ($(TEST_ALLOW_MODULES),1)

@@ -3,7 +3,7 @@
  *
  * ArgonLV implementation of Motorola GPIO API for high-speed USB support.
  *
- * Copyright 2006-2007 Motorola, Inc.
+ * Copyright 2006-2008 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by

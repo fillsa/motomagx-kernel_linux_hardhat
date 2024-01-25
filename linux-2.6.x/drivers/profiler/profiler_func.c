@@ -1,5 +1,5 @@
 /*
- * Copyright 2006 Motorola, Inc.
+ * Copyright 2006, 2008 Motorola, Inc.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -22,6 +22,7 @@
  *
  * Date        Author    Comment
  * 10/04/2006  Motorola  Initial version.
+ * 05/08/2008  Motorola  Add wrapper function for enabling VST
  */
  
 #include <linux/module.h>
@@ -30,6 +31,7 @@
 #include <asm/system.h>
 #include <asm/io.h>
 #include <asm/arch/system.h>
+#include <linux/vst.h>
 
 void arch_idle_wrapper(void)
 {
@@ -42,3 +44,10 @@ unsigned long get_cycles_wrapper(void)
     return get_cycles();	
 }
 EXPORT_SYMBOL(get_cycles_wrapper);
+
+int do_vst_setup_wrapper(void)
+{
+   return vst_setup();
+}
+EXPORT_SYMBOL(do_vst_setup_wrapper);
+

@@ -30,9 +30,11 @@
  * 23-Oct-2007  Motorola        Add spinlock protection for inode 
  * 06-Dec-2007  Motorola        Adding inode checking during umounting
  * 19-Dec-2007  Motorola        Adding inode checking during umounting
+ * 12-Jun-2008  Motorola	Make sure freed wd is not reused immediately in LJ7.4
  * 25-Jun-2008  Motorola        Make sure the freed wd is not used immediately
  * 30-Jun-2008	Motorola	Make sure the released wd is not used immediately
  * 11-Sep-2008  Motorola        Update the debug info.
+ * 28-Oct-2008  Motorola        Update debug info
  */
 
 #include <linux/module.h>

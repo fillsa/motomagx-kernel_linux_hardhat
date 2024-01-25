@@ -24,13 +24,17 @@
  * 05-09-2008   Motorola  Enable aplog backup during full core dump
  * 06-24-2008   Motorola  Make aplog do coredump to MMC/SD card if it is available
  * 04-16-2008   Motorola  Add build label info in full coredump name.
+ * 05-05-2008   Motorola  Create a compressed core dump in /mnt/msc_int0 if SD card not in.
+ * 05-09-2008   Motorola  Enable aplog backup during full core dump
  * 05-16-2008   Motorola  Save coredump info into system log file.
  * 06-06-2008   Motorola  Enable full coredump on security phone.
+ * 06-13-2008   Motorola  Abort coredump if there is IO errors.
  * 06-24-2008   Motorola  Back up aplog during full core dump.
  * 06-26-2008   Motorola  Prevent duplicated coredumps.
  * 07-10-2008   Motorola  Add build label info in full coredump name in LJ6.3.
  * 07-15-2008   Motorola  Prompt when coredump generated.
  * 07-18-2008   Motorola  Remove system log.
+ * 07-24-2008   Motorola  Fix conditional compiling issue.
  * 07-30-2008   Motorola  Support APR.
  * 08-29-2008   Motorola  Remove coredump time interval checking.
  * 09-27-2008 	Motorola  Remove pages from page cache on coredump.
@@ -1529,7 +1533,7 @@ static void zap_threads (struct mm_struct *mm)
 		complete(vfork_done);
 	}
 
-/////LJ7.1 rcu_read_lock();
+/////LJ7.1-7.4 rcu_read_lock();
 #if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 	rcu_read_lock();
 #else
@@ -1545,7 +1549,7 @@ static void zap_threads (struct mm_struct *mm)
 		}
 	while_each_thread(g,p);
 
-/////LJ7.1 rcu_read_lock();
+/////LJ7.1-7.4 rcu_read_lock();
 #if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 	rcu_read_unlock();
 #else
@@ -1607,7 +1611,7 @@ static int get_core_dump_level()
 
 #if defined(CONFIG_MOT_FEAT_DRM_COREDUMP) && defined(CONFIG_SECURITY)
 	/* dump full core if not a DRM_READ privileged application */
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)  ||  defined(CONFIG_MACH_PEARL)
 	if(security_allow_full_coredump() == 0) {
 #else
 	if(mot_security_coredump() == 0) {
@@ -1651,6 +1655,11 @@ static int get_core_dump_level()
 
 #define SD_MOUNT_PT     "/mmc/mmca1"
 #define SD_DUMP_DIR     "/mmc/mmca1/app_dump"
+/* zip_coredump
+ * TODO: update check_sd_card() to create a folder in /mnt/msc_int0 for coredump
+ */ 
+#define MS_MOUNT_PT "/ezxlocal/download/mystuff"
+#define MS_DUMP_DIR "/ezxlocal/download/mystuff"
 #ifdef CONFIG_MOT_FEAT_BOOTINFO
 #define SD_FULL_DUMP_PATTERN "/core.%e.%p.%t.%b"
 #else
@@ -1844,6 +1853,8 @@ void check_coredump_status(struct pt_regs * regs)
 #endif /* CONFIG_MOT_FEAT_COREDUMP_RECOVER */
 #endif /* CONFIG_MOT_FEAT_APP_DUMP */
 
+/* zip coredump */
+static char zip_script_path[] = "/usr/local/bin/zip_coredump.sh";
 int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 {
 	char corename[CORENAME_MAX_SIZE + 1];
@@ -1859,6 +1870,10 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 	char fb_coredump_text_buf[PANIC_MAX_STR_LEN];
 	const char core_text[] = " coredump";
 #endif /* CONFIG_MOT_FEAT_APP_COREDUMP_DISPLAY */
+        /* zip coredump */
+        char * argv[3];
+        int zip_retval = 0;
+        char * envp[] = {"HOME=/root", NULL};
 #endif /* CONFIG_MOT_FEAT_APP_DUMP */
 
 #ifdef CONFIG_MOT_FEAT_APP_DUMP
@@ -1949,8 +1964,12 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
        if(sd_exist == 1)
         {
             strcpy(core_pattern, SD_DUMP_DIR);
-            strcat(core_pattern, SD_FULL_DUMP_PATTERN);
         }
+        else
+        {
+            strcpy(core_pattern, MS_DUMP_DIR);
+        }
+            strcat(core_pattern, SD_FULL_DUMP_PATTERN);
 #endif /* CONFIG_MOT_FEAT_APP_DUMP */
 
 
@@ -1994,6 +2013,16 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
         if (sd_exist == 1) { 
                 printk("Call user space script for backing up...return (%d)\n",
                    call_post_dump_script(dump_level, corename));
+        } else
+        {
+            argv[0] = zip_script_path;
+            argv[1] = corename;
+            argv[2] = NULL;
+            zip_retval = call_usermodehelper(argv[0], argv, envp, 1);
+            if (zip_retval != 0)
+            {
+                printk("coredump cannot be zipped, ret = %02x\n", zip_retval);
+            }
         }
         
         

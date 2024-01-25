@@ -35,6 +35,7 @@
  * 03/2008  Motorola  Fix red screen issue
  * 04/2008  Motorola  Add code for new display
  * 05/2008  Motorola  Add new channel init
+ * 05/2008  Motorola  change printk output option
  * 07/2008  Motorola  Modify disable and uninit
  * 08/2008  Motorola  Add 2 fuctions which set/restore m3if register priority
  */
@@ -76,7 +77,10 @@ void ipu_wake_from_sleep(void);
 void ipu_go_to_sleep(void);
 #endif
 
+
+#if ! defined(CONFIG_MACH_ARGONLVPHONE)
 #define USE_FIQ_HANDLER 1
+#endif
 
 #define M3IFBASE IO_ADDRESS(M3IF_BASE_ADDR)
 
@@ -101,11 +105,13 @@ int g_ipu_hw_rev;
 bool gSecChanEn[21];
 #define DBG_INT_CTRL 1
 
+#if ! defined(CONFIG_MACH_ARGONLVPHONE)
 static uint32_t gCtlReg1 = 0;
 static uint32_t gCtlReg2 = 0;
 static uint32_t gCtlReg3 = 0;
 static uint32_t gCtlReg4 = 0;
 static uint32_t gCtlReg5 = 0;
+#endif
 
 uint32_t gChannelInitMask;
 DEFINE_RAW_SPINLOCK(ipu_lock);
@@ -214,7 +220,7 @@ int ipu_probe(struct device *dev)
     /* Get IPU clock freq */
     mxc_clks_enable(IPU_CLK);
     g_ipu_clk = mxc_get_clocks(IPU_CLK);
-    printk("g_ipu_clk = %d\n", g_ipu_clk);
+    printk("g_ipu_clk = %d, ipu_mem = [0x%x, 0x%x]\n", g_ipu_clk, MXCIPU_MEM_ADDRESS, MXCIPU_MEM_SIZE);
 
     __raw_writel(0x00100010L, DI_HSP_CLK_PER);
 
@@ -259,11 +265,12 @@ static void ipu_remove(void)
  *
  * @return      This function returns 0 on success or negative error code on fail
  */
-
+#if ! defined(CONFIG_MACH_ARGONLVPHONE)
 extern unsigned long ipu_reserved_buff_fiq[1201];
 extern void disable_fiq(int fiq);
 extern void enable_fiq(int fiq);
 extern int mxc_fiq_irq_switch(int vector, int irq2fiq);
+#endif
 
 int32_t ipu_init_channel(ipu_channel_t channel, ipu_channel_params_t * params)
 {
@@ -455,8 +462,12 @@ void ipu_uninit_channel(ipu_channel_t channel)
 {
     uint32_t lock_flags;
     uint32_t reg;
+#if defined(CONFIG_MACH_NEVIS)
     uint32_t dma, mask = 0;
+#endif
     uint32_t ipu_conf;
+    uint32_t idma_ch;
+    uint32_t idma_channels_mask = 0;
 
     FUNC_START;
 
@@ -570,6 +581,34 @@ void ipu_uninit_channel(ipu_channel_t channel)
 
     gChannelInitMask &= ~(1L << IPU_CHAN_ID(channel));
 
+	/* Get the related idma channels. */
+	if( (idma_ch = channel_2_dma(channel, IPU_OUTPUT_BUFFER)) != IDMA_CHAN_INVALID )
+	{
+            idma_channels_mask |= (1UL << idma_ch);
+	}
+
+	if( (idma_ch = channel_2_dma(channel, IPU_INPUT_BUFFER)) != IDMA_CHAN_INVALID )
+	{
+            idma_channels_mask |= (1UL << idma_ch);
+	}
+
+	if( (idma_ch = channel_2_dma(channel, IPU_SEC_INPUT_BUFFER)) != IDMA_CHAN_INVALID )
+	{
+            idma_channels_mask |= (1UL << idma_ch);
+	}
+
+
+    /* Only if ALL the idma for this channel are DISABLED, then proceed to 
+       update the IPU_CONF register based on the gChannelInitMask. This
+       happens if the client correctly calls disable() followed by uninit()
+
+       If ANY of the idma is ENABLED, we will only update IPU_CONF register
+       when the client requests to disable the channels. This is to 
+       cover cases where the client calls uninit() then disable().
+    */
+
+    if( (__raw_readl(IDMAC_CHA_EN) & idma_channels_mask) == 0 )
+    {
     ipu_conf = __raw_readl(IPU_CONF);
     if ((gChannelInitMask & 0x00000066L) == 0)	/*CSI */
     {
@@ -600,6 +639,11 @@ void ipu_uninit_channel(ipu_channel_t channel)
         ipu_conf &= ~IPU_CONF_PF_EN;
     }
     __raw_writel(ipu_conf, IPU_CONF);
+    }
+    else
+    {
+            DPRINTK("MXC: idma still enabled for channel 0x%08X, en_mask=0x%08X\n", channel, idma_channels_mask);
+    }
 
 
 
@@ -617,6 +661,7 @@ void ipu_uninit_channel(ipu_channel_t channel)
     FUNC_END;
 }
 
+#if ! defined(CONFIG_MACH_ARGONLVPHONE)
 static irqreturn_t ipu_4k_test_handler(int irq,void *dev_id,struct pt_regs *preg)
 {
     volatile unsigned long buf_num =  ipu_reserved_buff_fiq[1200];
@@ -677,6 +722,7 @@ static irqreturn_t ipu_4k_test_handler(int irq,void *dev_id,struct pt_regs *preg
     __raw_writel(reg,IPU_INT_CTRL_1);
     return IRQ_HANDLED;
 }
+#endif
 
 /*!
  * This function is called to initialize a buffer for logical IPU channel.
@@ -785,7 +831,7 @@ int32_t ipu_init_channel_buffer(ipu_channel_t channel, ipu_buffer_t type,
     spin_unlock_irqrestore(&ipu_lock, lock_flags);
 
 /* for nevis using ipu reserved memory (CONFIG_MOT_FEAT_DISPLAY_EPSON is on) */
-#ifndef CONFIG_MOT_FEAT_DISPLAY_EPSON
+#if ! defined(CONFIG_MOT_FEAT_DISPLAY_EPSON) && ! defined(CONFIG_MACH_ARGONLVPHONE) && ! defined(CONFIG_MACH_PEARL)
 printk("channel=%d,ipu_init_channel_buffer\n",channel);
     if(channel == CSI_MEM)
     {
@@ -1558,6 +1604,13 @@ int32_t ipu_disable_channel(ipu_channel_t channel, bool wait_for_stop)
     if (sec_dma != IDMA_CHAN_INVALID)
         chan_mask |= 1UL << sec_dma;
 
+	/* If the idma channels are already disabled, just return */
+	if( (__raw_readl(IDMAC_CHA_EN) & chan_mask) == 0)
+	{
+	    DPRINTK("MXC IPU: idma ch for 0x%08X are already disabled\n", channel);
+    	    return 0;
+	}
+
     if (wait_for_stop && channel != MEM_SDC_FG && channel != MEM_SDC_BG && channel != ADC_SYS2) {
         uint32_t timeout = 40;
         while ((__raw_readl(IDMAC_CHA_BUSY) & chan_mask) ||
@@ -1568,12 +1621,13 @@ int32_t ipu_disable_channel(ipu_channel_t channel, bool wait_for_stop)
                 printk
                     ("MXC IPU: Warning - timeout waiting for channel 0x%08x to stop,\n"
                      "\tbuf0_rdy = 0x%08X, buf1_rdy = 0x%08X\n"
-                     "\tbusy = 0x%08X, tstat = 0x%08X\n\tmask = 0x%08X\n",
+                     "\tbusy = 0x%08X, tstat = 0x%08X, istat5 = 0x%08X\n\tmask = 0x%08X\n",
                      channel,
                      __raw_readl(IPU_CHA_BUF0_RDY),
                      __raw_readl(IPU_CHA_BUF1_RDY),
                      __raw_readl(IDMAC_CHA_BUSY),
-                     __raw_readl(IPU_TASKS_STAT), chan_mask);
+                     __raw_readl(IPU_TASKS_STAT), 
+                     __raw_readl(IPU_INT_STAT_5), chan_mask);
                 break;
             }
         }
@@ -1635,10 +1689,12 @@ int32_t ipu_disable_channel(ipu_channel_t channel, bool wait_for_stop)
 
     spin_lock_irqsave(&ipu_lock, lock_flags);
 
+#if ! defined(CONFIG_MACH_PEARL)
     /* Disable IC task */
     if (IPU_CHAN_ID(channel) <= IPU_CHAN_ID(MEM_PP_ADC)) {
         _ipu_ic_disable_task(channel);
     }
+#endif
 
 
     /* Disable DMA channel(s) */
@@ -1647,12 +1703,14 @@ int32_t ipu_disable_channel(ipu_channel_t channel, bool wait_for_stop)
 
 
 
+#if ! defined(CONFIG_MACH_PEARL)
     /* Reset the double buffer */
     reg = __raw_readl(IPU_CHA_DB_MODE_SEL);
     __raw_writel(reg & ~chan_mask, IPU_CHA_DB_MODE_SEL);
 
     /* Reset to buffer 0 */
     __raw_writel(chan_mask, IPU_CHA_CUR_BUF);
+#endif
 
 
 
@@ -1663,10 +1721,41 @@ int32_t ipu_disable_channel(ipu_channel_t channel, bool wait_for_stop)
 
 
 
+    ipu_conf = __raw_readl(IPU_CONF);
+    if ((gChannelInitMask & 0x00000066L) == 0)    /*CSI */
+    {
+        ipu_conf &= ~IPU_CONF_CSI_EN;
+    }
+    if ((gChannelInitMask & 0x00001FFFL) == 0)    /*IC */
+    {
+        ipu_conf &= ~IPU_CONF_IC_EN;
+    }
+    if ((gChannelInitMask & 0x00000A10L) == 0)    /*ROT */
+    {
+        ipu_conf &= ~IPU_CONF_ROT_EN;
+    }
+    if ((gChannelInitMask & 0x0001C000L) == 0)    /*SDC */
+    {
+        ipu_conf &= ~IPU_CONF_SDC_EN;
+    }
+    if ((gChannelInitMask & 0x00061140L) == 0)    /*ADC */
+    {
+        ipu_conf &= ~IPU_CONF_ADC_EN;
+    }
+    if ((gChannelInitMask & 0x0007D140L) == 0)    /*DI */
+    {
+        ipu_conf &= ~IPU_CONF_DI_EN;
+    }
+    if ((gChannelInitMask & 0x00380000L) == 0)    /*PF */
+    {
+        ipu_conf &= ~IPU_CONF_PF_EN;
+    }
+    __raw_writel(ipu_conf, IPU_CONF);
+
     spin_unlock_irqrestore(&ipu_lock, lock_flags);
 
 /* for nevis using ipu reserved memory (CONFIG_MOT_FEAT_DISPLAY_EPSON is on) */
-#ifndef CONFIG_MOT_FEAT_DISPLAY_EPSON
+#if ! defined(CONFIG_MOT_FEAT_DISPLAY_EPSON) && ! defined(CONFIG_MACH_ARGONLVPHONE) && ! defined(CONFIG_MACH_PEARL)
 #if DBG_INT_CTRL
     if(channel == CSI_MEM)
     {
@@ -2296,7 +2385,7 @@ void ipu_wake_from_sleep(void)
         return;
     }
 
-    printk(KERN_ALERT"ipu_common: wakeup from sleeping *_* *_* *_* *_* *_* \n");
+    DPRINTK(KERN_ALERT"ipu_common: wakeup from sleeping *_* *_* *_* *_* *_* \n");
 
 
     mxc_clks_enable(IPU_CLK);

@@ -1,3 +1,10 @@
+/*
+ *  Copyright (C) 2008	Motorola, Inc.
+ *
+ *  Date		Author			Comment
+ *  10/16/2008	Motorola		Added support for tracking wait queue panic
+ */
+
 #ifndef _LINUX_WAIT_H
 #define _LINUX_WAIT_H
 
@@ -49,9 +56,16 @@ struct wait_bit_queue {
 };
 
 #if 1
+
+#if defined(CONFIG_MACH_PEARL) && ! defined(DBG_KPANIC_WAKEUP_COMMON)
+#define DBG_KPANIC_WAKEUP_COMMON 1
+#endif
 struct __wait_queue_head {
 	spinlock_t lock;
 	struct list_head task_list;
+#ifdef DBG_KPANIC_WAKEUP_COMMON
+	unsigned long dbg_fn;
+#endif
 };
 typedef struct __wait_queue_head wait_queue_head_t;
 #endif
@@ -120,6 +134,9 @@ extern void FASTCALL(remove_wait_queue(wait_queue_head_t *q, wait_queue_t * wait
 
 static inline void __add_wait_queue(wait_queue_head_t *head, wait_queue_t *new)
 {
+#ifdef DBG_KPANIC_WAKEUP_COMMON
+	__asm__ __volatile__ ("mov %0, lr":"=r"(head->dbg_fn));
+#endif
 	list_add(&new->task_list, &head->task_list);
 }
 
@@ -129,6 +146,9 @@ static inline void __add_wait_queue(wait_queue_head_t *head, wait_queue_t *new)
 static inline void __add_wait_queue_tail(wait_queue_head_t *head,
 						wait_queue_t *new)
 {
+#ifdef DBG_KPANIC_WAKEUP_COMMON
+	__asm__ __volatile__ ("mov %0, lr":"=r"(head->dbg_fn));
+#endif
 	list_add_tail(&new->task_list, &head->task_list);
 }
 
@@ -400,3 +420,4 @@ static inline int wait_on_bit_lock(void *word, int bit,
 #endif /* __KERNEL__ */
 
 #endif
+

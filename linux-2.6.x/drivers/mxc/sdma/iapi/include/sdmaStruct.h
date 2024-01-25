@@ -26,6 +26,7 @@
  * ----          ------         --------
  * 03/06/2007    Motorola       Added FSL IPCv2 changes for WFN487
  * 08/01/2008    Motorola       Add protection for channel 0 to fix dropped WiFi call issue.
+ * 09/12/2008    Motorola       in LJ7.4 Add protection for channel 0 to fix dropped WiFi call issue.
  * 01/29/2009    Motorola	Corrected copyright year
  * 
  *

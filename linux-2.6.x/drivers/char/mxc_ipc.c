@@ -19,6 +19,7 @@
  * 01/05/2007    Motorola       Add datalog improvement
  * 01/16/2007    Motorola       No longer panic if BP doesn't respond to MU write
  * 01/25/2007    Motorola       Fix bug: mpm reads pointers when SDMA is closed
+ * 01/25/2007    Motorola       Pull in Freescale IPC driver updates
  * 02/13/2007    Motorola       Set pointers to NULL when closing mxc_ipc
  * 03/06/2007    Motorola       Apply FSL IPC changes for WFN487
  * 04/04/2007    Motorola       Check return values in
@@ -32,7 +33,7 @@
  * 02/15/2008    Motorola       Fixed SDMA and mu channel panic issue
  * 03/17/2008    Motorola       Fix panic issue when multi-open a MU channel
  * 02/21/2008    Motorola       Enlarge AP SDMA rx buffer
- * 01/25/2007    Motorola       Pull in Freescale IPC driver updates
+ * 05/28/2008    Motorola       Change DEBUG function printk to DEBUG macro DPRINTK
  */
 
 /*!
@@ -3041,7 +3042,8 @@ static ssize_t mxc_ipc_write(struct file *file, const char *buf,
  *                 SDMA buffers
  * @param  priv    private data. Useful to synchronize and to keep track of
  *                 the transfer
- * @return returns the amount of data available in the read buffer
+ * @return returns 0 if no data available or a positive value when data is 
+ * available in the read buffer
  *
  * Note: this code is safe to call from interrupt context.  Calling from multiple
  * interruptible task contexts could lead to race conditions when the device is

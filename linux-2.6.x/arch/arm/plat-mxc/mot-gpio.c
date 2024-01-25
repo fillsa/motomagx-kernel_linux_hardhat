@@ -36,6 +36,8 @@
  * 21-Sep-2007  Motorola        Added GPIO_SIGNAL_USB_HS_REF_CLK_EN 
  *                              and GPIO_SIGNAL_MORPH_TKC_RESET
  * 25-Jan-2008  Motorola        Added gpio_usb_hs_ref_clk_en_set_data
+ * 09-Apr-2008  Motorola        Added GPIO_SIGNAL_VMMC_2_9V_EN 
+ * 21_Apr-2008  Motorola        Added GPIO_SIGNAL_PM_INT
  * 13-Aug-2008  Motorola        GP_AP_C8 toggle workaround for 300uA BT power issue
  * 07-Nov-2008  Motorola        Configure GPIO20 to function mode 
  *                              as PMICHE is disabled.
@@ -478,6 +480,16 @@ struct gpio_signal_description gpio_signal_mapping[MAX_GPIO_SIGNAL] = {
      */
     { GPIO_INVALID_PORT,   0 },
 
+    /*
+     * Array index: 84  GPIO_SIGNAL_VMMC_2_9V_EN
+     */
+    { GPIO_INVALID_PORT,   0 },
+
+    /*
+     * Array index: 85  GPIO_SIGNAL_PM_INT
+     */
+    { GPIO_INVALID_PORT,   0 },
+
 };
 
 
@@ -507,9 +519,9 @@ static const int __initdata hwcfg_gpio_group_sig_count[HWCFG_GPIO_GROUP_COUNT] =
      6, /* UserInput */
      9, /* USB */
      5, /* WLAN */
-     5, /* SDHC */
+     6, /* SDHC */
      7, /* TNLC */
-     3, /* Power */
+     4, /* Power */
      2, /* Vibrator */
      2, /* WDOG */
      1, /* VFUSE */
@@ -615,12 +627,13 @@ static const enum gpio_signal __initdata wlan_hwcfg_gpio_group[5] = {
 };
 
 
-static const enum gpio_signal __initdata sdhc_hwcfg_gpio_group[5] = {
+static const enum gpio_signal __initdata sdhc_hwcfg_gpio_group[6] = {
     GPIO_SIGNAL_MEGA_SIM_EN,             /* 0x00 */
     GPIO_SIGNAL_SD1_DAT3,                /* 0x01 */
     GPIO_SIGNAL_SD1_DET_B,               /* 0x02 */
     GPIO_SIGNAL_SD2_DAT3,                /* 0x03 */
     GPIO_SIGNAL_TF_DET,                  /* 0x04 */
+    GPIO_SIGNAL_VMMC_2_9V_EN,            /* 0x05 */
 };
 
 
@@ -635,10 +648,11 @@ static const enum gpio_signal __initdata tnlc_hwcfg_gpio_group[7] = {
 };
 
 
-static const enum gpio_signal __initdata power_hwcfg_gpio_group[3] = {
+static const enum gpio_signal __initdata power_hwcfg_gpio_group[4] = {
     GPIO_SIGNAL_LOBAT_B,                 /* 0x00 */
     GPIO_SIGNAL_POWER_DVS0,              /* 0x01 */
     GPIO_SIGNAL_POWER_RDY,               /* 0x02 */
+    GPIO_SIGNAL_PM_INT,                  /* 0x03 */
 };
 
 
@@ -1167,13 +1181,13 @@ int gpio_signal_request_irq(enum gpio_signal index,
  */
 int gpio_signal_free_irq(enum gpio_signal index,
         enum gpio_prio prio
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) ||  defined(CONFIG_MACH_KEYWEST) 
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) ||  defined(CONFIG_MACH_KEYWEST)  ||  defined(CONFIG_MACH_PEARL) 
 			, void *dev_id
 #endif
 					)
 {
     if(GPIO_SIGNAL_IS_VALID(index)) {
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) ||  defined(CONFIG_MACH_KEYWEST) 
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) ||  defined(CONFIG_MACH_KEYWEST) ||  defined(CONFIG_MACH_PEARL) 
         gpio_free_irq_dev
 #else
         gpio_free_irq
@@ -1185,7 +1199,7 @@ int gpio_signal_free_irq(enum gpio_signal index,
         	(initial_gpio_settings[index].port,
                 initial_gpio_settings[index].sig_no, prio
 #endif /* defined(CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE */
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) ||  defined(CONFIG_MACH_KEYWEST) 
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) ||  defined(CONFIG_MACH_KEYWEST) ||  defined(CONFIG_MACH_PEARL) 
 							, dev_id
 #endif
 							);

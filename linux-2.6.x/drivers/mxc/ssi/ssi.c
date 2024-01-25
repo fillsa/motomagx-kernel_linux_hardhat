@@ -1158,7 +1158,7 @@ void ssi_tx_fifo_enable(ssi_mod module, fifo_nb fifo, bool enable)
  */
 void ssi_tx_flush_fifo(ssi_mod module)
 {
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PEARL)
 	set_register_bits(0, 1 << SSI_TRANSMITTER_CLEAR_SHIFT,
 #else
 	set_register_bits(1 << SSI_TRANSMITTER_CLEAR_SHIFT, 1 << SSI_TRANSMITTER_CLEAR_SHIFT,

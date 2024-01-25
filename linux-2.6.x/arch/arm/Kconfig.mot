@@ -50,14 +50,17 @@
 # 04/2008      Motorola        Added MOT_FEAT_GETTIMEOFFSET_2618
 # 04/2008      Motorola        Added MOT_FEAT_DISPLAY_EPSON
 # 04/15/2008  Motorola		Added MOT_FEAT_PANICNOCHG
+# 04/17/2008  Motorola		Added MOT_FEAT_ENABLE_HIDE_SYSFILE
+# 05/16/2008  Motorola		Added MOT_FEAT_2MP_FG_DISABLE
 # 06/04/2008  Motorola		Added MOT_FEAT_ENHANCE_LOG
-# 06/24/2008  Motorola          Added MOT_FEAT_FLUSH_LOCKED_TLB 
+# 06/24/2008  Motorola          Added MOT_FEAT_FLUSH_LOCKED_TLB in LJ7.1
 # 06/26/2008  Motorola		Added MOT_FEAT_COREDUMP_RECOVER
 # 07/2008      Motorola        Added MOT_FEAT_MSS_XL_SPAIN
-# 07/2008      Motorola        Added MOT_FEAT_FLUSH_LOCKED_TLB in LJ6.3
+# 07/08/2008  Motorola        Added MOT_FEAT_FLUSH_LOCKED_TLB in LJ6.3 and LJ7.4
 # 07/23/2008  Motorola          Added MOT_FAT_LOOKUP
 # 07/2008      Motorola        Added MOT_FEAT_APP_COREDUMP_DISPLAY
 # 07/2008      Motorola        Added MOT_FEAT_32_BIT_DISPLAY
+# 08/01/2008  Motorola          Added MOT_FEAT_LOG_SCHEDULE_EVENTS in LJ7.4
 # 08/29/2008  Motorola          Added MOT_FILELOCK_PATCH
 # 09/27/2008  Motorola		Added MOT_FEAT_FLUSH_PG_COREDUMP
 # 10/14/2008  Motorola		Added MOT_FEAT_DISABLE_TCP_WINDOW_SCALING_SACK
@@ -300,7 +303,7 @@ config MOT_FEAT_IPU_MEM_SIZE
 config MOT_FEAT_IPU_IOCTL
 	bool "IPU ioctl definition relocation"
 	default n
-#LJ7.1	depends on MOT_FEAT_POWER_IC_API
+#LJ7.1-7.4	depends on MOT_FEAT_POWER_IC_API
 	help
 	  This feature relocates all nonstandard ioctl definitions into 
 	  Motorola and architecture specific header files.
@@ -717,7 +720,7 @@ config MOT_FEAT_SECURE_DRM
                 security to protect the DRM key files. Setting this config
                 option to 'y' enables that additional security.
 
-config MOT_FEAT_SECURE_MTD 
+config MOT_FEAT_SECURE_MTD
 	bool "Enable MTD user/pds partition protection"
 	default n
 	help
@@ -995,6 +998,15 @@ config MOT_FEAT_2MP_CAMERA_WRKARND
 	  Enabling this option turns on the GEM and RTIC modules, as well
           as disables MAX slave 0, during still-image capture.  These three
           workarounds increase the memory bandwidth available to the IPU
+          CSI (Camera Sensor Interface) to transfer image data from
+          sensor to memory.
+
+config MOT_FEAT_2MP_CAPTURE_FG_DISABLE
+        bool "Disable FG as bandwidth-improvement workarounds for 2MP image capture"
+        default n
+        help
+          Enabling this option to disable FG IPU channel when CSI enabled.
+          This workaround increase the memory bandwidth available to the IPU
           CSI (Camera Sensor Interface) to transfer image data from
           sensor to memory.
 
@@ -1303,6 +1315,13 @@ config MOT_FEAT_FIQ_IN_C
         help
            FIQ handler could be implemented in C format
 
+config DBG_PM_LED
+        bool "Use BT LED debug PM"
+        default n
+        help
+           This is a debug option to use the BT LED as DSM, normal mode , 
+           turbo mode indicator.
+
 config MOT_TURBO_INDICATOR
         bool "Use BT LED as an AP turbo mode"
         default n
@@ -1371,7 +1390,8 @@ config MOT_FEAT_FLUSH_LOCKED_TLB
 	bool "Enable flush main locked TLB"
 	default n
   	help
-  	   If this feature is enabled, it will flush main locked TLB.
+  	   If this feature is enabled, it will flush main locked TLB. when 
+           kernel starts.
 
 config MOT_FAT_LOOKUP
         bool "Use a loop when search a entry from directory"

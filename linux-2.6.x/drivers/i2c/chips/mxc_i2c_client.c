@@ -1,6 +1,6 @@
 /*
  * Copyright 2004 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright (C) 2006 Motorola, Inc.
+ * Copyright (C) 2006,2008 Motorola, Inc.
  */
 
 /* 
@@ -15,6 +15,7 @@
  * Date        Author            Comment
  * ==========  ================  ========================
  * 11/04/2006  Motorola          Added RAW_I2C_API
+ * 28/09/2008  Motorola          Added mxc_i2c_cam_write and mxc_i2c_cam_read API
  */
 
 /*!
@@ -81,6 +82,8 @@ static int mxc_i2c_client_xfer(int bus_id, unsigned int addr, char *reg,
 }
 
 #if defined(CONFIG_MOT_FEAT_RAW_I2C_API)
+int mxc_cam_i2c_transfer(struct i2c_adapter *adap, struct i2c_msg msgs[],int numi, int clk);
+
 /*!
  * Calls the adapters transfer method to exchange data with the i2c device.
  *
@@ -95,7 +98,7 @@ static int mxc_i2c_client_xfer(int bus_id, unsigned int addr, char *reg,
  *          or a negative number on failure
  */
 static int mxc_i2c_raw_xfer(int bus_id, unsigned int addr, unsigned int len, 
-                               char *buf, int tran_flag)
+                               char *buf, int tran_flag, int clk)
 {
         struct i2c_msg msg[1];
         int ret;
@@ -111,7 +114,8 @@ static int mxc_i2c_raw_xfer(int bus_id, unsigned int addr, unsigned int len,
                 msg[0].flags &= ~I2C_M_RD;
         }
 
-        ret = i2c_transfer(adap_list[bus_id], msg, 1);
+//old        ret = i2c_transfer(adap_list[bus_id], msg, 1);
+        ret = mxc_cam_i2c_transfer(adap_list[bus_id], msg, 1, clk);
         return ret;
 }
 
@@ -130,7 +134,7 @@ static int mxc_i2c_raw_xfer(int bus_id, unsigned int addr, unsigned int len,
  */
 int mxc_i2c_raw_read(int bus_id, unsigned int addr, int len, char *buf) 
 {
-        return mxc_i2c_raw_xfer(bus_id, addr, len, buf, MXC_I2C_FLAG_READ); 
+        return mxc_i2c_raw_xfer(bus_id, addr, len, buf, MXC_I2C_FLAG_READ, 0); 
 }
 
 /*!
@@ -148,8 +152,48 @@ int mxc_i2c_raw_read(int bus_id, unsigned int addr, int len, char *buf)
  */
 int mxc_i2c_raw_write(int bus_id, unsigned int addr, int len, char *buf) 
 {
-        return mxc_i2c_raw_xfer(bus_id, addr, len, buf, 0); 
+        return mxc_i2c_raw_xfer(bus_id, addr, len, buf, 0, 0); 
 }
+
+
+/*!
+ * Function used to read the register of the i2c slave device with specified clock.
+ * This function is a kernel level API that can be called by camera misc device drivers.
+ *
+ * @param   bus_id       the MXC I2C bus that the slave device is connected to
+ *                       (0 based)
+ * @param   addr         slave address of the device we wish to read data from
+ * @param   len         number of bytes in the register address
+ * @param   *buf         data buffer 
+ * @param   clk          I2C clck rate
+ *
+ * @return  Function returns the number of messages transferred to/from the device or 
+ *          a negative number on failure
+ */
+int mxc_i2c_cam_read(int bus_id, unsigned int addr, int len, char *buf, int clk)
+{
+        return mxc_i2c_raw_xfer(bus_id, addr, len, buf, MXC_I2C_FLAG_READ, clk); 
+}
+
+/*!
+ * Function used to write to the register of the i2c slave device with specified clock. 
+ * This function is a kernel level API that can be called by camera misc device drivers.
+ *
+ * @param   bus_id       the MXC I2C bus that the slave device is connected to
+ *                       (0 based)
+ * @param   addr         slave address of the device we wish to write data to
+ * @param   len         number of bytes in the register address
+ * @param   *buf         data buffer 
+ * @param   clk          I2C clck rate
+ *
+ * @return  Function returns the number of messages transferred to/from the device or 
+ *          a negative number on failure
+ */
+int mxc_i2c_cam_write(int bus_id, unsigned int addr, int len, char *buf, int clk)
+{
+        return mxc_i2c_raw_xfer(bus_id, addr, len, buf, 0, clk); 
+}
+
 #endif /* CONFIG_MOT_FEAT_RAW_I2C_API */
 
 /*!
@@ -261,6 +305,8 @@ module_exit(mxc_i2c_client_exit);
 #if defined(CONFIG_MOT_FEAT_RAW_I2C_API)
 EXPORT_SYMBOL(mxc_i2c_raw_read);
 EXPORT_SYMBOL(mxc_i2c_raw_write);
+EXPORT_SYMBOL(mxc_i2c_cam_read);
+EXPORT_SYMBOL(mxc_i2c_cam_write);
 #endif
 
 EXPORT_SYMBOL(mxc_i2c_read);

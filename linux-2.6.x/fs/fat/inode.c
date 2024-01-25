@@ -18,11 +18,13 @@
  * 08-23-2007    Motorola  Added direct sync system call to FAT
  * 10-24-2007    Motorola  Added direct sync system call to FAT in LJ6.3
  * 10-31-2007    Motorola  Added hidden and system attr to inode
- * 11-20-2007    Motorola  Added simple auto repair FAT
+ * 11-20-2007    Motorola  Added simple auto  repair FAT
  * 11-15-2007    Motorola  Upmerge from 6.1 (Added conditional sync dirt mark and added hidde and system attr to inode)
  * 01-25-2008    Motorola  Remove repair FAT and fix issue in App
  * 02-20-2008    Motorola  Remove sticky mode
+ * 04-17-2008    Motorola  Remove sticky mode in LJ7.4
  * 06-25-2008    Motorola  Change lookup position for the lookup.
+ * 07-04-2008	 Motorola  Remove changes for "simple auto repair FAT" in LJ7.4
  * 10-15-2008	 Motorola  Fix file corruption.
  */
 

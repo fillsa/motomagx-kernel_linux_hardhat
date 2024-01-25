@@ -1,6 +1,6 @@
 /*
  * Copyright 2004 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright (C) 2006-2007 Motorola, Inc.
+ * Copyright (C) 2006-2008 Motorola, Inc.
  *
  * The code contained herein is licensed under the GNU General Public
  * License. You may obtain a copy of the GNU General Public License
@@ -27,6 +27,9 @@
  * 10/17/2007    Motorola       Add a new ioctl to dump 24 SDMA registers
  * 11/14/2007    Motorola       Add fix for errata issues.
  * 12/14/2007    Motorola       Add a new ioctl to dump 24 SDMA registers
+ * 09/11/2008    Motorola       Fix a bug in smxc_mu_suspend() that may keep the current thread a very long
+ *                              time in the while() loop.
+ * 11/17/2008    Motorola	Updated suspend function for a potential bug
  */
 
 /*!
@@ -799,7 +802,7 @@ unsigned int mxc_mu_dsp_pmode_status(void)
 	if (suspend_flag == 1) {
 		return -EBUSY;
 	}
-	return (readl(AS_MUMSR) & (AS_MUMSR_DPM1 | AS_MUMSR_DPM0) >> 5);
+	return ((readl(AS_MUMSR) & (AS_MUMSR_DPM1 | AS_MUMSR_DPM0)) >> 5);
 }
 
 #ifdef CONFIG_MOT_FEAT_PM
@@ -1602,12 +1605,12 @@ static int mxc_mu_suspend(struct device *dev, u32 state, u32 level)
 	mu_id = platdev->id;
 	switch (level) {
 	case SUSPEND_DISABLE:
-		suspend_flag = 1;
 #ifdef CONFIG_MOT_WFN379
 
 #ifdef CONFIG_MOT_WFN349
                 spin_lock_irqsave(&mu_lock, flags);
 #endif
+		suspend_flag = 1;
                 status = readl(AS_MUMCR);
                 save_status = status;
                 /* Leave MU RX 3 interrupt enabled so that the interrupt can

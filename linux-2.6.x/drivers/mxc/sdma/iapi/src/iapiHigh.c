@@ -1,7 +1,7 @@
 /******************************************************************************
  *
  * Copyright 2005 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright 2007-2008 Motorola, Inc.
+ * Copyright (C) 2007-2008 Motorola, Inc.
  *
  *
  * The code contained herein is licensed under the GNU General Public
@@ -18,6 +18,8 @@
  * 01/24/2007    Motorola       Correct handling of Endian bit in command field.
  * 08/01/2008    Motorola       Add protection for channel 0 to fix dropped WiFi call issue.
  * 08/11/2008    Motorola       Protect variable ipai_SDMAintr with spin lock to fix MMC log stop issue.
+ * 09/16/2008    Motorola       Add protection for channel 0 to fix dropped WiFi call issue.
+ * 09/16/2008    Motorola       Protect variable ipai_SDMAintr with spin lock to fix MMC log stop issue.
  ******************************************************************************
  *
  * File: iapiHigh.c

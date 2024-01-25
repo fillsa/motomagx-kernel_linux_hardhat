@@ -57,6 +57,8 @@
 /*
  * Author     Date          Comment
  * =======   ===========   ====================================================
+ * 11/27/2007    Motorola      Limit mss be no bigger than 1372(0x55C) to solve 
+ *                             compatibility issue with CMCC on LJ7.4
  * Motorola  11/30/2007    Limit mss to be no bigger than 1372(0x55C) to solve 
  *                         compatibility issue with CMCC
  * Motorola  07/02/2008    Limit mss to be no bigger than 1000 to solve 
