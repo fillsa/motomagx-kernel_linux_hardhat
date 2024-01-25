@@ -3,6 +3,7 @@
  *
  * Created for Linux based loosely upon Mathius Lattner's minix
  * patches by Peter MacDonald. Heavily edited by Linus.
+ * Copyright (C) 2008   Motorola, Inc.
  *
  *  4 February 1994
  *     COFF/ELF binary emulation. If the process has the STICKY_TIMEOUTS
@@ -12,6 +13,9 @@
  *  24 January 2000
  *     Changed sys_poll()/do_poll() to use PAGE_SIZE chunk-based allocation 
  *     of fds to overcome nfds < 16390 descriptors limit (Tigran Aivazian).
+ */
+/*  Change log:
+ *  2008-10-28  Motorola        Add log to track panic 
  */
 
 #include <linux/syscalls.h>
@@ -224,6 +228,15 @@ int do_select(int n, fd_set_bits *fds, long *timeout)
 				file = fget(i);
 				if (file) {
 					f_op = file->f_op;
+
+#ifdef  DBG_TRACK_FILE_PANIC
+                                        if ( 0xbf000000 >= (unsigned long)f_op ) {/* track panic */
+                                            unsigned long *t_pp=(unsigned long *)file;
+                                            printk("value of f_op in struct file is wrong, dump some fields of it as below:\n");
+                                            printk("0x%p:0x%08lx 0x%08lx 0x%08lx 0x%08lx 0x%08lx 0x%08lx 0x%08lx 0x%08lx \n"\
+                                                   ,&file,*t_pp,*(t_pp+1),*(t_pp+2),*(t_pp+3),*(t_pp+4),*(t_pp+5),*(t_pp+6),*(t_pp+7));
+                                        }
+#endif
 					ltt_ev_file_system(LTT_EV_FILE_SYSTEM_SELECT,
 							  i /*  The fd*/,
 							  __timeout,

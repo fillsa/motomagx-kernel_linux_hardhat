@@ -7,6 +7,7 @@
 /* ChangeLog:
  * (mm-dd-yyyy)  Author    Comment
  * 11-03-2007    Motorola  Added simple auto repair FAT
+ * 07-04-2007	 Motorola  Remove changes for "simple auto repair FAT"
  * 01-25-2008    Motorola  Remove repair FAT and fix issue in App.
  * 06-25-2008    Motorola  Change lookup position for the lookup.
  */

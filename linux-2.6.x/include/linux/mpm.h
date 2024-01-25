@@ -32,8 +32,9 @@
  * 04/12/2007  Motorola  Check in idle for busy drivers/modules.
  * 06/27/2007  Motorola  Add IOCTL to start,reset mpm statistic
  * 08/01/2007  Motorola  Add function declaration of mpm set awake state
- * 03/31/2008  Motorola  Upmerge in 6.3 Add function declaration of mpm_set_awake_state.
  * 10/25/2007  Motorola  Improved periodic job state collection for debug.
+ * 03/31/2008  Motorola  Upmerge in 6.3 Add function declaration of mpm_set_awake_state.
+ * 09/26/2008  Motorola  Change suspend failed device history  to 10.
  */
 
 #ifndef LINUX_MPM_H
@@ -53,6 +54,7 @@
 #define MPM_FAILED_DEV_NAME_LEN  64
 #define MPM_TRANS_ERR_CALLER_LEN 64
 #define MPM_DRIVER_NAME_SIZE     64
+
 
 typedef unsigned long mpm_op_t;
 
@@ -95,7 +97,9 @@ typedef struct {
 #define MAX_TRANS_ERRORS        10      /* Max # of transition errors that we save */
 #define MAX_IDLE_DELAYS_SAVED   10      /* Max # of busy driver idle delays */
                                         /*   that we save */
-
+#ifdef MPM_SUSPEND_FAILED_CHECK
+#define MAX_SUSPEND_FAILED_DEV_SAVED 10 /* MAX # of suspend failed dev that we save*/
+#endif
 /*
  * The mpm_driver_info_t structure contains the information that the
  * static part of the MPM driver maintains about the drivers that
@@ -134,6 +138,23 @@ struct mpm_driver_stats
 };
 typedef struct mpm_driver_stats mpm_driver_stats_t;
 
+#ifdef MPM_SUSPEND_FAILED_CHECK
+/*
+ * The mpm_suspend_failed_dev_t structure contains statistics about the
+ * device suspend failed.  This structure only exists if lpm stats have been enabled
+ * (see LPM_STATS_ENABLED()).
+ */
+struct mpm_suspend_failed_dev
+{
+    __u32   suspend_failed_count; /*Number of timers we failed to suspend device*/
+    __u32   suspend_failed_indx;           /*Current index of failed to suspend*/
+    char    suspend_failed_dev_name[MAX_SUSPEND_FAILED_DEV_SAVED][MPM_FAILED_DEV_NAME_LEN]; 
+					 /* The name of failed to suspend most recently*/
+    __u32   suspend_failed_dev_name_len[MAX_SUSPEND_FAILED_DEV_SAVED]; /*The length of device name*/
+    __u32   timestamp[MAX_SUSPEND_FAILED_DEV_SAVED]; /*Timestamp of most recent failed to suspend*/
+};
+typedef struct mpm_suspend_failed_dev mpm_suspend_failed_dev_t;
+#endif
 /*
  * The mpm_mode_info structure contains information about each supported
  * power management mode.
@@ -214,6 +235,9 @@ struct mpm_stats
     char    failed_dev_name[MPM_FAILED_DEV_NAME_LEN];
     __u32   failed_dev_name_len;
 
+#ifdef MPM_SUSPEND_FAILED_CHECK
+    mpm_suspend_failed_dev_t suspend_failed_dev_stats;
+#endif
     mpm_driver_stats_t driver_stats;
     mpm_driver_info_t  driver_info;
 };
@@ -544,7 +568,7 @@ extern wait_queue_head_t mpm_wq;
 extern void mpm_event_notify(short type, short kind, int info);
 extern mpm_callback_t mpm_periodic_jobs_done;
 extern mpm_callback_t mpm_periodic_jobs_started;
-//#if defined(CONFIG_MACH_PICO) || defined(CONFIG_MACH_XPIXL) ||defined(CONFIG_MACH_NEVIS) 
+//#if defined(CONFIG_MACH_PICO) || defined(CONFIG_MACH_XPIXL) || defined(CONFIG_MACH_NEVIS)  || defined(CONFIG_MACH_PEARL)
 extern mpm_callback_t mpm_set_awake_state;
 //#endif
 extern mpm_callback_t mpm_ready_to_sleep;

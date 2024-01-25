@@ -71,6 +71,7 @@ void gpio_usb_hs_switch_set_data(__u32 swtch)
 }
 
 
+#if defined(CONFIG_MOT_FEAT_MOTHWCFG_DEVICE_TREE) // 25-Jan-2008  Motorola        Add gpio_usb_hs_ref_clk_en_set_data() funtion.
 /**
  * Enable USB_CLK
  *
@@ -82,6 +83,7 @@ void gpio_usb_hs_ref_clk_en_set_data(__u32 enable)
     gpio_signal_set_data(GPIO_SIGNAL_USB_HS_REF_CLK_EN,
             enable ? GPIO_DATA_HIGH : GPIO_DATA_LOW);
 }
+#endif
 
 /**
  * Install an interrupt handler for the FLAGC signal.
@@ -119,7 +121,7 @@ int gpio_usb_hs_flagc_request_irq(gpio_irq_handler handler,
 void gpio_usb_hs_flagc_free_irq(void *dev_id)
 {
     gpio_signal_free_irq(GPIO_SIGNAL_USB_HS_FLAGC, GPIO_HIGH_PRIO
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) ||  defined(CONFIG_MACH_KEYWEST) 
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) ||  defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PEARL)
 			, dev_id // 09-Jul-2007  Motorola        Added gpio_free_irq_dev work around.
 #endif
 					);
@@ -266,7 +268,7 @@ void gpio_usb_hs_dma_req_set_irq_type(gpio_edge_t edge)
 void gpio_usb_hs_dma_req_free_irq(void *dev_id)
 {
     gpio_signal_free_irq(GPIO_SIGNAL_USB_HS_DMA_REQ, GPIO_HIGH_PRIO
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) ||  defined(CONFIG_MACH_KEYWEST) 
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) ||  defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PEARL)
 			, dev_id // 09-Jul-2007  Motorola        Added gpio_free_irq_dev work around.
 #endif
 );

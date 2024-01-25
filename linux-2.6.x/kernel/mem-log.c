@@ -26,10 +26,12 @@
  * 03/11/2008   Motorola  Initial version for LJ6.3
  * 01/11/2008   Motorola  Output current->comm to mem log.
  * 01/30/2008   Motorola  Fixed the timestamp issue between uptime and rtc timer.
- * 02/13/2008   Motorola  Modified the log size.
+ *  09/24/2008   Motorola  change buf size to 128 
+ * 02/13/2008   Motorola  Modified the log size to 256.
  * 
  */
 
+#include <linux/sched.h>
 #include <linux/module.h>
 #include <linux/spinlock.h>
 #include <linux/kallsyms.h>
@@ -57,8 +59,8 @@ static unsigned int dbg_log_at = 0;
 static unsigned int stop_logging = 0;
 static spinlock_t lock = SPIN_LOCK_UNLOCKED;
 
-/* mem_log_event() used to record correspoding value depends on
- * different caller
+/* mem_log_event() used to record correspoding value depends on different caller
+   mem_log_event() used to record schedule events
  */
 void mem_log_event(void) {
     unsigned long flags;
@@ -77,8 +79,7 @@ void mem_log_event(void) {
 }
 EXPORT_SYMBOL(mem_log_event);
 
-/*  print_single_log() prints single log according to differenet
- *  call
+/*  print_single_log() prints single log according to differenet call
  */
 static void print_single_log(unsigned int i) {
 
@@ -86,6 +87,7 @@ static void print_single_log(unsigned int i) {
 }
 
 /* mem_print_log() used to print out event log in die() in traps.c
+   mem_print_log() used to print out events log in panic in panic.c
  */
 void mem_print_log(void) {
     unsigned int i;

@@ -11,7 +11,7 @@ config MACH_MXC27530EVB
 config MACH_SCMA11PHONE
         bool "Support Motorola SCM-A11-based Phones"
         default n
-#LJ7.1     depends on MOT_FEAT_POWER_IC_API
+#LJ7.1-7.4     depends on MOT_FEAT_POWER_IC_API
         help
           Include support for Motorola products based on the SCM-A11 SOC.
 

@@ -39,6 +39,11 @@
  * 03/11/2008   Motorola  Adapted WDOG2 FIQ handler to FIQ handler in C language
  * 04/14/2008   Motorola  Improved mxc_gettimeoffset()
  * 04/23/2008   Motorola  Added PC in wdog2 interrupt handler
+ * 09/11/2008   Motorola  remove 'warning:control reaches end of non-void function'
+ * 09/28/2008   Motorola  Force a panic when lock key is toggled quickly
+ * 10/14/2008	Motorola  Refine the force condition for panic
+ * 11/10/2008   Motorola  remove forcing panic feaure
+ *
  */
 
 /*!

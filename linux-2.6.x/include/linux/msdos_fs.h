@@ -11,6 +11,8 @@
  * 11-20-2007    Motorola  Added simple auto  repair FAT
  * 01-25-2008    Motorola  Remove repair FAT and fix in App
  * 02-20-2008    Motorola  Remove sticky mode
+ * 04-17-2008    Motorola  Remove sticky mode
+ * 07-04-2008	 Motorola  Remove changes for "simple auto repair FAT" 
  */
 
 

@@ -32,6 +32,10 @@
  *  2007-12-17  Motorola	Add support for CONFIG_MOT_FEAT_LTT_LITE
  *  2008-01-29	Motorola	Remove LTT_EV_PROCESS_WAKEUP track from LTT
  * 2008-01-30  Motorola: Adjust the parameter to be identical with mem log mechnism.
+ *  2008-08-01  Motorola        Add CONFIG_MOT_FEAT_LOG_SCHEDULE_EVENTS for WD2
+ *                              timeout issue
+ *  2008-09-24  Motorola        Add log to track kpanic
+ *  2008-10-16  Motorola	Added support for tracking wait queue panic
  */
  
 
@@ -878,11 +882,30 @@ static void activate_task(task_t *p, runqueue_t *rq, int local)
 	__activate_task(p, rq);
 }
 
+#ifdef  DBG_TRACK_KPANIC
+static inline void tmp_dump_task(unsigned long p[])
+{
+    unsigned int dump_offset=0;
+    for (dump_offset=0;dump_offset<(sizeof(struct task_struct)/4);dump_offset++) {
+        if (0==dump_offset%4) printk("\n%p: ", &p[dump_offset]);
+        printk("0x%08lx ",p[dump_offset] );
+    }
+    printk("\n");
+}
+
+#endif
 /*
  * deactivate_task - remove a task from the runqueue.
  */
 static void deactivate_task(struct task_struct *p, runqueue_t *rq)
 {
+#ifdef  DBG_TRACK_KPANIC
+       if ( 0xc0000000 > (unsigned long)p->array ) {
+          printk("error: array of task is wrong! dump this task below\n");
+          tmp_dump_task((unsigned long *)p);
+       }
+#endif
+
 	rq->nr_running--;
 	dequeue_task(p, p->array);
 	p->array = NULL;
@@ -2916,6 +2939,13 @@ void __sched __schedule(void)
 		else {
 			if (prev->state == TASK_UNINTERRUPTIBLE)
 				rq->nr_uninterruptible++;
+#ifdef  DBG_TRACK_KPANIC
+                        if (0xc0000000 > (unsigned long)prev->tasks.next || 0xc0000000 > (unsigned long)prev->tasks.prev) {
+                            printk("find wrong value of prev->tasks.next/prev,dump task as below: \n");
+                            tmp_dump_task((unsigned long *)prev);
+                            BUG();
+                        }			
+#endif
 			deactivate_task(prev, rq);
 		}
 	}
@@ -3026,6 +3056,9 @@ switch_tasks:
 #ifdef CONFIG_MOT_FEAT_LOG_SCHEDULE_EVENTS // old #ifdef CONFIG_DEBUG_GNPO
 		/* Log the value of current, it will be printed out in kpanic when 
 		 * phone panic  
+		 */
+		/* Log schedule events, and it will be added 
+                 * in kpanic file when panic happen 
 		 */
                 mem_log_event();
 #endif
@@ -3232,6 +3265,13 @@ static void __wake_up_common(wait_queue_head_t *q, unsigned int mode,
 		unsigned flags;
 		curr = list_entry(tmp, wait_queue_t, task_list);
 		flags = curr->flags;
+#ifdef DBG_KPANIC_WAKEUP_COMMON
+		if(curr->func != wake_bit_function &&
+		   curr->func != autoremove_wake_function &&
+		   curr->func != default_wake_function) {
+			panic("Wait Queue Panic, LR:0x%x\n", q->dbg_fn);
+		}
+#endif
 		if (curr->func(curr, mode, sync, key) &&
 		    (flags & WQ_FLAG_EXCLUSIVE) &&
 		    !--nr_exclusive)

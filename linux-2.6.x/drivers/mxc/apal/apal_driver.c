@@ -35,6 +35,7 @@
  * 01/18/2008   Motorola  Add FM radio state
  * 02/02/2008   Motorola  OSS source compliant 
  * 02/28/2008   Motorola  Supporting FM radio
+ * 03/26/2008   Motorola  Add FM radio digital BT mono and stereo support
  */
 
 /*!
@@ -133,7 +134,9 @@ extern void gpio_dai_disable(void);
 /* END TODO */
 
 static int apal_open (struct inode *, struct file *);
+static int apal_fmradio_open(struct inode *, struct file *);
 static int apal_release (struct inode *, struct file *);
+static int apal_fmradio_release(struct inode *, struct file *);
 static int apal_ioctl (struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg);
 static ssize_t apal_write (struct file *fp, const char* buf, size_t bytes, loff_t *nouse);
 static ssize_t apal_read  (struct file *fp, char *buf, size_t bytes, loff_t *nouse);
@@ -155,6 +158,13 @@ static struct file_operations apal_fops = {
     .poll    = apal_poll,
 };
 
+static struct file_operations apal_fmradio_fops = {
+    .owner   = THIS_MODULE,
+    .open    = apal_fmradio_open,
+    .release = apal_fmradio_release,
+    .read    = apal_read,
+};
+
 static struct device_driver apal_device_driver = {
     .name    = "apal",
     .bus     = &platform_bus_type,
@@ -171,6 +181,7 @@ static struct platform_device apal_platform_device = {
 static struct 
 {
     int major_num;
+    int major_fmradio;
     BOOL port_4_in_use;           /* Port_4 is shared between CODEC and BT on the common bus */    
     POWER_IC_ST_DAC_SR_T stdac_sample_rate;
     POWER_IC_CODEC_SR_T codec_sample_rate;
@@ -179,7 +190,9 @@ static struct
     BOOL codec_in_use;
     BOOL phone_call_on;
     BOOL prepare_for_dsm;
-    BOOL fmradio_on;
+    BOOL fmradio_analog_on;
+    BOOL fmradio_digital_mono;
+    BOOL fmradio_digital_stereo;
 }apal_driver_state;
 
 static struct
@@ -210,7 +223,7 @@ static struct
     BOOL wait_end;
     BOOL immediate_stop;
     BOOL apal_rx_buf_flag;
-}apal_rx_dma_config;
+}apal_rx_dma_config[2];
 
 typedef enum
 {
@@ -356,6 +369,11 @@ apal_dma_tx_interrupt_handler
 {
     dma_request_t req;
     BOOL buffer_read_incremented = FALSE;
+
+    APAL_DEBUG_LOG("%s() is  called\n",__FUNCTION__);
+     
+
+
 /* print bd_done bits for debug purposes only when deemed necessary. */
 #if 0
     printk ("tx_interrupt_handler called\n");
@@ -469,27 +487,29 @@ apal_dma_rx_interrupt_handler
     void *arg
 )
 {
-    apal_rx_dma_config.next_buffer_to_fill = 
-                                      (apal_rx_dma_config.next_buffer_to_fill+1)%APAL_NB_BLOCK_SDMA;
+    APAL_DEBUG_LOG("%s() is  called\n",__FUNCTION__);
+     
+    apal_rx_dma_config[stdac_codec_in_use].next_buffer_to_fill = 
+                                      (apal_rx_dma_config[stdac_codec_in_use].next_buffer_to_fill+1)%APAL_NB_BLOCK_SDMA;
 
-    if((apal_rx_dma_config.immediate_stop == TRUE) || 
-            (apal_rx_dma_config.buffer_read == apal_rx_dma_config.next_buffer_to_fill))
+    if((apal_rx_dma_config[stdac_codec_in_use].immediate_stop == TRUE) || 
+            (apal_rx_dma_config[stdac_codec_in_use].buffer_read == apal_rx_dma_config[stdac_codec_in_use].next_buffer_to_fill))
     {
-        if(apal_rx_dma_config.wait_end == TRUE)
+        if(apal_rx_dma_config[stdac_codec_in_use].wait_end == TRUE)
         {
             /* stop SDMA capture */
             ssi_receive_enable (apal_driver_state.mod, false);
             ssi_rx_fifo_enable(apal_driver_state.mod, ssi_fifo_0, false);
 #ifdef CONFIG_MOT_WFN409
-            mxc_dma_reset (apal_rx_dma_config.read_channel, APAL_NB_BLOCK_SDMA);
+            mxc_dma_reset (apal_rx_dma_config[stdac_codec_in_use].read_channel, APAL_NB_BLOCK_SDMA);
 #endif /* CONFIG_MOT_WFN409 */
-            mxc_dma_stop (apal_rx_dma_config.read_channel);
+            mxc_dma_stop (apal_rx_dma_config[stdac_codec_in_use].read_channel);
 
             /* reset static variables */
-            apal_rx_dma_config.wait_end = FALSE;
-            apal_rx_dma_config.first_read = FALSE;
-            apal_rx_dma_config.wait_next = FALSE;
-            apal_rx_dma_config.immediate_stop = FALSE;
+            apal_rx_dma_config[stdac_codec_in_use].wait_end = FALSE;
+            apal_rx_dma_config[stdac_codec_in_use].first_read = FALSE;
+            apal_rx_dma_config[stdac_codec_in_use].wait_next = FALSE;
+            apal_rx_dma_config[stdac_codec_in_use].immediate_stop = FALSE;
 
             wake_up_interruptible (&apal_rx_wait_queue);
         }
@@ -498,9 +518,9 @@ apal_dma_rx_interrupt_handler
             APAL_ERROR_LOG("missed %s isr!\n",__FUNCTION__);
         }
     }
-    else if(apal_rx_dma_config.wait_next == TRUE)
+    else if(apal_rx_dma_config[stdac_codec_in_use].wait_next == TRUE)
     {
-        apal_rx_dma_config.wait_next = FALSE;
+        apal_rx_dma_config[stdac_codec_in_use].wait_next = FALSE;
         wake_up_interruptible (&apal_rx_wait_queue);
     }
 
@@ -580,25 +600,40 @@ apal_setup_dma
         /* Allocate DMA Rx channel only thru SSI1 */ 
         dma_channel = 0; /* request a new DMA channel for RX */
         TRY ( mxc_request_dma (&dma_channel, "APAL_RX SDMA") )
-        apal_rx_dma_config.read_channel = dma_channel;
+        apal_rx_dma_config[stdac_codec].read_channel = dma_channel;
 
-        rx_params.watermark_level = RX_FIFO_FULL_WML;
-        rx_params.transfer_type   = per_2_emi;
-        rx_params.callback        = apal_dma_rx_interrupt_handler;
-        rx_params.arg             = (void*)&apal_rx_dma_config;
-        rx_params.bd_number       = APAL_NB_BLOCK_SDMA;
-        rx_params.word_size       = TRANSFER_16BIT;
 
         /* fifo 0, SSI1 */
         rx_params.per_address     = (SSI1_BASE_ADDR + 8); /*SRX10*/
         rx_params.event_id        = DMA_REQ_SSI1_RX1;
         rx_params.peripheral_type = SSI;
 
-        /* Set the SDMA configuration for transmit */
-        TRY ( mxc_dma_setup_channel(dma_channel, &rx_params) )
-
         APAL_DEBUG_LOG ("APAL_RX SDMA channel number %d\n", dma_channel);
     }
+    else
+    {
+        /* Allocate DMA Rx channel only thru SSI2 */ 
+        dma_channel = 0; /* request a new DMA channel for RX */
+        TRY ( mxc_request_dma (&dma_channel, "APAL STDAC RX SDMA") )
+        apal_rx_dma_config[stdac_codec].read_channel = dma_channel;
+
+        /* fifo 0, SSI1 */
+        rx_params.per_address     = (SSI2_BASE_ADDR + 8); /*SRX20*/
+        rx_params.event_id        = DMA_REQ_SSI2_RX1;
+        rx_params.peripheral_type = SSI_SP;
+
+        APAL_DEBUG_LOG ("APAL STDAC RX SDMA channel number %d\n", dma_channel);
+    }
+
+    rx_params.watermark_level = RX_FIFO_FULL_WML;
+    rx_params.transfer_type   = per_2_emi;
+    rx_params.callback        = apal_dma_rx_interrupt_handler;
+    rx_params.arg             = (void*)&apal_rx_dma_config[stdac_codec];
+    rx_params.bd_number       = APAL_NB_BLOCK_SDMA;
+    rx_params.word_size       = TRANSFER_16BIT;
+
+    /* Set the SDMA configuration for receive */
+    TRY ( mxc_dma_setup_channel(dma_channel, &rx_params) )
 
     return APAL_SUCCESS;
 
@@ -646,8 +681,17 @@ apal_setup_dam
     dam_reset_register(port_a);
     dam_reset_register(port_b);
 
-    dam_set_synchronous(port_a, true); /* Rx & Tx will use same clock, 4-wire mode*/
-    dam_set_synchronous(port_b, true);
+
+    if(apal_driver_state.fmradio_digital_stereo)
+    {
+        dam_set_synchronous(port_a, false); /* Rx & Tx will use deferent clock, 6-wire mode*/
+        dam_set_synchronous(port_b, true);
+    }
+    else
+    {
+        dam_set_synchronous(port_a, true); /* Rx & Tx will use same clock, 4-wire mode*/
+        dam_set_synchronous(port_b, true);
+    }
 
     if (port_a != port_7)
     {
@@ -665,10 +709,26 @@ apal_setup_dam
 
     if (master_slave == APAL_ATLAS_MASTER)
     {
-        dam_select_TxClk_direction(port_a, signal_out); /* Internal ports don't supply clock */
-        dam_select_TxFS_direction(port_a, signal_out);   
-        dam_select_TxClk_source(port_a, false, port_b); /* port_b is the source of the Tx clk */
-        dam_select_TxFS_source(port_a, false, port_b);  /* port_b is the source of the Tx FS */
+        if(apal_driver_state.fmradio_digital_stereo)
+        {
+            dam_select_RxClk_direction(port_a, signal_out); /* Internal ports don't supply clock */
+            dam_select_RxFS_direction(port_a, signal_out);   
+            dam_select_RxClk_source(port_a, false, port_b); /* port_b is the source of the Rx clk */
+            dam_select_RxFS_source(port_a, false, port_b);  /* port_b is the source of the Rx FS */
+        
+            dam_select_TxClk_direction(port_a, signal_out); /* Internal ports don't supply clock */
+            dam_select_TxFS_direction(port_a, signal_out);   
+            dam_select_TxClk_source(port_a, false, port_b); /* port_b is the source of the Tx clk */
+            dam_select_TxFS_source(port_a, false, port_b);  /* port_b is the source of the Tx FS */
+        }
+        else
+        {
+            dam_select_TxClk_direction(port_a, signal_out); /* Internal ports don't supply clock */
+            dam_select_TxFS_direction(port_a, signal_out);   
+            dam_select_TxClk_source(port_a, false, port_b); /* port_b is the source of the Tx clk */
+            dam_select_TxFS_source(port_a, false, port_b);  /* port_b is the source of the Tx FS */
+        }
+        
         APAL_DEBUG_LOG ("port_b CLK, and FS setted\n");
     }
     else /* In Slave mode SSI is the clock master */
@@ -757,6 +817,25 @@ apal_setup_codec
       
     TRY ( power_ic_audio_set_reg_mask_audio_codec (mask, value))
 
+    if((apal_driver_state.fmradio_digital_mono) ||
+       (audio_route == APAL_AUDIO_ROUTE_FMRADIO_RECORD)) 	    
+    {
+        mask  = 0x3FFF;
+        value = AUDIOIC_SET_REG38_RSVD_1; 
+        TRY ( power_ic_audio_set_reg_mask_audio_tx(mask, value) )
+    }
+
+   
+
+    if(apal_driver_state.fmradio_digital_mono)
+    {
+        mask = AUDIOIC_SET_CDC_TXRX_SLT_0 | AUDIOIC_SET_CDC_TXRX_SLT_1;
+        value = AUDIOIC_SET_CDC_TXRX_SLT_0; /* Codec use time slot 1 */
+
+	TRY ( power_ic_audio_set_reg_mask_ssi_network (mask, value) ) 
+    } 
+     
+
 #ifdef APAL_DEBUG
     TRY ( power_ic_read_reg (POWER_IC_REG_ATLAS_AUDIO_CODEC, &atlas_config.audio_codec) )
     TRY ( power_ic_read_reg (POWER_IC_REG_ATLAS_AUDIO_STEREO_DAC,&atlas_config.audio_stdac))
@@ -827,7 +906,15 @@ apal_setup_stdac
  
     /* Choose SSI2 */
     mask |= AUDIOIC_SET_STDAC_SSI_SEL | AUDIOIC_SET_STDAC_FS0 | AUDIOIC_SET_STDAC_FS1;
-    value |= AUDIOIC_SET_STDAC_SSI_SEL | AUDIOIC_SET_STDAC_FS0;
+
+    if(apal_driver_state.fmradio_digital_stereo)
+    {
+        value |= AUDIOIC_SET_STDAC_SSI_SEL;
+    }
+    else
+    {
+        value |= AUDIOIC_SET_STDAC_SSI_SEL | AUDIOIC_SET_STDAC_FS0;
+    }
 
     mask |= AUDIOIC_SET_STDAC_SM;
 
@@ -844,7 +931,15 @@ apal_setup_stdac
 
     /* STDCCLOTS[1:0] = 10, 4 time slots */
     mask = AUDIOIC_SET_ST_DAC_SLT_1 | AUDIOIC_SET_ST_DAC_SLT_0;
-    value = AUDIOIC_SET_ST_DAC_SLT_1; /* 4 time slots */
+
+    if(apal_driver_state.fmradio_digital_stereo)
+    {
+        value = AUDIOIC_SET_ST_DAC_SLT_0 | AUDIOIC_SET_ST_DAC_SLT_1; /* 2 time slots */
+    }
+    else
+    {
+        value = AUDIOIC_SET_ST_DAC_SLT_1; /* 4 time slots */
+    }
  
     TRY ( power_ic_audio_set_reg_mask_ssi_network (mask, value) )  
 
@@ -980,8 +1075,17 @@ apal_setup_ssi
 
         /* disable ssi, first apal_read/apal_write will enable ssi and sdma */
         ssi_two_channel_mode(mod, false);
-        ssi_network_mode(mod, false);
-        ssi_tx_fifo_enable(mod, ssi_fifo_1, false);
+        
+	if(apal_driver_state.fmradio_digital_mono)
+	{
+	    ssi_network_mode(mod, true); /*Use network mode when fmradio digital over mono BT*/
+	}
+	else
+	{
+	    ssi_network_mode(mod, false);
+	}
+
+	ssi_tx_fifo_enable(mod, ssi_fifo_1, false);
     }
     
     /****** SCR (SSI Control Register) ******/
@@ -994,7 +1098,15 @@ apal_setup_ssi
     ssi_clock_idle_state(mod, true);
     /* configure other registers */
     ssi_i2s_mode(mod, i2s_normal);
-    ssi_synchronous_mode(mod, true);
+
+    if(apal_driver_state.fmradio_digital_stereo)
+    {
+        ssi_synchronous_mode(mod, false);
+    }
+    else
+    {
+        ssi_synchronous_mode(mod, true);
+    }
  
     /****** STCR/SRCR (SSI Transmit/Receive Configuration Register) *******/
     /* Configure the SSI module to transmit data word from bit position 0 or 23 in the Transmit 
@@ -1017,38 +1129,61 @@ apal_setup_ssi
         ssi_rx_frame_direction(mod, ssi_tx_rx_externally);
         ssi_rx_clock_direction(mod, ssi_tx_rx_externally);
     }
-    
-    /** STCR - Transmit configuration **/
-    ssi_tx_early_frame_sync(mod, ssi_frame_sync_one_bit_before);
 
-    ssi_tx_frame_sync_length(mod, ssi_frame_sync_one_bit);
+    if(apal_driver_state.fmradio_digital_stereo)
+    {            
+        /** STCR - Transmit configuration **/
+        ssi_tx_early_frame_sync(mod, ssi_frame_sync_first_bit);
+        ssi_tx_frame_sync_length(mod, ssi_frame_sync_one_word);
+
+        /** SRCR - Receive configuration **/
+        ssi_rx_early_frame_sync(mod, ssi_frame_sync_first_bit);
+        ssi_rx_frame_sync_length(mod, ssi_frame_sync_one_word);
+        ssi_rx_clock_polarity(mod, ssi_clock_on_falling_edge);
+
+        /* In Normal mode, this is word transfer rate. In Network mode, its num of words per frame*/
+        ssi_tx_frame_rate(mod, (unsigned char) 2);      /* DC */
+
+        ssi_rx_frame_rate(mod, (unsigned char) 2);
+
+
+    }
+    else
+    {
+        /** STCR - Transmit configuration **/
+        ssi_tx_early_frame_sync(mod, ssi_frame_sync_one_bit_before);
+        ssi_tx_frame_sync_length(mod, ssi_frame_sync_one_bit);
+
+        /** SRCR - Receive configuration **/
+        ssi_rx_early_frame_sync(mod, ssi_frame_sync_one_bit_before);
+        ssi_rx_frame_sync_length(mod, ssi_frame_sync_one_bit);
+        ssi_rx_clock_polarity(mod, ssi_clock_on_rising_edge);
+
+        /* In Normal mode, this is word transfer rate. In Network mode, its num of words per frame*/
+        ssi_tx_frame_rate(mod, (unsigned char) 4);      /* DC */
+
+        ssi_rx_frame_rate(mod, (unsigned char) 4);
+
+    }
 
 
     ssi_tx_frame_sync_active(mod, ssi_frame_sync_active_high);
     ssi_tx_clock_polarity(mod, ssi_clock_on_rising_edge);
     ssi_tx_shift_direction(mod, ssi_msb_first);
 
-    /** SRCR - Receive configuration **/
-    ssi_rx_early_frame_sync(mod, ssi_frame_sync_one_bit_before);
-    ssi_rx_frame_sync_length(mod, ssi_frame_sync_one_bit);
-
-
     ssi_rx_frame_sync_active(mod, ssi_frame_sync_active_high);
-    ssi_rx_clock_polarity(mod, ssi_clock_on_rising_edge);
     ssi_rx_shift_direction(mod, ssi_msb_first);
     
     /****** STCCR (SSI Transmit Clock Control Register) ******/
     ssi_tx_word_length(mod, ssi_16_bits);           /* WL */
     ssi_tx_clock_divide_by_two(mod, false);         /* DIV2 */
-    /* In Normal mode, this is word transfer rate. In Network mode, its num of words per frame*/
-    ssi_tx_frame_rate(mod, (unsigned char) 4);      /* DC */
+    
     ssi_tx_prescaler_modulus(mod, (unsigned char ) prescaler);/* PM */
     ssi_tx_clock_prescaler(mod, false);             /* PSR */
     
     /****** SRCCR (SSI Receive Clock Control Register) ******/
     ssi_rx_word_length(mod, ssi_16_bits);
     ssi_rx_clock_divide_by_two(mod, false); 
-    ssi_rx_frame_rate(mod, (unsigned char) 4);
     ssi_rx_prescaler_modulus(mod, (unsigned char) prescaler);
     ssi_rx_clock_prescaler(mod, false);
 
@@ -1071,7 +1206,16 @@ apal_setup_ssi
     ssi_enable(mod, true);
    
     /****** STMSK (SSI Transmit Time Slot Mask Register) *******/
-    ssi_tx_mask_time_slot(mod, 0xFFFFFFFC); /* Use time slots 0, 1 only */
+    if(apal_driver_state.fmradio_digital_mono)
+    {
+	 ssi_tx_mask_time_slot(mod, 0xFFFFFFFE); /*Tx use time slot 0*/
+ 	 ssi_rx_mask_time_slot(mod, 0xFFFFFFFD); /*Rx use time slot 1*/
+    }
+    else
+    {
+	 ssi_tx_mask_time_slot(mod, 0xFFFFFFFC); /* Use time slots 0, 1 only */
+	 ssi_rx_mask_time_slot(mod, 0xFFFFFFFC);
+    }
 
     ssi_interrupt_enable (apal_driver_state.mod, ssi_tx_dma_interrupt_enable);
     ssi_tx_fifo_enable(apal_driver_state.mod, ssi_fifo_0, true);
@@ -1329,12 +1473,71 @@ apal_set_audio_route
             }
             break;
 
-        case APAL_AUDIO_ROUTE_FMRADIO:
+        case APAL_AUDIO_ROUTE_FMRADIO_ANALOG:
                    {
                        /* Nothing to do for analog FM, just remember the status for DSM */
-                       apal_driver_state.fmradio_on = TRUE;
+                       apal_driver_state.fmradio_analog_on = TRUE;
                    }
                    break;
+
+        case APAL_AUDIO_ROUTE_FMRADIO_DIGITAL_MONO:
+            {
+
+                 apal_driver_state.fmradio_digital_mono = TRUE;
+                
+                 if (apal_driver_state.port_4_in_use == FALSE)
+	             {
+                      /* Configure AUDMUX to use SSI1 and Port 4 */
+		              TRY ( apal_setup_dam (port_1, port_4, APAL_ATLAS_MASTER) )
+                      apal_driver_state.port_4_in_use = TRUE;
+                 }
+                 else
+                 {
+                      APAL_ERROR_LOG ("AUDIO_ROUTE_CODEC cannot be set, Port_4 already in use\n");
+                      return APAL_FAILURE;
+                 }
+
+                 /* Configure SSI1 */
+                 TRY ( apal_setup_ssi (APAL_CODEC, APAL_ATLAS_MASTER) )
+
+                
+                 apal_driver_state.codec_in_use = TRUE;
+                 stdac_codec_in_use = APAL_CODEC;
+
+                 /* Configure CODEC */
+                 TRY ( apal_setup_codec (APAL_ATLAS_MASTER, audio_route) )
+
+       
+		 vaudio_on = TRUE;
+
+                
+            }
+            break;
+
+
+        case APAL_AUDIO_ROUTE_FMRADIO_DIGITAL_STEREO:
+            {
+
+                apal_driver_state.fmradio_digital_stereo = TRUE;
+                
+                /* Configure AUDMUX to use SSI2 and Port 5 */
+                TRY ( apal_setup_dam (port_2, port_5, APAL_ATLAS_MASTER) )
+
+                /* Configure SSI2  */
+                TRY ( apal_setup_ssi (APAL_STDAC, APAL_ATLAS_MASTER) )
+
+                stdac_codec_in_use = APAL_STDAC;
+
+                /* Configure STDAC */
+                TRY ( apal_setup_stdac (APAL_ATLAS_MASTER) )
+
+                apal_driver_state.stdac_in_use = TRUE;
+
+                vaudio_on = TRUE;        
+
+            }
+            break;
+
 
         default:
             APAL_ERROR_LOG ("%s() called with invalid audio_route = %d", __FUNCTION__, audio_route);
@@ -1389,6 +1592,7 @@ apal_clear_audio_route
             break;
 
         case APAL_AUDIO_ROUTE_CODEC_AP: 
+        case APAL_AUDIO_ROUTE_FMRADIO_RECORD:
             apal_driver_state.port_4_in_use = FALSE;
             dam_reset_register(port_1);
 	    dam_reset_register(port_4);
@@ -1406,6 +1610,42 @@ apal_clear_audio_route
             dam_reset_register(port_2);
             dam_reset_register(port_5);
             apal_driver_state.stdac_in_use = FALSE;
+            ssi_tx_fifo_enable(SSI2, ssi_fifo_0, false);
+            ssi_tx_flush_fifo (SSI2);
+    	    ssi_transmit_enable (SSI2, false);  
+#if defined(CONFIG_ARCH_MXC91231)
+            mxc_clks_disable(SSI2_IPG_CLK);
+#endif
+            mxc_clks_disable(SSI2_BAUD);
+            break;
+
+
+        case APAL_AUDIO_ROUTE_FMRADIO_ANALOG:
+            /* Nothing to do for analog FM, just remember the status for DSM */
+            apal_driver_state.fmradio_analog_on = FALSE;
+            break;
+
+        case APAL_AUDIO_ROUTE_FMRADIO_DIGITAL_MONO:
+            apal_driver_state.port_4_in_use = FALSE;
+            dam_reset_register(port_1);
+	        dam_reset_register(port_4);
+            apal_driver_state.codec_in_use = FALSE;
+            ssi_tx_fifo_enable(apal_driver_state.mod, ssi_fifo_0, false);
+            ssi_tx_flush_fifo (apal_driver_state.mod);
+    	    ssi_transmit_enable (apal_driver_state.mod, false);
+#if defined(CONFIG_ARCH_MXC91231)
+            mxc_clks_disable(SSI1_IPG_CLK);
+#endif
+            mxc_clks_disable(SSI1_BAUD);
+
+            apal_driver_state.fmradio_digital_mono = FALSE;
+            break;
+
+
+        case APAL_AUDIO_ROUTE_FMRADIO_DIGITAL_STEREO:
+            dam_reset_register(port_2);
+            dam_reset_register(port_5);
+            apal_driver_state.stdac_in_use = FALSE;
             ssi_tx_fifo_enable(apal_driver_state.mod, ssi_fifo_0, false);
             ssi_tx_flush_fifo (apal_driver_state.mod);
     	    ssi_transmit_enable (apal_driver_state.mod, false);
@@ -1413,12 +1653,10 @@ apal_clear_audio_route
             mxc_clks_disable(SSI2_IPG_CLK);
 #endif
             mxc_clks_disable(SSI2_BAUD);
+
+            apal_driver_state.fmradio_digital_stereo = FALSE;
             break;
 
-        case APAL_AUDIO_ROUTE_FMRADIO:
-            /* Nothing to do for analog FM, just remember the status for DSM */
-            apal_driver_state.fmradio_on = FALSE;
-            break;
 
         default:
             APAL_ERROR_LOG ("%s() called with invalid audio_route = %d", __FUNCTION__, audio_route);
@@ -1516,13 +1754,13 @@ apal_sdma_stop_rw
 
     spin_unlock_irqrestore(&apal_write_lock, flags);
     /* check if we need to stop SDMA receive */
-    if(apal_rx_dma_config.first_read == TRUE)
+    if(apal_rx_dma_config[stdac_codec_in_use].first_read == TRUE)
     {
         APAL_DEBUG_LOG("stop record\n");
-        apal_rx_dma_config.immediate_stop = TRUE;
+        apal_rx_dma_config[stdac_codec_in_use].immediate_stop = TRUE;
         wait_event_interruptible_timeout (apal_rx_wait_queue, 
-                (apal_rx_dma_config.wait_end == FALSE), APAL_SDMA_TIMEOUT);
-        apal_rx_dma_config.first_read = FALSE;
+                (apal_rx_dma_config[stdac_codec_in_use].wait_end == FALSE), APAL_SDMA_TIMEOUT);
+        apal_rx_dma_config[stdac_codec_in_use].first_read = FALSE;
     }
 }
 
@@ -1603,9 +1841,9 @@ apal_stop
         apal_tx_dma_config[stdac_codec_in_use].start_dma = FALSE;
     }
 
-    if(apal_rx_dma_config.first_read == TRUE)
+    if(apal_rx_dma_config[stdac_codec_in_use].first_read == TRUE)
     {
-        apal_rx_dma_config.immediate_stop = TRUE;
+        apal_rx_dma_config[stdac_codec_in_use].immediate_stop = TRUE;
         apal_sdma_stop_rw();
     }
 
@@ -1710,7 +1948,9 @@ apal_open
     apal_driver_state.codec_in_use      = FALSE;
     apal_driver_state.phone_call_on     = FALSE;
     apal_driver_state.prepare_for_dsm   = FALSE;
-    apal_driver_state.fmradio_on        = FALSE;
+    apal_driver_state.fmradio_analog_on        = FALSE;
+    apal_driver_state.fmradio_digital_mono     = FALSE;
+    apal_driver_state.fmradio_digital_stereo   = FALSE;
 
     init_waitqueue_head (&apal_tx_wait_queue);
     init_waitqueue_head (&apal_rx_wait_queue);
@@ -1723,6 +1963,55 @@ apal_open
     vaudio_on = FALSE;
     return ret_val;
 }
+
+/*=================================================================================================
+FUNCTION: apal_fmradio_open()
+
+DESCRIPTION: 
+    This function is called when an open system call is made on /dev/apal_fm
+
+ARGUMENTS PASSED:
+    inode - Kernel representation for disk file
+    file  - opened by kernel on file open (i.e./dev/apal_fm) and passed by kernel to every function 
+           (functions in the file_operations structure) that operates on the file 
+
+RETURN VALUE:
+    APAL_SUCCESS - Returns SUCCESS on the first attempt to open /dev/apal_fm
+    APAL_FAILURE - All subsequent attempts will return FAILURE
+
+PRE-CONDITIONS
+    None
+
+POST-CONDITIONS
+    None
+
+IMPORTANT NOTES:
+    None
+
+==================================================================================================*/
+static int 
+apal_fmradio_open 
+(
+    struct inode* inode,
+    struct file* file
+)
+{
+    int ret_val = APAL_FAILURE;
+    APAL_DEBUG_LOG ("%s() called\n", __FUNCTION__);
+
+    if (open_count == 1)
+    {
+        ret_val =  APAL_SUCCESS;
+    }
+    else
+    {
+        ret_val =  APAL_FAILURE;
+    }
+
+    return ret_val;
+}
+
+
 
 /*=================================================================================================
 FUNCTION: apal_release()
@@ -1797,21 +2086,65 @@ apal_release
             apal_tx_dma_config[j].apal_tx_buf_flag = FALSE;
         }
     }
-    if(apal_rx_dma_config.apal_rx_buf_flag == TRUE)
+    for(j=0; j < 2; j++)
     {
-        for(i=0; i<APAL_NB_BLOCK_SDMA; i++)
-        { 
-            kfree(apal_rx_dma_config.myRxBufStructSDMA[i].pbuf);
-            apal_rx_dma_config.myRxBufStructSDMA[i].buf_size = 0;
+        if(apal_rx_dma_config[j].apal_rx_buf_flag == TRUE)
+        {
+            for(i=0; i<APAL_NB_BLOCK_SDMA; i++)
+            { 
+                kfree(apal_rx_dma_config[j].myRxBufStructSDMA[i].pbuf);
+                apal_rx_dma_config[j].myRxBufStructSDMA[i].buf_size = 0;
+            }
+            apal_rx_dma_config[j].apal_rx_buf_flag = FALSE;
         }
-        apal_rx_dma_config.apal_rx_buf_flag = FALSE;
     }
+
 
     /* Reset Power IC */
     apal_audioic_power_off ();
     
     return APAL_SUCCESS;
 }
+
+
+/*=================================================================================================
+FUNCTION: apal_fmradio_release()
+
+DESCRIPTION: 
+    This function is called when an close system call is made on /dev/apal_fm
+
+ARGUMENTS PASSED:
+    inode - Kernel representation for disk file
+    file  - opened by kernel on file open (i.e./dev/apal_fm) and passed by kernel to every function 
+           (functions in the file_operations structure) that operates on the file 
+
+RETURN VALUE:
+    Always SUCCESS 
+
+PRE-CONDITIONS
+    None
+
+POST-CONDITIONS
+    None
+
+IMPORTANT NOTES:
+    None
+
+==================================================================================================*/
+static int 
+apal_fmradio_release 
+(
+    struct inode* inode,
+    struct file* file
+)
+{
+ 
+    APAL_DEBUG_LOG ("%s() called\n", __FUNCTION__);
+    
+    return APAL_SUCCESS;
+}
+
+
 
 /*=================================================================================================
 FUNCTION: apal_poll()
@@ -2259,31 +2592,33 @@ apal_read
        return size;
     }
 	 
-    if (apal_rx_dma_config.first_read == FALSE) /* first time or SDMA data starvation */
+    if (apal_rx_dma_config[stdac_codec_in_use].first_read == FALSE) /* first time or SDMA data starvation */
     {
-        apal_rx_dma_config.buffer_read = apal_rx_dma_config.next_buffer_to_fill;
-        apal_rx_dma_config.wait_next = TRUE;  /* wait for interrupt */
-        apal_rx_dma_config.wait_end = TRUE;   /* stop sdma if isr starve for data */
-    	apal_rx_dma_config.first_read = TRUE;
-        apal_rx_dma_config.immediate_stop = FALSE;
+        //apal_rx_dma_config[stdac_codec_in_use].next_buffer_to_fill = 0;
+	
+        apal_rx_dma_config[stdac_codec_in_use].buffer_read = apal_rx_dma_config[stdac_codec_in_use].next_buffer_to_fill;
+        apal_rx_dma_config[stdac_codec_in_use].wait_next = TRUE;  /* wait for interrupt */
+        apal_rx_dma_config[stdac_codec_in_use].wait_end = TRUE;   /* stop sdma if isr starve for data */
+    	apal_rx_dma_config[stdac_codec_in_use].first_read = TRUE;
+        apal_rx_dma_config[stdac_codec_in_use].immediate_stop = FALSE;
 
-        if(apal_rx_dma_config.apal_rx_buf_flag == FALSE)
+        if(apal_rx_dma_config[stdac_codec_in_use].apal_rx_buf_flag == FALSE)
         {
             for (bufferDescIndex=0; bufferDescIndex<APAL_NB_BLOCK_SDMA; bufferDescIndex++)
             {
-                apal_rx_dma_config.myRxBufStructSDMA[bufferDescIndex].pbuf = 
+                apal_rx_dma_config[stdac_codec_in_use].myRxBufStructSDMA[bufferDescIndex].pbuf = 
                                                         (unsigned char *) kmalloc(size,GFP_KERNEL);
-                apal_rx_dma_config.myRxBufStructSDMA[bufferDescIndex].buf_size = size;
+                apal_rx_dma_config[stdac_codec_in_use].myRxBufStructSDMA[bufferDescIndex].buf_size = size;
             }
 
-            apal_rx_dma_config.apal_rx_buf_flag = TRUE;
+            apal_rx_dma_config[stdac_codec_in_use].apal_rx_buf_flag = TRUE;
         }
         else
             APAL_DEBUG_LOG("reuse old buffer req. size = %d\n", size);
 
         for (bufferDescIndex=0; bufferDescIndex<APAL_NB_BLOCK_SDMA; bufferDescIndex++)
         { 
-            myBufStruct = &apal_rx_dma_config.myRxBufStructSDMA[bufferDescIndex];
+            myBufStruct = &apal_rx_dma_config[stdac_codec_in_use].myRxBufStructSDMA[bufferDescIndex];
 
             /* configure SDMA */
             memset(&sdma_request, 0, sizeof(sdma_request));
@@ -2296,39 +2631,39 @@ apal_read
     	    consistent_sync(myBufStruct->pbuf, sdma_request.count, DMA_BIDIRECTIONAL);
 
     	    /* configure buffer descriptor to chain transfers at SDMA level */
-    	    mxc_dma_set_config (apal_rx_dma_config.read_channel, &sdma_request, bufferDescIndex);
+    	    mxc_dma_set_config (apal_rx_dma_config[stdac_codec_in_use].read_channel, &sdma_request, bufferDescIndex);
         }
 
         /* Start DMA */
-    	mxc_dma_start (apal_rx_dma_config.read_channel);
+    	mxc_dma_start (apal_rx_dma_config[stdac_codec_in_use].read_channel);
     	ssi_interrupt_enable (apal_driver_state.mod, ssi_rx_dma_interrupt_enable);
     	ssi_rx_fifo_enable(apal_driver_state.mod, ssi_fifo_0, true);
     	ssi_receive_enable (apal_driver_state.mod, true);
     }
 
     /* get the read buffer intex before updated by ISR */
-    bufferDescIndex = apal_rx_dma_config.buffer_read;
-    myBufStruct = &apal_rx_dma_config.myRxBufStructSDMA[bufferDescIndex];
+    bufferDescIndex = apal_rx_dma_config[stdac_codec_in_use].buffer_read;
+    myBufStruct = &apal_rx_dma_config[stdac_codec_in_use].myRxBufStructSDMA[bufferDescIndex];
 
     wait_event_interruptible_timeout (apal_rx_wait_queue, 
-            (apal_rx_dma_config.wait_next == FALSE), APAL_SDMA_TIMEOUT); 
+            (apal_rx_dma_config[stdac_codec_in_use].wait_next == FALSE), APAL_SDMA_TIMEOUT); 
     APAL_DEBUG_LOG ("after wait_event_interruptible_timeout()\n");
     
-    if(apal_rx_dma_config.first_read == TRUE)
+    if(apal_rx_dma_config[stdac_codec_in_use].first_read == TRUE)
     {
         spin_lock_irqsave(&apal_read_lock, flags); 
-        apal_rx_dma_config.buffer_read = (apal_rx_dma_config.buffer_read+1)%APAL_NB_BLOCK_SDMA;
-        if (apal_rx_dma_config.buffer_read == apal_rx_dma_config.next_buffer_to_fill)
+        apal_rx_dma_config[stdac_codec_in_use].buffer_read = (apal_rx_dma_config[stdac_codec_in_use].buffer_read+1)%APAL_NB_BLOCK_SDMA;
+        if (apal_rx_dma_config[stdac_codec_in_use].buffer_read == apal_rx_dma_config[stdac_codec_in_use].next_buffer_to_fill)
         {
             /* put the next read in waitQ, reading faster than interrupt */
-            apal_rx_dma_config.wait_next = TRUE; 
+            apal_rx_dma_config[stdac_codec_in_use].wait_next = TRUE; 
         }
         spin_unlock_irqrestore(&apal_read_lock, flags);
 
         /* Get the data */
         copy_to_user (bufStruct, myBufStruct->pbuf, size);
         
-        if (apal_rx_dma_config.immediate_stop == FALSE)
+        if (apal_rx_dma_config[stdac_codec_in_use].immediate_stop == FALSE)
         {
             memset(&sdma_request, 0, sizeof(sdma_request));
             sdma_request.destAddr = (char*)sdma_virt_to_phys(myBufStruct->pbuf);
@@ -2341,7 +2676,7 @@ apal_read
             consistent_sync(myBufStruct->pbuf, sdma_request.count, DMA_BIDIRECTIONAL);
 
             /* configure buffer descriptor to chain transfers at SDMA level */
-            mxc_dma_set_config (apal_rx_dma_config.read_channel, &sdma_request, bufferDescIndex);
+            mxc_dma_set_config (apal_rx_dma_config[stdac_codec_in_use].read_channel, &sdma_request, bufferDescIndex);
         }
     }
         
@@ -2385,6 +2720,7 @@ apal_init
     
     /* register device with kernel and get major number */
     apal_driver_state.major_num = register_chrdev(0,"apal", &apal_fops);
+    apal_driver_state.major_fmradio = register_chrdev(0,"apal_fm", &apal_fmradio_fops);
         
     if (apal_driver_state.major_num < 0)
     {
@@ -2392,9 +2728,18 @@ apal_init
         return APAL_FAILURE;   
     }
 
+    if(apal_driver_state.major_fmradio < 0)
+    {
+        APAL_ERROR_LOG ("Unable to register APAL fmradio bt driver with the kernel");
+    }
+
     APAL_DEBUG_LOG ("creating devfs entry for APAL \n");
     devfs_mk_cdev (MKDEV (apal_driver_state.major_num, 0), S_IFCHR | /*S_IRUGO |*/ S_IRUSR | 
                    S_IWUSR, "apal" );
+
+    APAL_DEBUG_LOG ("creating devfs entry for APAL fmradio bt\n");
+    devfs_mk_cdev (MKDEV (apal_driver_state.major_fmradio, 0), S_IFCHR | S_IRUGO, "apal_fm" );
+
 
     APAL_DEBUG_LOG ("APAL driver registered with the kernel\n");
     
@@ -2417,9 +2762,13 @@ apal_init
     apal_tx_dma_config[APAL_STDAC].next_buffer_to_fill = 0;
     apal_tx_dma_config[APAL_STDAC].buffer_read = 0;
     apal_tx_dma_config[APAL_STDAC].first_write = FALSE;
-    apal_rx_dma_config.next_buffer_to_fill = 0;
-    apal_rx_dma_config.buffer_read = 0;
-    apal_rx_dma_config.first_read = FALSE;
+    apal_rx_dma_config[APAL_CODEC].next_buffer_to_fill = 0;
+    apal_rx_dma_config[APAL_CODEC].buffer_read = 0;
+    apal_rx_dma_config[APAL_CODEC].first_read = FALSE;
+    apal_rx_dma_config[APAL_STDAC].next_buffer_to_fill = 0;
+    apal_rx_dma_config[APAL_STDAC].buffer_read = 0;
+    apal_rx_dma_config[APAL_STDAC].first_read = FALSE;
+
 
     /* allocate default codec Tx buffer size - 8kHz mono */
     for(bufferDescIndex=0; bufferDescIndex<APAL_NB_BLOCK_SDMA; bufferDescIndex++)
@@ -2434,18 +2783,23 @@ apal_init
     // NOTE: not combined this two loop because, the malloc might interleave the buffers
     for(bufferDescIndex=0; bufferDescIndex<APAL_NB_BLOCK_SDMA; bufferDescIndex++)
     {
-        apal_rx_dma_config.myRxBufStructSDMA[bufferDescIndex].pbuf = 
+        apal_rx_dma_config[APAL_CODEC].myRxBufStructSDMA[bufferDescIndex].pbuf = 
             (unsigned char *) kmalloc(APAL_SDMA_8KMONO_SIZE,GFP_KERNEL);
-        apal_rx_dma_config.myRxBufStructSDMA[bufferDescIndex].buf_size = APAL_SDMA_8KMONO_SIZE;
+        apal_rx_dma_config[APAL_CODEC].myRxBufStructSDMA[bufferDescIndex].buf_size = APAL_SDMA_8KMONO_SIZE;
     }
 
     apal_tx_dma_config[APAL_CODEC].count = APAL_SDMA_8KMONO_SIZE;
     apal_tx_dma_config[APAL_CODEC].apal_tx_buf_flag = TRUE;
-    apal_rx_dma_config.apal_rx_buf_flag = TRUE;
+    apal_rx_dma_config[APAL_CODEC].apal_rx_buf_flag = TRUE;
 
     /* allocate stdac bufer in first write */
     apal_tx_dma_config[APAL_STDAC].count = 0;
     apal_tx_dma_config[APAL_STDAC].apal_tx_buf_flag = FALSE;
+
+    /* allocate stdac bufer in first read */
+    apal_rx_dma_config[APAL_STDAC].count = 0;
+    apal_rx_dma_config[APAL_STDAC].apal_rx_buf_flag = FALSE;
+
 
     /* Register driver for Power Management purposes */
     {
@@ -2494,10 +2848,14 @@ apal_exit
 
     mxc_free_dma (apal_tx_dma_config[APAL_STDAC].write_channel);  /* Free DMA channel */
     mxc_free_dma (apal_tx_dma_config[APAL_CODEC].write_channel);  /* Free DMA channel */
-    mxc_free_dma (apal_rx_dma_config.read_channel);  /* Free DMA channel */
+    mxc_free_dma (apal_rx_dma_config[APAL_STDAC].read_channel);  /* Free DMA channel */
+    mxc_free_dma (apal_rx_dma_config[APAL_CODEC].read_channel);   /* Free DMA channel */
 
     devfs_remove("apal");
     ret_val = unregister_chrdev (apal_driver_state.major_num, "apal");
+
+    devfs_remove("apal_fm");
+    ret_val = unregister_chrdev (apal_driver_state.major_fmradio, "apal_fm");
  
     platform_device_unregister (&apal_platform_device);
     driver_unregister (&apal_device_driver);
@@ -2565,15 +2923,15 @@ apal_suspend
             /* Don't do anything. Power IC is already setup for voice call */
              APAL_DEBUG_LOG ("apal_driver_state.phone_call_on == TRUE\n");
         }
-        else if (apal_driver_state.fmradio_on == TRUE)
-        {
-            /* Don't do anything. Power IC is already setup for FM radio */
-             APAL_DEBUG_LOG ("apal_driver_state.fmradio_on == TRUE\n");
-        }
         else if (apal_driver_state.stdac_in_use || apal_driver_state.codec_in_use)
         {
             APAL_DEBUG_LOG ("apal_driver_state.stdac_in_use || apal_driver_state.codec_in_use\n");
             return -EBUSY;
+        }
+        else if (apal_driver_state.fmradio_analog_on == TRUE)
+        {
+            /* Don't do anything. Power IC is already setup for FM radio */
+             APAL_DEBUG_LOG ("apal_driver_state.fmradio_on == TRUE\n");
         }
         else
         {

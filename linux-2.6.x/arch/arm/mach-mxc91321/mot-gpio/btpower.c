@@ -68,7 +68,7 @@ void gpio_bluetooth_hostwake_free_irq(void *dev_id)
     gpio_signal_config(GPIO_SIGNAL_BT_HOST_WAKE_B, GPIO_GDIR_INPUT,
             GPIO_INT_NONE);
     gpio_signal_free_irq(GPIO_SIGNAL_BT_HOST_WAKE_B, GPIO_HIGH_PRIO
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PEARL)
 								, dev_id
 #endif
 );

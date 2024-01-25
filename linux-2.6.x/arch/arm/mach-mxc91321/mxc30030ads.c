@@ -342,7 +342,7 @@ static void __init mxc_board_init(void)
  * initialize __mach_desc_MXC30030ADS data structure.
  */
 /* *INDENT-OFF* */
-MACHINE_START(MXC30030ADS, "Freescale MXC300-30 ADS")
+MACHINE_START(MXC30030ADS, "Freescale MXC300-30 ADS (Application Development System)")
     MAINTAINER("Freescale Semiconductor, Inc.")
     /*       physical memory    physical IO        virtual IO     */
     BOOT_MEM(PHYS_OFFSET_ASM, AIPS1_BASE_ADDR, AIPS1_BASE_ADDR_VIRT)

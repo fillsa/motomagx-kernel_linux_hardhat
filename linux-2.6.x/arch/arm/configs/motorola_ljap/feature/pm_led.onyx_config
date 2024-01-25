@@ -1,0 +1,7 @@
+#
+# arch/arm/configs/motorola_ljap/feature/pm_led.onyx_config
+#
+# Use BT LED to debug PM
+#
+
+CONFIG_DBG_PM_LED=y

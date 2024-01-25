@@ -44,6 +44,8 @@
  * 24-Jan-2008  Motorola        Added gpio_usb_hs_ref_clk_en_set_data
  * 16-Mar-2008  Motorola	Modify signals for Nevis.
  * 04-Apr-2008  Motorola        Removed Nevis's code change in gpio_signal of Marco.
+ * 09-Apr-2008  Motorola        Added GPIO_SIGNAL_VMMC_2_9V_EN
+ * 21_apr-2008  Motorola        Added GPIO_SIGNAL_PM_INT
  * 29-Jul-2008  Motorola        Removed Nevie's code related with GP_BP_A_PORT.
  * 13-Aug-2008  Motorola        GP_AP_C8 toggle workaround for 300uA BT power issue
  */
@@ -118,6 +120,9 @@ enum gpio_signal_assertion {
 /**
  * This enumeration is used as an index into the initial_gpio_settings(gpio_signal_mapping)
  * array as defined in the <board>_gpio.c files.
+ * The values of the enumeration do not map
+ * directly to the values in the hardware configuration tree, see mot-gpio.c
+ * for more information.
  * 
  * MAX_GPIO_SIGNAL should always be the last name defined in the enum.
  */
@@ -207,6 +212,8 @@ enum gpio_signal {
     GPIO_SIGNAL_DM500_VCC_EN,
     GPIO_SIGNAL_MORPH_TKC_RESET,
     GPIO_SIGNAL_USB_HS_REF_CLK_EN,
+    GPIO_SIGNAL_VMMC_2_9V_EN,
+    GPIO_SIGNAL_PM_INT,
 #elif defined(CONFIG_MACH_ARGONLVPHONE)
     GPIO_SIGNAL_CLI_RST_B = 0,
     GPIO_SIGNAL_ENET_INT_B,
@@ -676,7 +683,7 @@ extern int gpio_signal_request_irq(enum gpio_signal index,
         const char *devname, void *dev_id);
 extern int gpio_signal_free_irq(enum gpio_signal index,
         enum gpio_prio prio
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) ||  defined(CONFIG_MACH_KEYWEST) 
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) ||  defined(CONFIG_MACH_KEYWEST) ||  defined(CONFIG_MACH_PEARL)  
 			, void *dev_id
 #endif
 					);

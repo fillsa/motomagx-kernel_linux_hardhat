@@ -2,7 +2,14 @@
  * Generic waiting primitives.
  *
  * (C) 2004 William Irwin, Oracle
+ *  Copyright (C) 2008 Motorola, Inc.
  */
+/* Date         Author          Comment
+ * ===========  ==============  ==============================================
+ * 27-Sep-2008  Motorola        Add log to track kpanic
+ */
+
+
 #include <linux/config.h>
 #include <linux/init.h>
 #include <linux/module.h>
@@ -162,6 +169,11 @@ __wait_on_bit(wait_queue_head_t *wq, struct wait_bit_queue *q,
 			ret = (*action)(q->key.flags);
 	} while (test_bit(q->key.bit_nr, q->key.flags) && !ret);
 	finish_wait(wq, &q->wait);
+#ifdef  DBG_TRACK_KPANIC
+	if((unsigned long)(wq->task_list.next) < (unsigned long)wq && (unsigned long)(wq->task_list.next) > (unsigned long)(wq - 10)) {
+	  panic("__wait_on_bit: zone wait queue head corruptted!\n");
+	}
+#endif
 	return ret;
 }
 EXPORT_SYMBOL(__wait_on_bit);
@@ -190,6 +202,11 @@ __wait_on_bit_lock(wait_queue_head_t *wq, struct wait_bit_queue *q,
 		}
 	} while (test_and_set_bit(q->key.bit_nr, q->key.flags));
 	finish_wait(wq, &q->wait);
+#ifdef  DBG_TRACK_KPANIC
+	if((unsigned long)(wq->task_list.next) < (unsigned long)wq && (unsigned long)(wq->task_list.next) > (unsigned long)(wq - 10)) {
+	  panic("__wait_on_bit_lock: zone wait queue head corruptted!\n");
+	}
+#endif
 	return ret;
 }
 EXPORT_SYMBOL(__wait_on_bit_lock);

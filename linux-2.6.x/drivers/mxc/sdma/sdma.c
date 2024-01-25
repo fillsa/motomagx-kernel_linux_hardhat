@@ -26,6 +26,8 @@
  *                              using sdma channel at the same time.
  * 08/01/2008    Motorola       Add protection for channel 0 to fix dropped WiFi call issue.
  * 08/11/2008    Motorola       Protect variable ipai_SDMAintr with spin lock to fix MMC log stop issue. 
+ * 09/12/2008    Motorola       Add protection for channel 0 to fix dropped WiFi call issue.
+ * 09/16/2008    Motorola       Protect variable ipai_SDMAintr with spin lock to fix MMC log stop issue. 
  *
  */
 

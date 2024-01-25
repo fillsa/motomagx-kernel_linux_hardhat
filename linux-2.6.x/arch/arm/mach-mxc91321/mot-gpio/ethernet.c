@@ -84,7 +84,7 @@ int enet_free_irq(void *dev_id)
             GPIO_INT_NONE);
     gpio_signal_free_irq(GPIO_SIGNAL_ENET_INT_B,
             GPIO_HIGH_PRIO
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PEARL)
 								, dev_id
 #endif
 );

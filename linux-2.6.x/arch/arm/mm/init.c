@@ -73,6 +73,8 @@ unsigned long ipu_mem_size = (SZ_2M + SZ_4M);
 unsigned long ipu_mem_size = (SZ_1M + SZ_1M + SZ_1M + SZ_1M + SZ_1M + SZ_1M + SZ_1M + SZ_1M + SZ_1M);
 #elif defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA)
 unsigned long ipu_mem_size = (SZ_1M);
+#elif defined(CONFIG_MACH_PEARL)
+unsigned long ipu_mem_size = (SZ_1M + SZ_2M);
 #else
 unsigned long ipu_mem_size = (SZ_1M + SZ_1M);
 #endif

@@ -1,7 +1,7 @@
 /*
  *  rtc_sw.c - EZX RTC Stopwatch
  *
- *  Copyright (C) 2006-2008 Motorola, Inc.
+ *  Copyright (C) 2006-2008,2009 Motorola, Inc.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -61,6 +61,7 @@
  * 11/15/2007    Motorola       Upmerge from 6.1.(re-align to xtime when xtime changed somewhere.)
  * 12/3/2007     Motorola       Added API to get closest RTC timeout
  * 12/17/2008    Motorola       Calculate the time drift and make the time accurate.
+ * 01/04/2009    Motorola       Calculate the time drift and make the time accurate in LJ7.4.
  */
 
 
@@ -213,8 +214,10 @@ static unsigned int rtc_sw_poll(struct file *file, poll_table *wait)
                 /* request is ready to be handled */
                 req->running--;
                 req->pending++;
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 #ifdef CONFIG_MOT_FEAT_PM_STATS
                 mpm_collect_pj_stat(1, current->comm, current->pid);
+#endif
 #endif
                 RTC_SW_DPRINTK("\nEPIT: %s() %d - \"%s\" running - %d pending - %d\n", __FUNCTION__, current->pid, current->comm,req->running, req->pending ); 
                 data = 1;
@@ -575,18 +578,22 @@ static void inline update_one_request(struct rtc_sw_request *req, unsigned long 
 
             tasklet_schedule(&req->callback_data.task_data.task);
             req->remain = 0;
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 #ifdef CONFIG_MOT_FEAT_PM_STATS
             mpm_collect_pj_stat((unsigned long)req->callback_data.task_data.orig_func, \
                                 "NULL", 1);
+#endif
 #endif
         } else {
             RTC_SW_DPRINTK("\nEPIT: %s() waking up process %d - \"%s\"\n", __FUNCTION__, req->callback_data.process->pid, req->callback_data.process->comm);
             /* wake up the process */
             wake_up_process(req->callback_data.process);
             req->remain = req->interval;
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 #ifdef CONFIG_MOT_FEAT_PM_STATS
             mpm_collect_pj_stat(1, req->callback_data.process->comm, \
                                 req->callback_data.process->pid);
+#endif
 #endif
         }
     } else {
@@ -731,7 +738,7 @@ static unsigned long get_least_multiple(unsigned long first, unsigned long secon
 }
 
 /*
- * Grab the first fuzzy request we see. Assume we have the request lock.
+ * Grab the first fuzzy request in sw timer list.  Assume we have the request lock.
  */
 static inline struct rtc_sw_request *get_fuzz_req(void)
 {
@@ -848,6 +855,7 @@ void rtc_sw_fuzz_req_realign(void)
         unsigned long slice;
         unsigned long hundredths;
         unsigned long tmp;
+	unsigned long ticks;
         struct rtc_sw_request *req = NULL;
         struct rtc_sw_request *fuzz_list = NULL;
 
@@ -1121,8 +1129,10 @@ static int rtc_sw_ioctl(struct inode *inode, struct file *file,
         
         RTC_SW_DPRINTK("\nEPIT: %s() RTC_SW_JOB_DONE called from %d - \"%s\" \n", __FUNCTION__, current->pid, current->comm);
         
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 #ifdef CONFIG_MOT_FEAT_PM_STATS 
         mpm_collect_pj_stat(0, current->comm, current->pid);
+#endif
 #endif
 
         req = rtc_sw_request_head;
@@ -1371,9 +1381,11 @@ static void rtc_sw_task_tasklet_callback(unsigned long data)
 
     RTC_SW_DPRINTK("\nEPIT: %s() tasklet done jobs_running %d\n", __FUNCTION__,jobs_running);
 
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 #ifdef CONFIG_MOT_FEAT_PM_STATS
     mpm_collect_pj_stat((unsigned long)task->callback_data.task_data.orig_func, \
                         "NULL", 0);
+#endif
 #endif
 
     if(rtc_sw_periodic_jobs_running() == PJ_NOT_RUNNING) {
@@ -1427,6 +1439,7 @@ void rtc_sw_task_schedule(unsigned long offset, rtc_sw_task_t * task)
 }
 EXPORT_SYMBOL(rtc_sw_task_schedule);
 
+#if defined(CONFIG_MOT_FEAT_ENABLE_WD_IN_DSM)
 // * 12/3/2007     Motorola       Added API to get closest RTC timeout
 unsigned int rtc_sw_get_closest_timeout(void)
 {
@@ -1441,6 +1454,7 @@ unsigned int rtc_sw_get_closest_timeout(void)
     return ticks_to_ms(timeout);
 }
 EXPORT_SYMBOL(rtc_sw_get_closest_timeout);
+#endif
 
 static struct file_operations rtc_sw_fops = {
         .owner          = THIS_MODULE,

@@ -1,7 +1,7 @@
 /*
  *  dm500.c - SPI Driver for Texas Instruments DM500 ISP chip
  *
- *  Copyright (C) 2007 Motorola, Inc.
+ *  Copyright (C) 2007-2008 Motorola, Inc.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -29,7 +29,9 @@
  *  ----         ------     -------
  *  05/30/2007   Motorola   Initial version
  *  11/15/2007   Motorola   Add Pearl support
- *  12/06/2007   Motorola   Set CSPI SS according to product  
+ *  12/06/2007   Motorola   Set CSPI SS according to product 
+ *  01/30/2008   Motorola   Add IOCTL to set SPI clock  
+ *  06/02/2008   Motorola   Add CSPI clock gating
  */
 
 #include <linux/config.h>
@@ -44,6 +46,7 @@
 #include <linux/interrupt.h>
 #include <linux/kdev_t.h>
 #include <linux/kernel.h>
+#include <asm/arch/clock.h>
 
 /*==================================================================================================
                                      MEMORY MAPPED PERIPHERALS
@@ -139,6 +142,8 @@ static void dm500_exit(void);
 static int  dm500_init(void);
 static int  dm500_ioctl(struct inode *inode, struct file *filp,
                         unsigned int cmd, unsigned long arg);
+static int  dm500_open(struct inode *inode, struct file *filp);
+static int  dm500_release(struct inode *inode, struct file *filp);
 static void fifo_read(u32 *ptr, u8 num_words);
 static void fifo_write(u32 *ptr, u8 num_words);
 static void handle_rxfifo_ready(void);
@@ -168,8 +173,8 @@ static struct file_operations dmcam_fops = {
 };*/
 static struct file_operations fops =
 {
-   .open    = NULL,
-   .release = NULL,
+   .open    = dm500_open,
+   .release = dm500_release,
    .read    = NULL,
    .write   = NULL,
    .ioctl   = dm500_ioctl,
@@ -178,6 +183,10 @@ static struct file_operations fops =
 static DECLARE_WAIT_QUEUE_HEAD(spi_wait);
 static void (*handler)(void) = handle_spurious;
 static spi_desc *spid;  // pointer used by interrupt handlers to access descriptor
+static int spiclk_divider = 1;
+// 0: 	16MHz spi clk for app firware download and mesg transfer;
+// 1:	8 MHz spi clk for dm500 bootloader download(default); 
+
 
 /*==================================================================================================
                                           LOCAL FUNCTIONS
@@ -378,7 +387,7 @@ static void burst_partial(void)
 {
 #ifdef CONFIG_MACH_PEARL
    //CSPI2_SS_2 for pearl dm500
-   cspi->conreg = ((spid->partial_burst_bits - 1) << 20) | (1 << 16) | (2 << 12) |
+   cspi->conreg = ((spid->partial_burst_bits - 1) << 20) | (spiclk_divider << 16) | (2 << 12) |
                    PHA | POL | SMC | MODE | EN;
 #else
    //CSPI1_SS_1 for kassos dm500
@@ -440,9 +449,13 @@ static void __exit dm500_exit(void)
    unregister_chrdev_region(devno, 1);
 #ifdef CONFIG_MACH_PEARL
    free_irq(INT_CSPI2, 0);
+   cspi->conreg &= (~EN);
+   mxc_clks_disable(CSPI2_CLK);
+
 #else
    free_irq(INT_CSPI1, 0);
 #endif
+   
 }
 module_exit(dm500_exit);
 
@@ -467,7 +480,8 @@ static int __init dm500_init(void)
 
    // Put CSPI CLK and SS in proper idle state
 #ifdef CONFIG_MACH_PEARL
-   cspi->conreg = (1 << 16) | (2 << 12) | PHA | POL | SMC | MODE | EN;
+   mxc_clks_enable(CSPI2_CLK);
+   cspi->conreg = (spiclk_divider << 16) | (2 << 12) | PHA | POL | SMC | MODE | EN;
 #else
    cspi->conreg = (1 << 16) | (1 << 12) | PHA | POL | SMC | MODE | EN;
 #endif
@@ -491,6 +505,11 @@ static int __init dm500_init(void)
    err = devfs_mk_cdev(devno, S_IFCHR | S_IRUGO | S_IWUGO, "dm500");
    if (err) { goto fail_devfs; }
 
+#ifdef CONFIG_MACH_PEARL
+   cspi->conreg &= (~EN);
+   mxc_clks_disable(CSPI2_CLK);
+#endif
+
    return(0); // success
 
 fail_devfs:
@@ -504,6 +523,11 @@ fail_devno:
    free_irq(INT_CSPI1, 0);
 #endif
 fail_irq:
+#ifdef CONFIG_MACH_PEARL
+   cspi->conreg &= (~EN);	
+   mxc_clks_disable(CSPI2_CLK);
+#endif
+
    return(err);
 }
 module_init(dm500_init);
@@ -531,28 +555,52 @@ static int dm500_ioctl(struct inode *inode, struct file *filp, unsigned int cmd,
    u8 *kbuf = NULL;
    int error = 0;
    DM500_BD bd;
+   DM500_SPICLKMODE spiclk;
 
    switch (cmd)
    {
+      case DM500_SET_SPICLK:  // set spi clock
+
+	 if (copy_from_user(&spiclk, (DM500_SPICLKMODE *)arg, sizeof(spiclk)) != 0)  { error = -EFAULT; break; }
+	 if (spiclk == SPICLK_8MHz)
+		spiclk_divider = 1;
+         else if (spiclk == SPICLK_16MHz)
+		spiclk_divider = 0;
+         else {
+		error = -EINVAL;
+		printk("Error:invalid spi clk freq.\n");
+              }
+         break;
+
       case DM500_READ_AIM:  // read ARM Internal Memory
+
+	 if (spiclk_divider != 1){spiclk_divider = 1; printk("SPI clock in ARM_BOOT mode must be less than 10MHz \n");}
+		
          if (copy_from_user(&bd, (DM500_BD *)arg, sizeof(bd)) != 0)  { error = -EFAULT; break; }
          if ((kbuf = kmalloc(bd.len, GFP_KERNEL)) == NULL)           { error = -ENOMEM; break; }
          if ((error = spi_transfer_aim(kbuf, bd.len, bd.addr, AIM_READ)))             { break; }
          if (copy_to_user(bd.ubuf, kbuf, bd.len) != 0)               { error = -EFAULT; break; }
          break;
+
       case DM500_WRITE_AIM:  // write ARM Internal Memory
+
+	 if (spiclk_divider != 1){spiclk_divider = 1; printk("SPI clock in ARM_BOOT mode must be less than 10MHz \n");}
+
          if (copy_from_user(&bd, (DM500_BD *)arg, sizeof(bd)) != 0)  { error = -EFAULT; break; }
          if ((kbuf = kmalloc(bd.len, GFP_KERNEL)) == 0)              { error = -ENOMEM; break; }
          if (copy_from_user(kbuf, bd.ubuf, bd.len) != 0)             { error = -EFAULT; break; }
          if ((error = spi_transfer_aim(kbuf, bd.len, bd.addr, AIM_WRITE)))            { break; }
          break;
+
       case DM500_EXCHANGE:  // transmit and receive (full duplex) a DM500 SPI message
+        
          if (copy_from_user(&bd, (DM500_BD *)arg, sizeof(bd)) != 0)  { error = -EFAULT; break; }
          if ((kbuf = kmalloc(bd.len, GFP_KERNEL)) == 0)              { error = -ENOMEM; break; }
          if (copy_from_user(kbuf, bd.ubuf, bd.len) != 0)             { error = -EFAULT; break; }
          if ((error = spi_transfer_msg(kbuf, bd.len)))                                { break; }
          if (copy_to_user(bd.ubuf, kbuf, bd.len) != 0)               { error = -EFAULT; break; }
          break;
+
       default:
          error = -EINVAL;
          break;
@@ -560,6 +608,57 @@ static int dm500_ioctl(struct inode *inode, struct file *filp, unsigned int cmd,
 
    if (kbuf) { kfree(kbuf); }
    return(error);
+}
+
+/*==================================================================================================
+  
+FUNCTION: dm500_open         
+
+DESCRIPTION:
+   open() handler for the dm500 device
+
+ARGUMENTS PASSED:
+   inode - pointer to file system node
+   filp  - pointer to the open file descriptor
+
+RETURN VALUE:
+   error - nonzero value indicates an error
+
+==================================================================================================*/
+static int dm500_open(struct inode *inode, struct file *filp)
+{
+
+#ifdef CONFIG_MACH_PEARL
+   mxc_clks_enable(CSPI2_CLK);
+#endif
+   
+   return(0); // success
+
+}
+
+/*==================================================================================================
+  
+FUNCTION: dm500_release         
+
+DESCRIPTION:
+   close() handler for the dm500 device
+
+ARGUMENTS PASSED:
+   inode - pointer to file system node
+   filp  - pointer to the open file descriptor
+
+RETURN VALUE:
+   error - nonzero value indicates an error
+
+==================================================================================================*/
+static int dm500_release(struct inode *inode, struct file *filp)
+{
+#ifdef CONFIG_MACH_PEARL
+   cspi->conreg &= (~EN);
+   mxc_clks_disable(CSPI2_CLK);
+#endif
+
+   return(0);
 }
 
 /*==================================================================================================
@@ -895,9 +994,9 @@ static int perform_transfer(spi_desc *desc)
    long result;
 
    spid = desc;  // save pointer so interrupt handlers can access descriptor
-
+   
 #ifdef CONFIG_MACH_PEARL
-   cspi->conreg = ((spid->full_burst_bits - 1) << 20) | (1 << 16) | (2 << 12) |
+   cspi->conreg = ((spid->full_burst_bits - 1) << 20) | (spiclk_divider << 16) | (2 << 12) |
                    PHA | POL | SMC | MODE | EN;
 #else
    cspi->conreg = ((spid->full_burst_bits - 1) << 20) | (1 << 16) | (1 << 12) |

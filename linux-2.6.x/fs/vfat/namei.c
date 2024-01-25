@@ -23,6 +23,7 @@
  * 10-31-2007    Motorola  Succeed hidden and system attr from parent inode
  * 1i-21-2007    Motorola  Upmerge from 6.1. (Succeed hidden and system attr from parent inode)
  * 02-20-2008    Motorola  Change hidden way
+ * 04-17-2008    Motorola  Change hidden way in LJ7.4
  */
 
 

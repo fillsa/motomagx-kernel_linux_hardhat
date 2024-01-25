@@ -1,12 +1,14 @@
 #
 # This file is derived from the Linux kernel's scripts/Makefile.modpost file.
 #
-# Copyright 2006-2007 Motorola
+# Copyright 2006-2008 Motorola
 #
 # Motorola  2006-Nov-13 - Adapted for clearmake-compliant build of external
 #                         modules.
 # Motorola  2007-Jan-25 - Fixed a bug with the number of arguments that were
 #                         being passed to modpost.
+# Motorola  2008-Jul-25 - Force <module>.mod.c always be rebuilt to avoid wrong 
+#                         winkin.
 
 # ===========================================================================
 # Module versions
@@ -87,6 +89,8 @@ ifeq ($(KBUILD_EXTMOD),)
 $(symverfile):         __modpost ;
 $(modules:.ko=.mod.c): __modpost ;
 else
+#Seems that sometimes it has bad winkin issue, so, use a PHONY target to make sure rebuild happens
+.PHONY:$(modules:.ko=.mod.c) 
 $(modules:.ko=.mod.c): $(modules:.ko=.o) $(wildcard $(symverfile))
 	$(cmd_modpost)
 endif

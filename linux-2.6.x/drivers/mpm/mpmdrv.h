@@ -53,7 +53,7 @@ typedef struct mpm_opst_list{
     mpm_opstat_t opst;
 } mpm_opst_list_t;
 
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PEARL)
 typedef struct {
     unsigned long cur_time;
     unsigned long minduration;

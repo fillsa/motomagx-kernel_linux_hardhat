@@ -13,6 +13,7 @@
 /* ChangeLog:
  * (mm-dd-yyyy)  Author    Comment
  * 11-03-2007    Motorola  Added simple auto repair FAT
+ * 07-04-2007	 Motorola  Remove changes for "simple auto repair FAT" in LJ7.4
  * 11-15-2007    Motorola  Upmege from 6.1 (Added conditional fsync for loop device)
  * 01-25-2008    Motorola  Remove repair FAT 
  */

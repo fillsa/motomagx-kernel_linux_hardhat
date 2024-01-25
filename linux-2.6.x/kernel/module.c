@@ -1558,7 +1558,7 @@ static void module_hash_update(struct crypto_tfm * tfm,
 static int module_hash_verify(uint8_t * digest)
 {
     int i, j;
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)  || defined(CONFIG_MACH_PEARL)
     char * hash;
 #else
     extern dev_t ROOT_DEV;
@@ -1574,7 +1574,7 @@ static int module_hash_verify(uint8_t * digest)
         sprintf((digest_ascii+j), "%02x", digest[i]);
     }
     digest_ascii[40] = '\0';
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PEARL)
     
     if (motmodule_hashes) {
         for ( hash = motmodule_hashes; *hash != '\0'; ) {
@@ -1638,14 +1638,14 @@ static int module_hash_verify(uint8_t * digest)
         }
         i++;
     }
-#endif /*defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)*/
+#endif /*defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PEARL)*/
     
     /* If no matches it is an untrusted module */
     printk( KERN_WARNING "Untrusted module, correct hash must be listed in /etc/modules.hash\n");
-#if ! defined(CONFIG_MACH_ELBA) && ! defined(CONFIG_MACH_PIANOSA) && ! defined(CONFIG_MACH_KEYWEST)
+#if ! defined(CONFIG_MACH_ELBA) && ! defined(CONFIG_MACH_PIANOSA) && ! defined(CONFIG_MACH_KEYWEST) && ! defined(CONFIG_MACH_PEARL)
     set_fs(orig_fs);
     filp_close(hashfile, NULL);
-#endif /* ! defined(CONFIG_MACH_ELBA) && ! defined(CONFIG_MACH_PIANOSA) && ! defined(CONFIG_MACH_KEYWEST) */
+#endif /* ! defined(CONFIG_MACH_ELBA) && ! defined(CONFIG_MACH_PIANOSA) && ! defined(CONFIG_MACH_KEYWEST)  && ! defined(CONFIG_MACH_PEARL)*/
     return -EPERM;
 }         
 #endif /* CONFIG_MOT_FEAT_SECURE_MODULE */

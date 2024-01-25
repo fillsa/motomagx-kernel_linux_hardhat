@@ -99,7 +99,7 @@ static int opstat = 0;
 
 static void flush_oplist(void);
 static void collect_op_stat(mpm_op_t, struct timeval *, struct timeval *);
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 static mpm_pjist_list_t *pji_head=NULL;
 static kmem_cache_t *pjistat_cache=NULL;
 static mpm_pjcst_list_t *pjc_head=NULL;
@@ -109,7 +109,7 @@ static int pjsmod = 0;
 static int pjwakeup = 0;
 static unsigned long pjstime = 0;
 static void flush_pjlist(void);
-#endif // #if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#endif // #if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 #endif
 
 static void mpm_remove(struct device *);
@@ -1323,7 +1323,7 @@ static void mpm_report_test_point_callback(int argc, ...)
 	        mpmsp->pmmode[mode].avic_nipndl[indx] = avic_nipndl;
 	        mpmsp->pmmode[mode].avic_nipndh[indx] = avic_nipndh;
 
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)  || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST)  || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
                 if ((avic_nipndl & 0x10000000) && pjstat)
                 {
                     pjwakeup = 1;
@@ -1790,7 +1790,7 @@ mpm_ioctl (struct inode *inode, struct file *filp, u_int cmd, u_long arg)
             mpm_stop_opstat();
             break;
 
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
         case MPM_IOC_PRINT_PJSTAT:
             mpm_print_pjstat(buf, sizeof(buf));
             MPM_DPRINTK("printing buffer \n");
@@ -1901,7 +1901,7 @@ void mpm_stop_opstat(void)
 }
 
 
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 void mpm_start_pjstat(int mode)
 {
 #ifdef CONFIG_MOT_FEAT_PM_STATS
@@ -2572,7 +2572,7 @@ static struct mpm_callback_fns mpm_callback_functions = {
     .resume_from_sleep = mpm_resume_from_sleep_callback,
 #ifdef CONFIG_MOT_FEAT_PM_STATS
     .report_test_point = mpm_report_test_point_callback,
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
     .collect_pj_stat = mpm_collect_pj_stat_callback,
 #endif
 #endif
@@ -2691,7 +2691,7 @@ mpm_exit (void)
         kmem_cache_destroy(opstat_cache);
         opstat_cache = NULL;
     }
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
     if ( pjistat_cache != NULL )
     {
         kmem_cache_destroy(pjistat_cache);
@@ -2815,7 +2815,7 @@ static void flush_oplist(void)
 
 }
 
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 static void flush_pjlist(void)
 {
     mpm_pjist_list_t *pji_node;
@@ -2969,7 +2969,7 @@ void mpm_print_opstat(char *buf, int buflen)
 }
 
 
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 void mpm_print_pjstat(char *buf, int buflen)
 {
 #ifdef CONFIG_MOT_FEAT_PM_STATS
@@ -3427,7 +3427,7 @@ EXPORT_SYMBOL(mpm_getall_op);
 EXPORT_SYMBOL(mpm_start_opstat);
 EXPORT_SYMBOL(mpm_stop_opstat);
 EXPORT_SYMBOL(mpm_print_opstat);
-#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS)
+#if defined(CONFIG_MACH_ELBA) || defined(CONFIG_MACH_PIANOSA) || defined(CONFIG_MACH_KEYWEST) || defined(CONFIG_MACH_PAROS) || defined(CONFIG_MACH_PEARL)
 EXPORT_SYMBOL(mpm_start_pjstat);
 EXPORT_SYMBOL(mpm_stop_pjstat);
 EXPORT_SYMBOL(mpm_print_pjstat);

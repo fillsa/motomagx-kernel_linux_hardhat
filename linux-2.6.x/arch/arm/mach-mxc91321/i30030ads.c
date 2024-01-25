@@ -322,10 +322,10 @@ static void __init mxc_board_init(void)
 
 /*
  * The following uses standard kernel macros define in arch.h in order to
- * initialize __mach_desc_I30030ADS data structure.
+ * initialize __mach_desc_I30030ADS Application Development System (ADS) data structure.
  */
 /* *INDENT-OFF* */
-MACHINE_START(I30030ADS, "Freescale i.300-30 ADS")
+MACHINE_START(I30030ADS, "Freescale i.300-30 ADS (Application Development System)")
     MAINTAINER("Freescale Semiconductor, Inc.")
     /*       physical memory    physical IO        virtual IO     */
     BOOT_MEM(PHYS_OFFSET_ASM, AIPS1_BASE_ADDR, AIPS1_BASE_ADDR_VIRT)
